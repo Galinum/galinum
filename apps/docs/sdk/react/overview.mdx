@@ -1,0 +1,75 @@
+---
+title: "React SDK"
+description: "Identify users, track events, and render Galinum's in-app messages in any React app"
+icon: "react"
+---
+
+`@galinum/react` is the web in-app delivery surface for Galinum. Your agent
+creates and targets communications through the
+[management API](/api/overview); the SDK identifies your users, streams their
+behavior, and renders the messages they're eligible for.
+
+## Install
+
+`@galinum/react` ships as a tarball in each Galinum product release. Install
+the tarball your release provides:
+
+```bash
+npm install ./galinum-react-x.y.z.tgz  # use your tarball's filename
+```
+
+<Note>
+  The SDK version matches the product release it ships with.
+</Note>
+
+`react >= 18` is a peer dependency. The SDK is client-only (`"use client"`) —
+in the Next.js App Router, render it inside a Client Component.
+
+## Minimal setup
+
+Wrap your app in `GalinumProvider` with your project's **publishable key**
+(`pk_pub_…`, safe to ship in the browser), then drop `<InAppMessages/>` near
+the root:
+
+```tsx
+import { GalinumProvider, InAppMessages } from "@galinum/react";
+
+export function App() {
+  return (
+    <GalinumProvider
+      publishableKey="pk_pub_xxx"
+      apiBase="https://galinum.com"
+      userId={currentUser?.id}
+    >
+      <YourApp />
+      <InAppMessages />
+    </GalinumProvider>
+  );
+}
+```
+
+That's the whole integration: when `userId` is set the SDK identifies the user,
+fetches the messages they're eligible for, shows one per page view (default
+card or your own renderer), and reports impressions, clicks, and dismissals
+back so every campaign is measured.
+
+<Card title="Identify & track" icon="fingerprint" href="/sdk/react/identify-track">
+  Set the current user, record behavioral events, and see what context is
+  collected automatically.
+</Card>
+
+<Card title="In-app messages" icon="message" href="/sdk/react/in-app-messages">
+  How message delivery, rendering, and feedback work — including fully custom
+  UI.
+</Card>
+
+<Card title="API reference" icon="code" href="/sdk/react/reference">
+  Every prop, hook, and type the SDK exports.
+</Card>
+
+## Reliability
+
+`identify` and `track` never throw into your app — failed requests are
+swallowed (and logged in development). A failed message fetch means "no
+messages this round". Campaign CTAs are sanitized against `javascript:`/`data:`
+URI injection before rendering.

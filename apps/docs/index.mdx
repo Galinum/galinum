@@ -1,0 +1,74 @@
+---
+title: "Self-driving product communications"
+description: "Tell your AI agent what to announce — it writes, targets, launches, and measures the campaign through Galinum."
+icon: "sparkles"
+---
+
+Galinum is **self-driving product communications**. When you ship a feature,
+launch a product, or run a promotion, you don't open a campaign builder — you
+tell your own AI agent (Claude Code today) what you want to communicate, and
+the agent operates Galinum for you:
+
+- it writes the copy,
+- expresses the audience as trait/event targeting against your real user data,
+- launches the campaign through web in-app or email — immediately or on a
+  schedule,
+- and reports the channel-specific delivery and engagement results.
+
+Most communications are exactly that simple: one message, delivered to each
+eligible user at most once, measured through engagement. When you want more,
+the same campaign model optionally measures a target outcome or runs
+goal-driven A/B optimization — but only when you ask for it.
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Connect the SDK, hand your agent the keys, ship your first communication.
+  </Card>
+  <Card title="How Galinum works" icon="lightbulb" href="/concepts">
+    Organizations, projects, keys, and the communication model.
+  </Card>
+  <Card title="Claude Code skill" icon="robot" href="/skill/claude-code">
+    The distributable skill that teaches any Claude Code session to run
+    Galinum.
+  </Card>
+  <Card title="React SDK" icon="react" href="/sdk/react/overview">
+    Identify users, track events, and render in-app messages.
+  </Card>
+</CardGroup>
+
+## How it works
+
+<Steps>
+  <Step title="Connect your product">
+    Integrate the [React SDK](/sdk/react/overview) (or call the
+    [HTTP API](/api/overview) directly). Identify your users, track the
+    behavioral events that matter, include an email trait for email delivery,
+    and mount the in-app message surface when you use that channel.
+  </Step>
+  <Step title="Give your agent the keys">
+    Install the [galinum skill](/skill/claude-code) in your repo and give your
+    agent the project's secret key. The skill teaches it the full
+    [management API](/api/overview): reading users and events, creating and
+    launching campaigns, and logging every decision it makes.
+  </Step>
+  <Step title="Tell it what to communicate">
+    "Announce CSV export to free users who haven't tried it." The agent writes
+    the message, targets the audience, launches, and reports engagement. Ask
+    for more — "and tell me whether people start using it", or "A/B test this
+    against the activation goal" — and it measures outcomes or optimizes
+    variants instead.
+  </Step>
+</Steps>
+
+## What Galinum delivers
+
+Galinum delivers targeted **web in-app messages** and **email campaigns**.
+Web in-app supports a compact toast or a centered announcement modal, with an
+optional image or GIF. Email uses a verified project domain, a Markdown body,
+and built-in unsubscribe and recipient-frequency protection. Each user receives
+each campaign at most once, and Galinum measures the relevant lifecycle per
+variant. Mobile push can later plug into the same channel abstraction.
+
+You stay in control: the dashboard shows every campaign, delivery, and
+agent-run — what your agent did and why — and campaigns can be paused or ended
+at any time.

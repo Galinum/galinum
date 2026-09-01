@@ -1,0 +1,202 @@
+{
+  "name": "@galinum/dashboard",
+  "version": "0.16.0",
+  "description": "Reusable Galinum supervision pages and dashboard components",
+  "private": true,
+  "license": "Apache-2.0",
+  "homepage": "https://docs.galinum.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Galinum/galinum.git",
+    "directory": "packages/dashboard"
+  },
+  "bugs": {
+    "url": "https://github.com/Galinum/galinum/issues"
+  },
+  "engines": {
+    "node": "24.x"
+  },
+  "type": "module",
+  "sideEffects": [
+    "./dist/tokens.css"
+  ],
+  "files": [
+    "dist",
+    "LICENSES"
+  ],
+  "exports": {
+    "./components/activity-list": {
+      "types": "./dist/components/activity-list.d.ts",
+      "import": "./dist/components/activity-list.js"
+    },
+    "./components/charts": {
+      "types": "./dist/components/charts.d.ts",
+      "import": "./dist/components/charts.js"
+    },
+    "./components/greeting": {
+      "types": "./dist/components/greeting.d.ts",
+      "import": "./dist/components/greeting.js"
+    },
+    "./components/page-header": {
+      "types": "./dist/components/page-header.d.ts",
+      "import": "./dist/components/page-header.js"
+    },
+    "./components/stat-tile": {
+      "types": "./dist/components/stat-tile.d.ts",
+      "import": "./dist/components/stat-tile.js"
+    },
+    "./ui/alert-dialog": {
+      "types": "./dist/ui/alert-dialog.d.ts",
+      "import": "./dist/ui/alert-dialog.js"
+    },
+    "./ui/avatar": {
+      "types": "./dist/ui/avatar.d.ts",
+      "import": "./dist/ui/avatar.js"
+    },
+    "./ui/badge": {
+      "types": "./dist/ui/badge.d.ts",
+      "import": "./dist/ui/badge.js"
+    },
+    "./ui/button": {
+      "types": "./dist/ui/button.d.ts",
+      "import": "./dist/ui/button.js"
+    },
+    "./ui/card": {
+      "types": "./dist/ui/card.d.ts",
+      "import": "./dist/ui/card.js"
+    },
+    "./ui/dialog": {
+      "types": "./dist/ui/dialog.d.ts",
+      "import": "./dist/ui/dialog.js"
+    },
+    "./ui/dropdown-menu": {
+      "types": "./dist/ui/dropdown-menu.d.ts",
+      "import": "./dist/ui/dropdown-menu.js"
+    },
+    "./ui/empty": {
+      "types": "./dist/ui/empty.d.ts",
+      "import": "./dist/ui/empty.js"
+    },
+    "./ui/field": {
+      "types": "./dist/ui/field.d.ts",
+      "import": "./dist/ui/field.js"
+    },
+    "./ui/input": {
+      "types": "./dist/ui/input.d.ts",
+      "import": "./dist/ui/input.js"
+    },
+    "./ui/label": {
+      "types": "./dist/ui/label.d.ts",
+      "import": "./dist/ui/label.js"
+    },
+    "./ui/native-select": {
+      "types": "./dist/ui/native-select.d.ts",
+      "import": "./dist/ui/native-select.js"
+    },
+    "./ui/select": {
+      "types": "./dist/ui/select.d.ts",
+      "import": "./dist/ui/select.js"
+    },
+    "./ui/separator": {
+      "types": "./dist/ui/separator.d.ts",
+      "import": "./dist/ui/separator.js"
+    },
+    "./ui/sheet": {
+      "types": "./dist/ui/sheet.d.ts",
+      "import": "./dist/ui/sheet.js"
+    },
+    "./ui/sidebar": {
+      "types": "./dist/ui/sidebar.d.ts",
+      "import": "./dist/ui/sidebar.js"
+    },
+    "./ui/skeleton": {
+      "types": "./dist/ui/skeleton.d.ts",
+      "import": "./dist/ui/skeleton.js"
+    },
+    "./ui/spinner": {
+      "types": "./dist/ui/spinner.d.ts",
+      "import": "./dist/ui/spinner.js"
+    },
+    "./ui/switch": {
+      "types": "./dist/ui/switch.d.ts",
+      "import": "./dist/ui/switch.js"
+    },
+    "./ui/table": {
+      "types": "./dist/ui/table.d.ts",
+      "import": "./dist/ui/table.js"
+    },
+    "./ui/tooltip": {
+      "types": "./dist/ui/tooltip.d.ts",
+      "import": "./dist/ui/tooltip.js"
+    },
+    "./utils": {
+      "types": "./dist/utils.d.ts",
+      "import": "./dist/utils.js"
+    },
+    "./use-mobile": {
+      "types": "./dist/use-mobile.d.ts",
+      "import": "./dist/use-mobile.js"
+    },
+    "./tokens.css": "./dist/tokens.css",
+    "./home": {
+      "types": "./dist/home.d.ts",
+      "import": "./dist/home.js"
+    },
+    "./metrics": {
+      "types": "./dist/metrics.d.ts",
+      "import": "./dist/metrics.js"
+    },
+    "./users": {
+      "types": "./dist/users.d.ts",
+      "import": "./dist/users.js"
+    },
+    "./events": {
+      "types": "./dist/events.d.ts",
+      "import": "./dist/events.js"
+    },
+    "./campaigns": {
+      "types": "./dist/campaigns.d.ts",
+      "import": "./dist/campaigns.js"
+    },
+    "./campaign-detail": {
+      "types": "./dist/campaign-detail.d.ts",
+      "import": "./dist/campaign-detail.js"
+    },
+    "./user-detail": {
+      "types": "./dist/user-detail.d.ts",
+      "import": "./dist/user-detail.js"
+    },
+    "./mount": {
+      "types": "./dist/mount.d.ts",
+      "import": "./dist/mount.js"
+    },
+    "./agent-runs": {
+      "types": "./dist/agent-runs.d.ts",
+      "import": "./dist/agent-runs.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && node ../../scripts/copy-dashboard-css.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@base-ui/react": "1.6.0",
+    "@galinum/core": "workspace:*",
+    "class-variance-authority": "0.7.1",
+    "clsx": "2.1.1",
+    "lucide-react": "1.23.0",
+    "tailwind-merge": "3.6.0"
+  },
+  "peerDependencies": {
+    "react": "19.2.3",
+    "react-dom": "19.2.3"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.15",
+    "@types/react-dom": "19.2.3",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "vitest": "4.1.8"
+  }
+}

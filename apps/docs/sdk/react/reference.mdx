@@ -1,0 +1,92 @@
+---
+title: "Reference"
+description: "Props, hooks, and types exported by @galinum/react"
+icon: "code"
+---
+
+## `<GalinumProvider>`
+
+| Prop | Type | Default | Description |
+| --- | --- | --- | --- |
+| `publishableKey` | `string` | — | Your project's `pk_pub_…` key. Safe to expose in the browser. |
+| `apiBase` | `string` | current origin | Where the Galinum API is hosted, e.g. `https://galinum.com`. |
+| `userId` | `string` | — | If set, the user is identified automatically whenever it changes. |
+| `traits` | `Traits` | — | Traits sent with the automatic identify. |
+| `autoContext` | `boolean` | `true` | Auto-collect device/locale context on identify and page context on track. |
+
+## `useGalinum()`
+
+Must be called inside a `GalinumProvider` (throws otherwise).
+
+| Member | Signature | Description |
+| --- | --- | --- |
+| `identify` | `(userId, traits?) => Promise<void>` | Set the current user and merge traits. |
+| `track` | `(event, props?) => Promise<void>` | Record a behavioral event. Ignored before identify. |
+| `reset` | `() => void` | Clear the user (logout); stops tracking and clears the message cache. |
+| `sendFeedback` | `(deliveryId, type) => Promise<"ok" \| "transient" \| "permanent">` | Report `"shown" \| "clicked" \| "dismissed" \| "converted"` for a delivery. Resolves with the request outcome. |
+| `waitForTracks` | `(timeoutMs?) => Promise<void>` | Resolves once the `track()` requests in flight at call time settle, or after `timeoutMs` (default 2000). `<InAppMessages/>` awaits this before each fetch. |
+| `waitForIdentify` | `() => Promise<void>` | Resolves once the current user's `identify()` request has settled. The first message fetch awaits it, so a brand-new user is never queried before they exist. |
+| `userId` | `string \| null` | The currently identified user. |
+| `config` | `GalinumConfig` | `{ publishableKey, apiBase }`. |
+
+`identify` and `track` never throw — failures are swallowed and logged in
+development only.
+
+## `<InAppMessages>`
+
+| Prop | Type | Default | Description |
+| --- | --- | --- | --- |
+| `theme` | `"light" \| "dark" \| "auto"` | `"auto"` | Palette of the built-in renderer. `"auto"` follows your page's `color-scheme`. |
+| `render` | `(message, actions) => ReactNode` | built-in renderer | Custom renderer for the message scheduled on this page view. Return `null` to render nothing and let the next candidate through. |
+
+Messages are prefetched and shown one per page view, at page load or right
+after a navigation (see
+[In-app messages](/sdk/react/in-app-messages)). There is no polling prop.
+
+The built-in renderer follows `content.presentation`: `"toast"` renders the
+compact bottom-right card, `"modal"` renders a centered announcement with a
+full-screen backdrop. Media rides along in both (see
+[In-app messages](/sdk/react/in-app-messages)).
+
+## Types
+
+```ts
+type InAppMessage = {
+  deliveryId: string;
+  campaignId: string;
+  variantId: string;
+  content: MessageContent;
+  pages?: string[] | null; // screens it may render on; null = every page
+};
+
+type MessageContent = {
+  title?: string;
+  body?: string;
+  cta?: { label: string; url?: string };
+  media?: MessageMedia;
+  presentation?: "toast" | "modal"; // always present on delivered messages
+  [key: string]: unknown; // campaigns may carry any JSON
+};
+
+// One optional image (PNG/JPEG/WebP/animated GIF). A toast shows it as a
+// compact thumbnail; a modal shows it as the immersive visual.
+type MessageMedia = {
+  url: string;
+  alt?: string; // description for assistive tech…
+  decorative?: boolean; // …or explicitly no description
+};
+
+type MessageActions = {
+  onClick: () => void;
+  onDismiss: () => void;
+  onConvert: () => void;
+};
+
+type DeliveryFeedback = "shown" | "clicked" | "dismissed" | "converted";
+
+type Traits = Record<string, unknown>;
+type EventProps = Record<string, unknown>;
+```
+
+The SDK also exports `parseUserAgent` and `collectAutoContext` if you want to
+inspect what would be collected.

@@ -1,0 +1,73 @@
+---
+title: "Authentication"
+description: "Authenticate API requests with the key for their execution context."
+icon: "key"
+---
+
+Galinum accepts three project key types as bearer tokens:
+
+```http
+Authorization: Bearer <key>
+Content-Type: application/json
+```
+
+| Key | Prefix | Used by | Where it may live |
+| --- | ------ | ------- | ----------------- |
+| Publishable key | `pk_pub_…` | SDK endpoints: identify, track, messages, delivery feedback | Browser code — safe to expose |
+| Secret key | `pk_…` | Management endpoints: campaigns, media, users/events reads, goals, agent runs | Your agent and servers only |
+| Hosted-agent key | `pk_agent_…` | Required reads and lease-fenced hosted evaluation routes | Galinum's hosted runtime only |
+
+Your publishable and secret keys are on **Settings → Projects**. Galinum
+provisions the scoped hosted-agent key when it enables hosted evaluation for a
+project.
+
+## Publishable keys are not secrets
+
+Publishable keys (`pk_pub_…`) are designed to ship in browser code — the same
+model as Stripe's publishable keys or PostHog's project API keys. They
+identify which project data belongs to; they don't grant read access to other
+users' data or your account. Endpoints are rate-limited per project, and
+requests carry no cookies, so CORS is safely open.
+
+It's still good hygiene to:
+
+- keep the key in environment config (`NEXT_PUBLIC_…` style variables are
+  fine — it ends up in the bundle either way),
+- use a different project (and key) per environment, so staging traffic never
+  pollutes production data.
+
+## Secret keys stay on your servers
+
+The secret key authenticates the management endpoints — reading your user
+data and creating, launching, and measuring campaigns are privileged
+operations. The management endpoints are not CORS-enabled, so browsers can't
+call them cross-origin; call them from your agent or backend. When you give
+the key to your agent, provide it as an environment variable (the
+[galinum skill](/skill/claude-code) reads `GALINUM_SECRET_KEY`) rather than
+pasting it into prompts or committing it.
+
+If a secret key leaks, rotate it from **Settings → Projects** — the old key
+stops working immediately.
+
+## Hosted-agent keys are scoped
+
+The hosted evaluator uses its own `pk_agent_…` credential. It can read the
+project state needed for one due evaluation, check audiences, log its work,
+claim and complete evaluations, apply lease-fenced mutations, and create
+exact-payload approval proposals.
+
+It cannot use ordinary campaign, status, goal, segment, or media writes. Those
+routes return `403`. Campaign changes must go through the claimed evaluation's
+`/evaluations/{campaignId}/mutate` route. Revoking this key stops hosted access
+without rotating your project secret.
+
+## Authentication errors
+
+Missing or invalid keys return `401`:
+
+```json
+{ "error": "Unauthorized" }
+```
+
+A publishable key is never accepted by the management endpoints (and vice
+versa) — using the wrong key type also returns `401`.

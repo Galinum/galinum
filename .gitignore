@@ -1,0 +1,11 @@
+node_modules/
+.DS_Store
+.mintlify/
+**/dist/
+**/.next/
+.env*
+!.env.example
+.npmrc
+.vercel/
+coverage/
+*.tsbuildinfo

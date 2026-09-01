@@ -1,0 +1,39 @@
+services:
+  postgres:
+    image: postgres:17@sha256:67f41722b7a8cbdb868a44a4995c846eddfdc2973bccb291ce937dce88ad5675
+    environment:
+      POSTGRES_DB: galinum
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d galinum"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+    volumes:
+      - galinum-postgres:/var/lib/postgresql/data
+      - ../../packages/server/schema.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
+
+  galinum:
+    build:
+      context: ../..
+      dockerfile: examples/self-host/Dockerfile
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/galinum
+      GALINUM_SECRET_KEY: pk_local_compose_secret
+      GALINUM_PUBLISHABLE_KEY: pk_pub_local_compose
+      GALINUM_MEDIA_DIR: /data/media
+      GALINUM_PUBLIC_URL: http://localhost:3000
+      GALINUM_HOST: 0.0.0.0
+      PORT: "3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - galinum-media:/data/media
+
+volumes:
+  galinum-postgres:
+  galinum-media:

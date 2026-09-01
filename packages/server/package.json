@@ -1,0 +1,56 @@
+{
+  "name": "@galinum/server",
+  "version": "0.16.0",
+  "description": "Self-hosted Galinum API server and management client",
+  "private": true,
+  "license": "Apache-2.0",
+  "homepage": "https://docs.galinum.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Galinum/galinum.git",
+    "directory": "packages/server"
+  },
+  "bugs": {
+    "url": "https://github.com/Galinum/galinum/issues"
+  },
+  "engines": {
+    "node": "24.x"
+  },
+  "type": "module",
+  "bin": {
+    "galinum-server": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/app.d.ts",
+      "import": "./dist/app.js"
+    },
+    "./management-client": {
+      "types": "./dist/management-client.d.ts",
+      "import": "./dist/management-client.js"
+    },
+    "./operations": {
+      "types": "./dist/operations.d.ts",
+      "import": "./dist/operations.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "start": "node dist/cli.js"
+  },
+  "dependencies": {
+    "@galinum/core": "workspace:*",
+    "kysely": "0.29.2",
+    "pg": "8.23.0"
+  },
+  "devDependencies": {
+    "@galinum/dashboard": "workspace:*",
+    "@types/pg": "8.23.1",
+    "@types/react": "19.2.15",
+    "@types/react-dom": "19.2.3",
+    "react": "19.2.3",
+    "react-dom": "19.2.3"
+  }
+}

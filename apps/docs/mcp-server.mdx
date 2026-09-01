@@ -1,0 +1,165 @@
+---
+title: "MCP server"
+description: "Connect an MCP-compatible agent to Galinum with OAuth or a project secret."
+---
+
+Galinum runs a hosted MCP server, so any MCP-compatible agent can create,
+target, launch, and measure product communications without you writing an
+integration. It exposes the same management API the skill uses, with the same
+authorization and the same lifecycle rules.
+
+## Skill or MCP?
+
+Both drive the same API, and you can use either one.
+
+| | Agent skill | MCP server |
+| --- | --- | --- |
+| Where it runs | Installed in your agent | Hosted by Galinum |
+| Best for | Claude Code and other skill-aware harnesses | Any MCP-compatible client |
+| Setup | Copy the skill files | Add one URL, then use OAuth or a project secret |
+| Updates | You reinstall | Automatic |
+
+Install [the skill](/skill/claude-code) when your agent supports skills: it
+carries the full routing and authority guidance inline. Use MCP when your
+client speaks MCP but has no skill mechanism.
+
+<Warning>
+If you enable both in the same agent, it sees two ways to do the same thing:
+the skill's instructions and the MCP tools. That is safe but noisy. Prefer one
+per agent.
+</Warning>
+
+## Endpoints
+
+| Endpoint | Tools |
+| --- | --- |
+| `https://mcp.galinum.com/mcp` | All 28 management tools |
+| `https://galinum.com/mcp/readonly` | The 18 read-only tools |
+
+The full endpoint supports OAuth and project-secret bearer authentication. The
+read-only endpoint keeps project-secret authentication only. The subdomain
+root is not an MCP endpoint. Always include `/mcp` in the full endpoint URL.
+
+`https://galinum.com/mcp` is retired and returns 404. Galinum does not redirect
+it or expose another full-endpoint alias.
+
+<Warning>
+`/mcp/readonly` limits the MCP tool list only. Your project secret still
+authorizes the REST API and the full MCP endpoint. It is a guardrail against an
+agent writing by accident, not a restricted credential. To limit what a
+credential can do, do not share the secret.
+</Warning>
+
+## Connect with OAuth
+
+OAuth keeps the project secret out of your client configuration. Galinum asks
+you to sign in, choose one project, and approve the exact MCP read and write
+scopes. The grant lasts eight hours. You can revoke it immediately from
+**Settings → Projects**.
+
+<Tabs>
+  <Tab title="Codex">
+```bash
+codex mcp add galinum --url https://mcp.galinum.com/mcp
+codex mcp login galinum
+```
+
+The login command opens the browser. Sign in, select the project, review the
+scopes, and approve the grant.
+  </Tab>
+  <Tab title="Other OAuth clients">
+Add `https://mcp.galinum.com/mcp` as a Streamable HTTP server without a static
+authorization header. Start your client's OAuth login and complete the Galinum
+project and consent screens.
+  </Tab>
+</Tabs>
+
+## Connect with a project secret
+
+Use a project secret when your client cannot complete OAuth, or when you need
+the read-only endpoint. Find the secret under **Settings → Projects**. Send it
+as `Authorization: Bearer pk_your_secret`.
+
+```toml ~/.codex/config.toml
+[mcp_servers.galinum]
+url = "https://mcp.galinum.com/mcp"
+http_headers = { Authorization = "Bearer pk_your_secret" }
+```
+
+## Keep credentials safe
+
+An OAuth grant or project secret can create and launch campaigns for real
+users. Treat both as production credentials:
+
+- Store it in your client's secret input or your OS keychain, never in a
+  committed file.
+- Use a per-environment project so a development agent cannot reach production
+  users.
+- Rotate a project secret in the dashboard if it leaks.
+- Revoke an OAuth grant under **Settings → Projects** when a client no longer
+  needs access.
+
+## How your agent should use it
+
+The server sends instructions with every connection, so a well-behaved client
+follows them without extra prompting.
+
+**Direct by default.** A communication is one message. Your agent should not
+add a goal, variants, or a delivery window unless you asked to measure an
+outcome or run an A/B test.
+
+**Launch needs your say-so.** "Draft" and "prepare" stop at draft. Only an
+explicit "launch", "send", or "announce" starts delivery. If that is ambiguous,
+your agent should stop at draft and ask.
+
+**Pagination is exact.** Tools that page use REST `page` and `perPage` and
+return `pageCount` unchanged. Your agent reads every campaign page through
+`pageCount` before treating a filtered result as complete.
+
+**Errors are actionable.** A failed call returns readable text explaining what
+to do next: a lifecycle conflict asks the agent to read the campaign back, a
+rate limit reports how long to wait, and an uncertain campaign creation tells
+the agent never to retry.
+
+## Images
+
+MCP cannot carry a file upload, so `upload_campaign_media` takes the image as
+strict base64 in `data`, with `contentType` set to `image/png`, `image/jpeg`,
+`image/webp`, or `image/gif`. Over MCP the image must be at most 3 MiB decoded.
+For anything larger, upload through the REST endpoint
+`POST /api/v1/campaign-media` and reference the returned URL.
+
+## Compatibility
+
+The server supports MCP revision `2026-07-28` only, over Streamable HTTP with
+JSON responses. An older client receives a clear unsupported-version error
+naming the revision we serve. Update your client rather than downgrading.
+It does not expose MCP prompts, resources, logging, or subscription streams.
+
+OAuth uses an authorization-code flow with Client ID Metadata Documents. The
+MVP does not issue refresh tokens and does not support DPoP, dynamic client
+registration, introspection, token revocation endpoints, userinfo, or OIDC
+metadata. Project-secret bearer authentication remains available.
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="401 Unauthorized">
+For OAuth, run your client's login again. The eight-hour grant may have expired
+or an organization owner may have revoked it. For a project secret, check the
+`Authorization: Bearer pk_…` header and do not use a publishable key
+(`pk_pub_…`).
+  </Accordion>
+  <Accordion title="Unsupported protocol version">
+Your client speaks an older MCP revision. The error names the revision we
+support; update the client to a build that speaks `2026-07-28`.
+  </Accordion>
+  <Accordion title="The agent cannot see write tools">
+You are connected to `https://galinum.com/mcp/readonly`. Switch to
+`https://mcp.galinum.com/mcp` to create, update, or launch.
+  </Accordion>
+  <Accordion title="The old full endpoint returns 404">
+Replace `https://galinum.com/mcp` with `https://mcp.galinum.com/mcp`. The old
+full endpoint has no redirect or compatibility route.
+  </Accordion>
+</AccordionGroup>

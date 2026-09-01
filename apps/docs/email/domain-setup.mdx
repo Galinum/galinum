@@ -1,0 +1,100 @@
+---
+title: "Verify an email domain"
+description: "Authorize Galinum to send campaign email from your product's domain."
+icon: "at-sign"
+---
+
+Every project must verify its own sending domain before an agent can launch
+email campaigns. Domain setup is a human dashboard task. The management API
+cannot create or bypass this identity.
+
+## Before you start
+
+Choose a dedicated campaign subdomain such as `updates.example.com`. Use a
+different subdomain from the one that sends your transactional email, such as
+password resets and receipts. Campaign email attracts more unsubscribes and
+spam complaints, so a separate subdomain keeps that reputation away from the
+mail your users must receive.
+
+You also need:
+
+- A from name, such as `Acme`.
+- A from address on that exact domain, such as
+  `news@updates.example.com`.
+- Your company's valid postal address for the required email footer.
+- Access to the domain's DNS provider.
+
+## Add the domain
+
+1. Open **Settings → Email** in the Galinum dashboard.
+2. Select the project from the project switcher.
+3. Enter the sending domain, from name, from address, and company address.
+4. Select **Add domain**.
+
+Galinum creates the sending domain with its email provider and shows the DNS
+records you must add.
+
+If that domain already exists in the connected provider account, Galinum
+adopts it instead. Adoption reuses the existing domain, its DNS records, and
+its current verification status. Galinum never changes the configuration of an
+adopted domain, so the tracking settings of your transactional mail stay as
+they are. An already verified domain is ready for campaign launches at once.
+A domain that another project already uses is refused.
+
+## Add the DNS records
+
+Copy every record shown in **Settings → Email** into your DNS provider.
+Preserve each record's type, name, value, and priority. A new domain needs
+SPF and DKIM records to send, plus tracking records that record opens and
+clicks. Add all of them. The domain stays partly verified while any record is
+missing, and a partly verified domain cannot launch a campaign.
+
+Do not proxy these records if your DNS provider offers that option. A proxied
+record fails verification.
+
+DNS propagation can take time.
+
+Return to **Settings → Email** and select **Verify DNS**. The status changes
+to `verified` after the provider finds all required records.
+
+## Launch requirements
+
+An email campaign launch fails with an actionable `409` response unless:
+
+- The project has a configured sending domain.
+- The domain status is `verified`.
+- The from address uses that exact verified domain.
+
+Draft creation does not require verification. This lets your agent prepare a
+campaign while a human finishes DNS setup.
+
+## Recipient and unsubscribe behavior
+
+Galinum reads the recipient from the end user's `email` trait. Users without
+a valid email are ineligible. An unsubscribe, permanent bounce, or spam
+complaint suppresses that address across all campaign email in the project.
+
+Every email includes a signed unsubscribe link and one-click unsubscribe
+headers.
+
+## Frequency protection and billing
+
+Galinum accepts at most **3 campaign emails per project recipient in any
+rolling 24-hour window**, across every campaign in that project. A send above
+the limit is skipped permanently for that campaign and recorded as
+`frequency_capped`. It appears in campaign and variant stats, delivery records,
+and current-period usage.
+
+An accepted campaign email makes that recipient active for MAU billing. The
+recipient counts once per billing period in that project, however many accepted
+messages they receive. Sends rejected before provider acceptance, suppressed,
+failed before acceptance, or frequency-capped do not accrue MAU. Transactional
+service email is exempt from the frequency limit.
+
+Before launching email, check `emailServing` with `GET /api/v1/usage`. A
+`paused` value means campaign email will not send. See
+[Usage & billing](/usage-billing) for payment, dunning, spend-cap, and usage
+semantics.
+
+The dashboard shows sent, frequency-capped, delivered, opened, clicked,
+bounced, complaint, unsubscribe, and conversion counts on the campaign.

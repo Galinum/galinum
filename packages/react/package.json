@@ -1,0 +1,64 @@
+{
+  "name": "@galinum/react",
+  "version": "0.16.0",
+  "description": "React SDK for identifying users, tracking events, and rendering Galinum in-app messages",
+  "keywords": [
+    "galinum",
+    "react",
+    "in-app-messages",
+    "analytics",
+    "sdk"
+  ],
+  "private": true,
+  "license": "Apache-2.0",
+  "author": "Galinum",
+  "homepage": "https://docs.galinum.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Galinum/galinum.git",
+    "directory": "packages/react"
+  },
+  "bugs": {
+    "url": "https://github.com/Galinum/galinum/issues"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "type": "module",
+  "types": "./dist/index.d.ts",
+  "module": "./dist/index.js",
+  "main": "./dist/index.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist/**/*.js",
+    "dist/**/*.js.map",
+    "dist/**/*.d.ts",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "peerDependencies": {
+    "react": ">=18",
+    "react-dom": ">=18"
+  },
+  "devDependencies": {
+    "@testing-library/dom": "10.4.1",
+    "@testing-library/react": "16.3.2",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "happy-dom": "20.10.6",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "typescript": "5.9.3",
+    "vitest": "4.1.8"
+  }
+}

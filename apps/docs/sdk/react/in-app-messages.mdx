@@ -1,0 +1,172 @@
+---
+title: "In-app messages"
+description: "How message delivery, rendering, and feedback measurement work"
+icon: "message"
+---
+
+`<InAppMessages/>` shows the messages the current user is eligible for.
+Eligibility is decided server-side: Galinum evaluates every running campaign's
+targeting against the user's traits and event history, assigns an A/B variant
+(stable per user, weighted), and creates a delivery record.
+
+```tsx
+<InAppMessages />
+```
+
+## One message per page view
+
+The SDK **prefetches** eligible messages when the user is identified and keeps
+them in memory. Each page view then picks from that cache synchronously, so no
+request sits on the render path.
+
+- A user sees at most one message per page view, across every mounted
+  `<InAppMessages/>` in your app.
+- Messages appear at page load or right after a navigation. Nothing ever pops
+  into a screen the user is already reading.
+- Dismissing a message does not release the page view. Navigation is the only
+  unlock.
+- A message still on screen when the user navigates simply leaves. It sends no
+  dismissal, so the same message can appear again on a later page view.
+- Fetches happen at identify, on navigation (feeding later page views), and
+  after the user resolves a message. There is no polling timer.
+- Each fetch first waits for the `track()` requests already in flight (up to a
+  short fail-open timeout, 2 s), so event-based targeting normally sees the
+  events your app just fired. If a track request stalls past the timeout, the
+  fetch proceeds anyway: delivery is never blocked by tracking.
+- Actually rendering counts as the **impression** — when a message mounts, the
+  SDK reports `shown` for the delivery. Fetching alone never marks a message
+  shown, so a cached message the user never sees is not counted as an
+  impression.
+- A user gets each campaign at most once: after they dismiss, click, or
+  convert, the message doesn't come back.
+
+Page views are identified by the pathname. A hash-only or query-only change is
+the same page view; a full reload starts a new one. Tabs are independent, and
+nothing is stored between sessions.
+
+## Targeting screens
+
+A campaign can name the screens it belongs on. Its `pages` patterns are matched
+in the browser against the current pathname:
+
+- A pattern starts with `/`. `*` matches any characters, including `/`.
+- Everything else is literal and case-sensitive. Trailing slashes are
+  normalized, and query strings and hashes are ignored.
+- A campaign with no patterns is eligible everywhere.
+
+`pages` answers **where** a message may show; the audience answers **who** sees
+it. Your agent sets both through the campaigns API.
+
+Images are warmed in the background and every message reserves its image area,
+so a slow image never delays the text or shifts the layout.
+
+## The default renderer
+
+With no props, each message states its own presentation in
+`content.presentation`:
+
+- **`"toast"`** — a compact card fixed to the bottom-right corner, showing
+  the variant's `title`, `body`, and an optional CTA button. When the message
+  also carries `content.media`, the image renders as a small thumbnail
+  (~48 px) inside the card.
+- **`"modal"`** — a large centered announcement over a full-screen backdrop.
+  With media, the image sits at the top as the visual focus, with the title,
+  body, and a prominent CTA below; without media the modal renders text only.
+  On desktop the modal is a constrained card (~480 px wide); on mobile it is
+  near-full-width and viewport-safe. Animated GIFs animate.
+
+Media is content, not presentation. Messages delivered by Galinum always
+carry `presentation`; a cached or older payload without it falls back to the
+original rule (media renders as a modal, no media as a toast).
+
+Dismissals and CTA clicks are reported back automatically in both layouts.
+CTA URLs are validated — only `http:`, `https:`, and `mailto:` schemes
+render, so a compromised campaign can't inject `javascript:` URIs into your
+page. Media URLs are stricter still: only `http:`/`https:` images render.
+
+The modal follows accessible dialog conventions: it takes focus when it
+opens, keeps keyboard focus inside, closes on the close button, on
+<kbd>Escape</kbd>, or on a backdrop click, and returns focus to where the
+user was. The image's `alt` text comes from the campaign (`media.alt`, or
+empty for images marked `decorative`). If the image fails to load, the text
+content and dismissal controls still render. Only one message is on screen at
+a time, so a toast never sits dimmed behind a modal backdrop; when both a
+modal and a toast are eligible for the same page view, the modal goes first.
+
+All presentation is inline styles — the SDK injects no stylesheets into your
+page (inherited properties like `font-family` still apply, so the cards pick
+up your app's typeface).
+
+### Theming
+
+The built-in renderer has a light and a dark palette. The `theme` prop selects
+it: `"light"`, `"dark"`, or `"auto"` (the default).
+
+`"auto"` reads the computed `color-scheme` of your `<html>` element, the
+standard way a page declares its scheme, and looks at which keywords it
+contains:
+
+- `dark` without `light` (`dark`, `only dark`) renders the dark palette.
+- Both keywords (`light dark`, `dark light`) follow the user's OS preference.
+- No `dark` keyword renders the light palette.
+
+The palette also follows later changes, so your own theme toggle flips an
+on-screen message live. If your app switches themes without setting
+`color-scheme`, pass the value yourself:
+
+```tsx
+<InAppMessages theme={isDark ? "dark" : "light"} />
+```
+
+`theme` styles only the built-in toast and modal. A custom `render` is
+unaffected.
+
+## Custom rendering
+
+Pass `render` to fully control the UI while Galinum keeps handling targeting,
+variant assignment, and measurement:
+
+```tsx
+<InAppMessages
+  render={(message, actions) => (
+    <MyToast
+      title={message.content.title}
+      body={message.content.body}
+      onCta={actions.onClick}
+      onClose={actions.onDismiss}
+    />
+  )}
+/>
+```
+
+A custom renderer follows the same schedule: it receives the one message
+chosen for this page view, not a list.
+
+`message.content` is the variant's JSON payload — the default shape is
+`{ title?, body?, cta?, media?, presentation }`, but campaigns can carry any
+JSON your renderer understands. The message arrives untouched
+(`content.media` is `{ url, alt?, decorative? }` and
+`content.presentation` is `"toast"` or `"modal"`); the layouts above apply
+only to the built-in renderer, so use or ignore `presentation` as you like.
+
+Impressions still count on render: when your `render` function returns
+content for a message, the SDK reports `shown` for that delivery
+automatically. Return `null` to render nothing — no impression is recorded,
+and the next matching message takes its place on this page view.
+Call the `actions` callbacks so Galinum can measure:
+
+| Action | Meaning |
+| --- | --- |
+| `actions.onClick()` | the user engaged with the CTA |
+| `actions.onDismiss()` | the user closed the message |
+| `actions.onConvert()` | the user completed the campaign's goal |
+
+## Reporting conversions elsewhere
+
+If conversion happens outside the message UI (e.g. on a later page), report it
+with the hook:
+
+```tsx
+const { sendFeedback } = useGalinum();
+await sendFeedback(deliveryId, "converted");
+```

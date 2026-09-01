@@ -1,0 +1,38 @@
+{
+  "name": "@galinum/core",
+  "version": "0.16.0",
+  "description": "Galinum product rules and management contracts",
+  "private": true,
+  "license": "Apache-2.0",
+  "homepage": "https://docs.galinum.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Galinum/galinum.git",
+    "directory": "packages/core"
+  },
+  "bugs": {
+    "url": "https://github.com/Galinum/galinum/issues"
+  },
+  "engines": {
+    "node": "24.x"
+  },
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./contract": {
+      "types": "./dist/management-contract.d.ts",
+      "import": "./dist/management-contract.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "kysely": "0.29.2"
+  }
+}

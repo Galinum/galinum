@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "packages": [
+    { "name": "@galinum/core", "path": "packages/core" },
+    { "name": "@galinum/dashboard", "path": "packages/dashboard" },
+    { "name": "@galinum/react", "path": "packages/react" },
+    { "name": "@galinum/server", "path": "packages/server" }
+  ]
+}

@@ -1,0 +1,142 @@
+---
+title: "Quickstart"
+description: "Connect the SDK, hand your agent the keys, and ship your first communication."
+icon: "rocket"
+---
+
+Getting Galinum running is two integrations:
+
+1. **The SDK in your product** — identifies your users, tracks their behavior,
+   and renders the in-app messages they're eligible for.
+2. **The skill in your agent** — teaches Claude Code to create, launch, and
+   measure communications through the management API.
+
+## Get your keys
+
+Every [project](/concepts#organizations-and-projects) has two keys, both under
+**Settings → Projects** in the dashboard:
+
+- the **publishable key** (`pk_pub_…`) — for the SDK; safe to ship in the
+  browser,
+- the **secret key** (`pk_…`) — for your agent and backend; never expose it to
+  a browser.
+
+<Note>
+  Signups are currently limited while Galinum is in early access. The
+  dashboard shows your identified users, tracked events, campaign performance,
+  and your agent's run history as soon as data flows.
+</Note>
+
+## Install the SDK
+
+You need a React 18+ app (any framework; in the Next.js App Router the SDK
+renders inside Client Components).
+
+`@galinum/react` ships as a tarball in each Galinum product release. Install
+it from the file:
+
+```bash
+npm install ./galinum-react-x.y.z.tgz  # use your tarball's filename
+```
+
+<Note>
+  The SDK version matches the product release it ships with.
+</Note>
+
+## Wrap your app
+
+```tsx
+import { GalinumProvider, InAppMessages } from "@galinum/react";
+
+export function App() {
+  return (
+    <GalinumProvider
+      publishableKey="pk_pub_xxx"
+      apiBase="https://galinum.com"
+      userId={currentUser?.id}
+    >
+      <YourApp />
+      <InAppMessages />
+    </GalinumProvider>
+  );
+}
+```
+
+## Identify your users
+
+With `userId` set, the SDK identifies the user (attaching
+[auto-collected context](/sdk/react/identify-track#auto-collected-context))
+and fetches the messages they are eligible for. `<InAppMessages/>` shows one
+per page view —
+a default card out of the box, or [your own UI](/sdk/react/in-app-messages#custom-rendering).
+
+You can also identify explicitly, with traits your agent can target on:
+
+```tsx
+import { useGalinum } from "@galinum/react";
+
+const { identify } = useGalinum();
+
+await identify("user_123", { plan: "free", signupSource: "landing" });
+```
+
+On logout, call `reset()` so tracking and message delivery stop until the next
+identify.
+
+## Track your first event
+
+Behavioral events are what your agent analyzes to choose an audience — "free
+users who haven't tried CSV export" is a trait plus a `not_seen` event:
+
+```tsx
+import { useGalinum } from "@galinum/react";
+
+const { track } = useGalinum();
+
+await track("activated_workspace", { workspaceId: "ws_1" });
+await track("viewed_pricing");
+```
+
+Track the moments that define your customer journey: signup, activation,
+feature usage, pricing views, upgrades, invites.
+
+## Install the skill in your agent
+
+Copy the [galinum skill](/skill/claude-code) into your repo at
+`.claude/skills/galinum/` and make the project's **secret key** available to
+your agent (for example as `GALINUM_SECRET_KEY` in its environment). Any
+Claude Code session in that repo can now operate Galinum.
+
+## Ship your first communication
+
+Tell your agent what you want to announce:
+
+```text
+Announce the new CSV export to free users who haven't tried it yet.
+```
+
+The agent writes the copy, checks the audience against your real traits and
+events, launches the campaign, and reports back. Eligible users see the
+message through `<InAppMessages/>` on their next page view, and
+impressions, clicks, and dismissals show up on the campaign in the dashboard.
+
+That's a [direct communication](/concepts#direct-by-default) — no goal, no
+A/B test, done once it's live. Ask for more when you want it: a delivery
+window ("run it for a week starting Monday"), an outcome check ("tell me
+whether people start using it"), or goal-driven optimization ("A/B test this
+against the activation goal").
+
+<CardGroup cols={2}>
+  <Card title="How Galinum works" icon="lightbulb" href="/concepts">
+    Organizations, projects, keys, and the communication model.
+  </Card>
+  <Card title="React SDK docs" icon="react" href="/sdk/react/overview">
+    Custom rendering, auto-context, and the full API surface.
+  </Card>
+  <Card title="Claude Code skill" icon="robot" href="/skill/claude-code">
+    What the skill does and the full skill source.
+  </Card>
+  <Card title="HTTP API reference" icon="code" href="/api/overview">
+    Every SDK and management endpoint, for custom clients and agents.
+  </Card>
+</CardGroup>

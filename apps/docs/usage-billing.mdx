@@ -1,0 +1,191 @@
+---
+title: "Usage & billing"
+description: "How monthly active-user and hosted-agent AI-credit billing, limits, payment requirements, and email frequency protection work."
+icon: "credit-card"
+---
+
+Galinum is pay-as-you-go. You pay for the users your product reaches, with no
+plans, seats, base fee, or free allowance.
+
+## The billing unit
+
+Galinum bills **monthly active users (MAU)**. An end user becomes active in a
+billing period when any of these events happens:
+
+- You call `identify` or `track` for that user.
+- That user sees a web in-app message.
+- An email provider accepts a campaign email for that user.
+
+An accepted campaign email counts even if the provider reports delivery later.
+A send rejected before provider acceptance, suppressed, failed before
+acceptance, or frequency-capped does not count.
+
+Each end user counts **once per billing period per project**, across all
+channels and messages. Sending ten accepted messages to one project recipient
+costs the same as sending one. The organization total combines usage from all
+its projects.
+
+## Rates
+
+Rates are graduated. Each portion of your usage is charged at its tier's rate.
+
+| Monthly active users | Price per user |
+| --- | --- |
+| 1 – 10,000 | $0.02 |
+| 10,001 – 50,000 | $0.012 |
+| 50,001 – 250,000 | $0.008 |
+| 250,001+ | $0.005 |
+
+For example, 40,000 active users cost $560: the first 10,000 cost $200, and the
+next 30,000 cost $360.
+
+Prices are in USD and billed monthly in arrears. Tax is calculated at checkout
+and added to your invoice.
+
+## AI credits
+
+Galinum-hosted agent sweeps are billed at **$0.01 per AI credit**. Agents you
+run yourself are not billed for AI credits. The default monthly limit is 2,500
+credits.
+Owners and admins can change it under **Settings → Billing**, from 0 to
+1,000,000 credits. The limit is a usage control, not a free allowance. Setting
+it to 0 pauses hosted-agent sweeps.
+
+Before each sweep, the hosted agent checks whether the organization has reached
+its limit. A sweep that starts below the limit runs to completion, even if it
+finishes above the limit. The next sweep is then skipped until the usage period
+resets.
+
+Galinum emails owners and admins when usage reaches 80% of the limit, and again
+at 100%. Each alert is sent at most once per usage period, so crossing the same
+threshold again in a later period alerts you again.
+
+After each completed run, Galinum reports its finalized credits once to Stripe.
+The report uses one stable identifier, so a retry cannot create a second charge
+inside Stripe's duplicate window. If a response remains uncertain when that
+24-hour window closes, Galinum waives the usage instead of risking a duplicate
+charge. Galinum also waives usage that it cannot bill safely because of a
+permanent rejection or unusable billing state.
+
+Under **Settings → Billing**, you can review measured credits, billed credits,
+reporting state, waived runs, and recent hosted-agent runs. Measured but waived
+credits do not appear as billed cost.
+
+## Payment method
+
+You need a payment method on file before Galinum delivers anything. Add one
+under **Settings → Billing**. Checkout puts a card on file and charges nothing
+up front. Your first invoice covers only the usage you accrue.
+
+Without a payment method, Galinum records `identify` and `track` data but
+serves no web in-app messages, sends no campaign email, and accrues no MAU.
+
+## Spend cap
+
+You can set an optional spend cap under **Settings → Billing**. The cap is a
+hard stop. When usage for the period reaches it, Galinum stops both channels
+until the next period, or until you raise or remove the cap. The dashboard
+warns you at 80% and 95%.
+
+The cap limits future delivery, not what you already owe. Usage accrued before
+the cap took effect stays payable.
+
+## Email frequency protection
+
+Galinum accepts at most **3 campaign emails per project recipient in any
+rolling 24-hour window**, across all campaigns in that project. A send above
+the limit is skipped permanently for that campaign, not delayed. It appears as
+`frequency_capped` in delivery records and as `frequencyCapped` in campaign
+stats and usage.
+
+A capped send does not count toward MAU. Transactional service email, such as
+account and authentication messages, uses a separate path and is exempt.
+
+## What Galinum sends
+
+Galinum sends **campaign email**: launches, releases, announcements, and other
+product communications you choose to send. Keep your own transactional provider
+for password resets, receipts, and account notices. Galinum does not send
+transactional email for you.
+
+Unsubscribes and suppressions are scoped to campaign email only. They do not
+reach your transactional provider, so keep honoring opt-outs in the email you
+send yourself.
+
+Because campaign email is priced per active user rather than per message,
+Galinum protects the shared sending reputation that price depends on. Sending
+that harms deliverability, such as sustained hard bounces, spam complaints, or
+purchased lists, can be throttled or paused. Galinum emails you when that
+happens.
+
+## What a pause looks like
+
+A pause is graceful, never an application error:
+
+- `GET /api/v1/messages` returns `200` with an empty `messages` array when
+  `serving` is not `ok`.
+- The SDK renders nothing and your product keeps working normally.
+- `identify` and `track` keep recording data, but do not accrue MAU while
+  serving is paused.
+- Campaign email stops when `emailServing` is `paused`.
+
+During payment retries, `serving` stays `ok` so web in-app delivery continues,
+but `emailServing` becomes `paused`. A canceled or unpaid organization stops
+both channels.
+
+Resuming is self-serve. Add a payment method, raise the cap, or restore billing
+in **Settings → Billing**. Delivery restarts within a minute. A user becomes
+billable on the next qualifying activity after service resumes.
+
+## Checking the state from your agent
+
+Your agent reads current usage with `GET /api/v1/usage`. Check `serving` before
+diagnosing web in-app delivery. Check `emailServing` before launching or
+diagnosing campaign email.
+
+```bash
+curl https://galinum.com/api/v1/usage \
+  -H "Authorization: Bearer $GALINUM_SECRET_KEY"
+```
+
+```json
+{
+  "serving": "cap_reached",
+  "emailServing": "paused",
+  "billable": true,
+  "period": {
+    "start": "2026-08-05T00:00:00.000Z",
+    "end": "2026-09-05T00:00:00.000Z",
+    "boundary": "subscription"
+  },
+  "activeUsers": 50000,
+  "frequencyCapped": 12,
+  "estimatedSpendUsd": 680,
+  "spendCapUsd": 600,
+  "projects": [
+    {
+      "id": "prj_123",
+      "name": "Acme",
+      "activeUsers": 50000,
+      "frequencyCapped": 12
+    }
+  ]
+}
+```
+
+- `serving` is `ok`, `payment_required`, or `cap_reached`.
+- `emailServing` is `ok` or `paused`. It pauses whenever `serving` is not `ok`
+  and while billing is `past_due`.
+- `frequencyCapped` counts capped campaign-email deliveries queued in the
+  current period. The organization total is also broken down by project.
+- `period.boundary` is `subscription` for a billable organization. Otherwise,
+  usage display follows the UTC calendar month.
+- Money fields are USD. Period timestamps are ISO-8601.
+
+Only a human can restore billing or change the spend cap in the dashboard.
+
+## Invoices and cancellation
+
+**Settings → Billing** opens the Stripe Customer Portal. Use it to manage your
+payment method, download invoices, and cancel. After cancellation takes effect,
+Galinum reports `payment_required` and stops both delivery channels.

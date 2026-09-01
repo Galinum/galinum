@@ -1,0 +1,153 @@
+---
+title: "How Galinum works"
+description: "Organizations, projects, keys, and the model behind every communication."
+icon: "lightbulb"
+---
+
+Galinum has two sides. Your **product** integrates the SDK: it identifies
+users, tracks their behavior, and renders in-app messages. The same user
+record can carry an `email` trait for outbound campaigns. Your **agent**
+operates the management API: it reads that user data, creates campaigns, and
+measures results. The dashboard sits above both — supervision, metrics, and
+the log of everything your agent did.
+
+## Organizations and projects
+
+- An **Organization** is your Galinum account: teammates, billing, and the
+  dashboard live here.
+- A **Project** is one product you communicate into. Each project has its own
+  users, events, campaigns, and API keys. Use separate projects per
+  environment (production, staging) so test traffic never pollutes real data.
+
+Every organization has at least one project; create more under
+**Settings → Projects**.
+
+## The two keys
+
+Each project has two API keys, both sent as bearer tokens:
+
+| Key | Prefix | Powers | Where it lives |
+| --- | --- | --- | --- |
+| Publishable key | `pk_pub_…` | The SDK surface: identify, track, messages, delivery feedback | Browser code — safe to expose |
+| Secret key | `pk_…` | The management surface: campaigns, media, users/events reads, goals, agent runs | Your agent and servers only |
+
+The split mirrors the two sides of the product: the publishable key can only
+write behavioral data and read the current user's own messages, while the
+secret key can create and launch communications. See
+[Authentication](/api/authentication) for the details.
+
+## Users and events
+
+The SDK **identifies** your users by your own user id and attaches **traits**
+(plan, role, anything you send — plus [auto-collected
+context](/sdk/react/identify-track#auto-collected-context) under `$`-prefixed
+keys). It **tracks** events — named behavioral moments like
+`activated_workspace` or `viewed_pricing`.
+
+Traits and events are the targeting substrate. Your agent grounds its
+audiences in vocabulary that actually occurs in your project: the [audience
+capabilities endpoint](/api/overview) returns the observed trait keys, event
+names, property keys, and their types in one bounded response, so the agent
+never has to guess or paginate raw users.
+
+## Audiences
+
+An **audience** is a versioned, strictly validated rule deciding which users
+a campaign reaches. Rules compose `all`/`any`/`not` groups over trait
+comparisons, lifecycle fields (`firstSeenAt`/`lastSeenAt`), and event
+conditions with occurrence counts, relative windows, and event-property
+filters. Comparisons are strict — no type coercion, and absence is handled
+explicitly with `exists`/`not_exists`.
+
+The agent workflow is discover → author → **check** → launch:
+`POST /api/v1/audiences/check` evaluates a rule without saving anything and
+returns the normalized expression, a stable hash, a readable summary,
+structured diagnostics (including typo suggestions against observed names),
+the exact matching count, and a bounded sample of matching users.
+`POST /api/v1/audiences/explain` answers "why did this user (not) match?"
+with a condition-level evidence trace.
+
+When a campaign uses an audience, the exact rule is stored as an **immutable
+audience version** the campaign pins — editing a campaign's audience creates
+a new version, and reads always show the exact expression in effect. Rules
+are dynamic over data: membership changes as traits and events change, but
+the rule itself never changes silently. An audience that can no longer be
+read fails closed — it matches nobody, never everyone.
+
+A **segment** is a named, reusable audience: a stable machine key (like
+`free-users`), a name, an intent description, and a sequence of immutable
+versions. Revising a segment creates a new version behind the same key —
+campaigns that pinned an earlier version keep it, and new campaigns pick up
+the current version at write time. Creation is retry-safe (idempotency key)
+and revision is concurrency-safe (`expectedVersion`, with an actionable
+conflict). Archiving removes a segment from new selection without touching
+its history or any campaign already pinned to it. A campaign's audience is
+one of: everyone, an inline expression, or a saved segment version.
+
+## Campaigns
+
+A **campaign** is one communication: message content, an audience, and a
+lifecycle (`draft → running → paused/ended`). There is one campaign model —
+what varies is how much you attach to it:
+
+### Direct by default
+
+Most product communications are a single message, delivered to each eligible
+user at most once. Web in-app measures impressions, clicks, and dismissals.
+Email measures sent, frequency-capped, delivered, opened, clicked, bounced,
+complaints, and unsubscribed.
+That's the default: no goal, no variants, no optimization loop. The campaign
+is done once it's live.
+
+### Optional additions
+
+- **Delivery window** — `deliverFrom`/`deliverUntil` schedule a future start
+  and an automatic expiry, evaluated exactly at the boundary instants; nobody
+  has to come back to end an expiring campaign.
+- **Outcome measurement** — check a tracked event against a campaign's
+  deliveries to answer "did people who saw this actually do the thing?".
+- **Goals and optimization** — a [goal](/api/overview#goals) carries a target
+  event, guardrails, and an approval mode; an optimized campaign runs weighted
+  **variants** against it, and the agent evaluates, reweights, and concludes.
+  A/B testing exists for when you ask for it — never by default.
+
+## Deliveries and measurement
+
+A **delivery** is one campaign reaching one user — the unit of measurement.
+Galinum evaluates targeting server-side, assigns a stable weighted variant,
+and records one delivery per campaign and user. Web in-app creates the row
+when the message is returned to the SDK. Email reserves the row before the
+provider call, which makes worker retries safe. SDK feedback and email
+provider events update the same delivery record. Per-variant stats aggregate
+its lifecycle timestamps. A `frequency_capped` email delivery is a permanent
+skip for that campaign and does not accrue MAU.
+
+Each user receives each campaign at most once. When a campaign links to a
+goal, a tracked event matching the goal's target event can mark its delivery
+converted without an extra SDK feedback call.
+
+## Channels
+
+Campaigns carry one channel behind the same campaign, audience, variant, and
+delivery model:
+
+- **Web in-app** is pulled by the browser SDK. Each message chooses a compact
+  toast or centered announcement modal. It can include one optional
+  [image or GIF](/api/overview#message-media).
+- **Email** is pushed by Galinum in bounded batches. It uses the end user's
+  `email` trait, skips project-wide suppressions, and keeps enrolling newly
+  matching users while the campaign runs. It accepts at most 3 campaign emails
+  per project recipient in any rolling 24-hour window, across all campaigns.
+  Each project must first
+  [verify its sending domain](/email/domain-setup).
+
+Email content carries a subject, preview text, Markdown body, and optional
+CTA. Galinum adds the required company address and unsubscribe footer. Mobile
+push can later plug into the same channel abstraction.
+
+## Agent runs
+
+Everything your agent does through Galinum is logged: `POST
+/api/v1/agent-runs` records each decision with its input, output, and
+rationale, and the dashboard's agent feed shows the trail. You always know
+what ran, on whose behalf, and why.

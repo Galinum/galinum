@@ -1,0 +1,42 @@
+name: Bug report
+description: Report a reproducible defect in the open-source product.
+title: "[Bug] "
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include secrets or customer data. Report vulnerabilities through the private security channel.
+  - type: input
+    id: commit
+    attributes:
+      label: Commit or version
+      placeholder: Commit SHA or release version
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Provide the smallest complete sequence that reproduces the defect.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Include Node, PostgreSQL, operating system, and deployment method when relevant.
+    validations:
+      required: true

@@ -1,0 +1,268 @@
+---
+title: "Introduction"
+description: "Galinum's HTTP API — the SDK surface your product calls, and the management surface your agent operates."
+icon: "book-open"
+---
+
+The Galinum API has two surfaces.
+
+The **SDK endpoints** are the ingestion and delivery surface the
+[React SDK](/sdk/react/overview) is built on. If you're not using React — or
+you're building your own client — call them directly:
+
+| Endpoint | Purpose |
+| --- | --- |
+| `POST /api/v1/identify` | Upsert a user and merge traits |
+| `POST /api/v1/track` | Record a behavioral event |
+| `GET /api/v1/messages` | Fetch the in-app messages a user is eligible for |
+| `POST /api/v1/deliveries/{id}/event` | Report clicked / dismissed / converted |
+
+These are **CORS-enabled** — designed to be called from the browser on your
+own domain — and authenticated with your project's
+[publishable key](/api/authentication).
+
+The **management endpoints** are what your agent (or backend) operates: the
+full loop of reading user data, creating and controlling campaigns, and
+logging its decisions — server-to-server:
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /api/v1/users` / `GET /api/v1/users/{id}` | Browse identified users and their traits |
+| `GET /api/v1/events` | Browse tracked events |
+| `POST /api/v1/campaign-media` | Upload an image for a message |
+| `POST /api/v1/campaigns` | Create (and optionally launch) a campaign |
+| `GET /api/v1/campaigns` | List campaigns with delivery stats |
+| `GET /api/v1/campaigns/{id}` | One campaign with per-variant stats |
+| `PATCH /api/v1/campaigns/{id}` | Edit name, audience, content, variants, or delivery window |
+| `POST /api/v1/campaigns/{id}/status` | Launch, pause, or end a campaign |
+| `GET /api/v1/campaigns/{id}/deliveries` | Per-user delivery feed for a campaign |
+| `GET /api/v1/campaigns/{id}/conversions` | Exact event conversions by variant |
+| `POST /api/v1/goals` / `GET /api/v1/goals` | Create / list business goals (optimized loop only) |
+| `GET /api/v1/goals/{id}` / `PATCH /api/v1/goals/{id}` | Goal detail / edits |
+| `POST /api/v1/agent-runs` / `GET /api/v1/agent-runs` | Log / browse agent decisions |
+| `GET /api/v1/agent/settings` | Read hosted-loop safety controls |
+| `GET /api/v1/evaluations/due` | List optimized campaigns due for evaluation |
+| `PUT /api/v1/evaluations/{campaignId}` / `POST /api/v1/evaluations/{campaignId}/claim` | Schedule / exclusively claim an evaluation |
+| `POST /api/v1/evaluations/{campaignId}/mutate` / `POST /api/v1/evaluations/{campaignId}/complete` | Apply a lease-fenced change / reschedule or conclude |
+| `POST /api/v1/agent/proposals` / `GET /api/v1/agent/proposals` | Propose / inspect exact mutations awaiting human approval |
+| `GET /api/v1/usage` | Current-period usage and whether messages are still being served |
+
+Customer-owned management calls use your project's **secret key**. Galinum's
+hosted evaluator uses a separate scoped `pk_agent_…` key for required reads and
+the lease-fenced hosted-loop routes. It cannot use ordinary campaign, status,
+goal, segment, or media writes. Management endpoints are not CORS-enabled, so
+call them from an agent or backend, never the browser. See
+[Authentication](/api/authentication) for the exact key boundaries. There is
+no DELETE anywhere: campaigns end, variants retire with `weight: 0`, and goals
+archive.
+
+## Base URL
+
+```text
+https://galinum.com
+```
+
+## Quickstart
+
+Identify a user:
+
+```bash
+curl https://galinum.com/api/v1/identify \
+  -H "Authorization: Bearer pk_pub_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{ "userId": "user_123", "traits": { "plan": "free" } }'
+```
+
+Track an event:
+
+```bash
+curl https://galinum.com/api/v1/track \
+  -H "Authorization: Bearer pk_pub_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{ "userId": "user_123", "event": "activated_workspace" }'
+```
+
+Fetch the user's eligible messages:
+
+```bash
+curl "https://galinum.com/api/v1/messages?userId=user_123" \
+  -H "Authorization: Bearer pk_pub_xxx"
+```
+
+Report what the user did with a message:
+
+```bash
+curl https://galinum.com/api/v1/deliveries/del_xxx/event \
+  -H "Authorization: Bearer pk_pub_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{ "type": "clicked" }'
+```
+
+Create and launch a campaign (secret key, from your backend):
+
+```bash
+curl https://galinum.com/api/v1/campaigns \
+  -H "Authorization: Bearer pk_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Launch: CSV export",
+    "message": {
+      "title": "CSV export is here 📊",
+      "body": "Export any table to CSV from the toolbar.",
+      "cta": { "label": "Try it", "url": "/exports" },
+      "presentation": "toast"
+    },
+    "audience": { "kind": "expression", "reason": "users who have not tried the export", "expression": {
+      "version": 1,
+      "root": { "kind": "not", "child": { "kind": "event", "event": "used_csv_export" } }
+    } },
+    "launch": true
+  }'
+```
+
+Create an email campaign after a human
+[verifies the project's sending domain](/email/domain-setup):
+
+```bash
+curl https://galinum.com/api/v1/campaigns \
+  -H "Authorization: Bearer pk_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Release: CSV export",
+    "channel": "email",
+    "message": {
+      "subject": "CSV export is ready",
+      "previewText": "Download any table in one click",
+      "body": "# CSV export is here\n\nDownload any table from the toolbar.",
+      "cta": { "label": "Try CSV export", "url": "https://app.example.com/exports" }
+    },
+    "launch": true
+  }'
+```
+
+Before attaching an audience, discover what exists and check the rule:
+`GET /api/v1/audiences/capabilities` catalogs the observed traits, events,
+and properties; `POST /api/v1/audiences/check` evaluates an expression
+without saving anything and returns the exact matching count, diagnostics,
+and a bounded sample; `POST /api/v1/audiences/explain` traces one user's
+match. A campaign's audience is stored as an immutable version the campaign
+pins — see [Audiences](/concepts#audiences).
+
+## Message presentation
+
+Every message states how the built-in renderer presents it. `presentation`
+is required on create and on any message edit:
+
+- `"toast"` — a compact card in the bottom-right corner. The least
+  interruptive option, and the right default for most announcements.
+- `"modal"` — a centered announcement over a full-screen backdrop. Use it
+  for flagship moments that deserve to interrupt.
+
+Messages delivered to the SDK always carry `presentation`. Campaigns
+authored before the field existed keep their original look: content with
+media resolves to `modal`, content without it resolves to `toast`.
+
+## Message media
+
+A message can carry one optional image. Upload it first (secret key,
+multipart), then reference the returned managed URL as `message.media`:
+
+```bash
+curl https://galinum.com/api/v1/campaign-media \
+  -H "Authorization: Bearer pk_xxx" \
+  -F "file=@announcement.png;type=image/png"
+# → { "media": { "url": "https://storage.galinum.com/projects/…/campaign-media/….png", … } }
+```
+
+```json
+"message": {
+  "title": "CSV export is here 📊",
+  "body": "Export any table to CSV from the toolbar.",
+  "cta": { "label": "Try it", "url": "/exports" },
+  "media": { "url": "https://storage.galinum.com/projects/…/campaign-media/….png",
+             "alt": "The new export button in the table toolbar" },
+  "presentation": "modal"
+}
+```
+
+Media is content, not presentation: a toast shows the image as a compact
+thumbnail, and a modal shows it as the immersive visual on top. Choose the
+presentation yourself. PNG, JPEG, WebP, and GIF are supported (≤ 4 MB,
+≤ 4096×4096); only managed URLs uploaded by the same project are accepted,
+and each image needs `alt` text or an explicit `decorative: true`.
+
+Campaign writes verify that the referenced object still exists. Uploaded
+objects are immutable and retained even after campaigns stop referencing them.
+Referencing a missing object returns 400. Upload the image again and retry with
+the new URL. A 503 (`Could not verify
+the media object right now. Try again.`) means storage was unreachable; the
+same request is safe to retry.
+
+## Email content
+
+An email message uses a channel-specific shape:
+
+```json
+{
+  "subject": "CSV export is ready",
+  "previewText": "Download any table in one click",
+  "body": "# CSV export is here\n\nDownload any table from the toolbar.",
+  "cta": { "label": "Try CSV export", "url": "https://app.example.com/exports" }
+}
+```
+
+`subject` and the Markdown `body` are required. `previewText` and `cta` are
+optional. Email CTA links must use `http://` or `https://`. In-app fields
+such as `title`, `presentation`, `media`, and campaign `pages` are rejected.
+
+Galinum renders the email on the server, adds the project's company address,
+and includes signed unsubscribe links and one-click headers. It reads each
+recipient from the end user's `email` trait and skips suppressed addresses.
+An accepted campaign email makes the recipient active for MAU billing.
+Galinum accepts at most 3 campaign emails per project recipient in any rolling
+24-hour window. A send above the limit is recorded as `frequency_capped`, is
+not delayed, and does not accrue MAU. Transactional service email is exempt.
+
+## Goals
+
+A goal is an optional construct for the
+[optimized-communication loop](/concepts#optional-additions): a target event
+to move, free-form `guardrails` the agent must respect, and an
+`approvalMode` (`require_human` = the agent proposes and waits; `auto` = it
+may launch on its own). Direct communications never need one — the
+campaign endpoints work without any goal existing. Linking a campaign to a
+goal (`goalId` on create or PATCH) wires up conversion measurement: a
+tracked event matching the goal's target event automatically resolves the
+campaign's exposed deliveries to `converted`. Exposure is `shownAt` for web
+in-app and `deliveredAt` for email. When evaluating a different tracked event,
+`GET /api/v1/campaigns/{id}/conversions?event=` computes the exact per-variant
+post-exposure aggregate without returning raw event or delivery rows.
+
+## Delivery semantics
+
+Web in-app delivery starts when the SDK fetches messages. Galinum evaluates
+every running campaign inside its delivery window — a campaign can carry an optional
+`deliverFrom`/`deliverUntil` window that schedules its start and expires it
+automatically — matches its targeting against the user's traits and events,
+assigns a stable A/B variant, and records a delivery. The delivery starts
+out `queued`: the impression is counted only when the client reports
+`shown` through the delivery feedback endpoint — the React SDK does this
+automatically when a message actually renders. If you consume `/messages`
+directly, send `{ "type": "shown" }` when you display the message;
+otherwise it never counts as shown. Each user gets each campaign at most
+once; once feedback resolves a delivery, the message stops coming back.
+
+Email uses a push worker instead. It evaluates the same pinned audience in
+bounded batches, reserves the delivery before sending, and keeps enrolling
+newly matching users while the campaign runs. The worker records
+frequency-capped skips. Provider events update sent, delivered, opened,
+clicked, bounced, and complaint state. Unsubscribes,
+permanent bounces, and complaints suppress that address across the project.
+
+## Conventions
+
+- Timestamps in responses are **epoch milliseconds**. Time filters accept
+  epoch ms or an ISO-8601 date; campaign delivery windows require an explicit
+  timezone offset on ISO strings.
+- Paginated management lists take `?page=&perPage=` (default 50, max 100) and
+  return `{ …, "total", "page", "pageCount" }`.

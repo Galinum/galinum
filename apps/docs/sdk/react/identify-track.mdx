@@ -1,0 +1,78 @@
+---
+title: "Identify & track"
+description: "Set the current user, record behavioral events, and control auto-collected context"
+icon: "fingerprint"
+---
+
+## Identify
+
+Identifying tells Galinum which of your users this browser session belongs to.
+Either pass `userId` (and optionally `traits`) to the provider — the SDK
+identifies automatically whenever it changes — or call `identify` yourself:
+
+```tsx
+const { identify } = useGalinum();
+
+await identify("user_123", { plan: "free", signupSource: "landing" });
+```
+
+Traits are **shallow-merged** server-side: identifying with one trait updates
+that trait without wiping the rest. On logout, call `reset()` so tracking and
+message delivery stop until the next identify.
+
+## Track
+
+`track` records a behavioral event — the substrate your agent analyzes to
+decide who sees which campaign:
+
+```tsx
+const { track } = useGalinum();
+
+await track("activated_workspace", { workspaceId: "ws_1" });
+```
+
+Tracking requires an identified user; calls before `identify` are ignored (and
+warned about in development).
+
+## Auto-collected context
+
+Like other analytics SDKs, Galinum automatically collects device and
+demographic context. Auto-collected keys are `$`-prefixed so they can never
+collide with your own traits, and your explicit values always win on
+collisions.
+
+Attached to the user on `identify`:
+
+| Trait | Example | Source |
+| --- | --- | --- |
+| `$browser`, `$browser_version` | `Chrome`, `120.0.0.0` | user agent |
+| `$os`, `$os_version` | `Mac OS X`, `10.15.7` | user agent |
+| `$device`, `$device_type` | `iPhone`, `Mobile` | user agent |
+| `$screen_width`, `$screen_height` | `2056`, `1329` | `window.screen` |
+| `$timezone` | `America/Buenos_Aires` | `Intl` |
+| `$language` | `en-US` | `navigator.language` |
+| `$referrer`, `$referring_domain` | `https://news.ycombinator.com/`, `news.ycombinator.com` | `document.referrer` |
+| `$lib`, `$lib_version` | `galinum-react`, the installed SDK version | SDK |
+| `$country`, `$region`, `$city` | `AR`, `B`, `La Plata` | server-side, from the request IP |
+
+Attached to every event on `track`:
+
+| Prop | Example |
+| --- | --- |
+| `$current_url` | `https://app.example.com/dashboard` |
+| `$pathname` | `/dashboard` |
+
+Geo traits are resolved server-side from the request IP, so the browser can't
+spoof them via traits.
+
+### Opting out
+
+Disable all automatic collection with a single prop:
+
+```tsx
+<GalinumProvider publishableKey="pk_pub_xxx" autoContext={false}>
+```
+
+With `autoContext={false}` the SDK sends only the traits and props you pass
+explicitly. (Server-side geo enrichment still applies, since it comes from the
+request itself.)

@@ -1,0 +1,64 @@
+---
+title: "Errors"
+description: "Error responses, rate limits, and retry behavior."
+icon: "triangle-alert"
+---
+
+Errors return a JSON body with a human-readable `error` string:
+
+```json
+{ "error": "userId is required" }
+```
+
+| Status | Meaning |
+| --- | --- |
+| `400` | Invalid JSON, missing/invalid fields, or wrong `Content-Type`. |
+| `401` | Missing or invalid API key, or the wrong key type for the endpoint. |
+| `404` | The id (delivery, campaign, user, goal) doesn't exist in this project. |
+| `409` | Invalid campaign status transition (e.g. launching an ended campaign). |
+| `413` | Request body exceeds the endpoint's size limit. |
+| `429` | Rate limit exceeded. Retry after the `Retry-After` header (seconds). |
+| `500` | Galinum could not complete the request. |
+
+## Size limits
+
+| Limit | Value |
+| --- | --- |
+| Request body | 8 KB (512 B for delivery feedback) |
+| `userId` | 256 characters |
+| Event name | 80 characters |
+| `traits` / `props` (serialized) | 4 KB |
+
+## Rate limits
+
+Limits apply **per project**, and `429` responses include a `Retry-After`
+header (seconds):
+
+| Surface | Limits |
+| --- | --- |
+| SDK endpoints (publishable key) | 120 requests/minute, 2,000/hour — counted per endpoint |
+| Management endpoints (secret key) | 60 requests/minute, 1,000/hour — counted per resource group |
+
+Management limits are counted per resource group, not per endpoint: all
+campaign operations (create, list, detail, edit, status, deliveries) share
+one budget, as do all goal operations and the two user reads; media uploads,
+the events list, and agent runs each have their own.
+
+## Retry behavior
+
+The SDK surface is designed for fire-and-forget browser ingestion, and every
+SDK endpoint is safe to retry:
+
+- `GET /messages` creates deliveries idempotently — fetching again returns the
+  same delivery, not a duplicate.
+- `identify` upserts and `track` appends; a duplicate event from a rare retry
+  race is acceptable noise for behavioral data.
+- Delivery feedback sets state on one row; repeating it is harmless.
+
+The official SDK swallows failures rather than throwing into your app — do the
+same in custom clients: in-app messaging should never break the host
+product.
+
+Management writes are not blindly retryable: retrying a successful
+`POST /api/v1/campaigns` creates a second campaign. On a network error, list
+campaigns first to check whether the create landed.

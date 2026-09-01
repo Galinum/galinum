@@ -1,0 +1,13 @@
+{
+  "operations": [
+    "claimCampaignEvaluation",
+    "completeCampaignEvaluation",
+    "createAgentProposal",
+    "getAgentSettings",
+    "listAgentProposals",
+    "listDueEvaluations",
+    "mutateClaimedCampaign",
+    "reportAgentUsage",
+    "scheduleCampaignEvaluation"
+  ]
+}

@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17@sha256:67f41722b7a8cbdb868a44a4995c846eddfdc2973bccb291ce937dce88ad5675
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: galinum_product_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm verify:workspace
+      - run: pnpm verify:server-operations
+      - run: pnpm verify:product-schema
+      - name: Apply the product schema
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/galinum_product_ci
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f packages/server/schema.sql
+      - name: Run Postgres product integration tests
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/galinum_product_ci
+          RUN_DB_INTEGRATION: "1"
+        run: pnpm --filter @galinum/server test
+      - run: pnpm test
+      - run: pnpm verify:affected -- --base "${{ github.event.before }}"
+      - run: pnpm verify:clean-clone

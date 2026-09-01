@@ -1,0 +1,58 @@
+{
+  "name": "galinum",
+  "version": "0.0.0",
+  "description": "Self-driving product communications",
+  "private": true,
+  "license": "Apache-2.0",
+  "homepage": "https://docs.galinum.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Galinum/galinum.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Galinum/galinum/issues"
+  },
+  "packageManager": "pnpm@10.15.0",
+  "engines": {
+    "node": "24.x"
+  },
+  "pnpm": {
+    "overrides": {
+      "postcss": "8.5.26",
+      "sharp": "0.35.4"
+    },
+    "onlyBuiltDependencies": [
+      "sharp"
+    ]
+  },
+  "scripts": {
+    "verify:workspace": "node scripts/verify-workspace.mjs",
+    "verify:affected": "node scripts/run-affected.mjs",
+    "verify:server-operations": "node scripts/generate-server-operations.mjs --check",
+    "verify:product-schema": "node scripts/verify-product-schema.mjs",
+    "verify:dashboard": "node scripts/verify-dashboard-package.mjs",
+    "verify:dashboard-built": "node scripts/verify-dashboard-package.mjs --built",
+    "verify:release": "node scripts/release-packages.mjs --check",
+    "verify:clean-clone": "node scripts/verify-clean-clone.mjs",
+    "check:contract": "node scripts/check-contract.mjs",
+    "check:mcp": "pnpm --filter @galinum/docs check:mcp",
+    "check:skill": "pnpm --filter @galinum/docs check:skill",
+    "check:docs": "pnpm --filter @galinum/docs check:links",
+    "check:core": "pnpm --filter @galinum/core typecheck",
+    "check:dashboard": "pnpm --filter @galinum/dashboard typecheck",
+    "check:react": "pnpm --filter @galinum/react typecheck",
+    "check:react-example": "pnpm --filter @galinum/react build && pnpm --filter @galinum/example-react-nextjs typecheck",
+    "check:server": "pnpm --filter @galinum/server typecheck",
+    "check": "pnpm check:core && pnpm check:dashboard && pnpm check:react && pnpm check:react-example && pnpm check:server && pnpm check:contract && pnpm check:mcp && pnpm check:skill && pnpm check:docs",
+    "test": "node --test scripts/*.test.mjs && pnpm --filter @galinum/core test && pnpm --filter @galinum/dashboard test && pnpm --filter @galinum/react test && pnpm --filter @galinum/server test",
+    "build": "pnpm --filter @galinum/core build && pnpm --filter @galinum/server build && pnpm --filter @galinum/dashboard build && pnpm --filter @galinum/react build && pnpm --filter @galinum/example-react-nextjs build",
+    "release": "node scripts/release-packages.mjs",
+    "verify": "pnpm verify:workspace && pnpm verify:server-operations && pnpm verify:product-schema && pnpm verify:dashboard && pnpm test && pnpm check && pnpm build && pnpm verify:dashboard-built && pnpm verify:release"
+  },
+  "devDependencies": {
+    "@types/node": "20.19.41",
+    "semver": "7.8.5",
+    "typescript": "5.9.3",
+    "vitest": "4.1.8"
+  }
+}

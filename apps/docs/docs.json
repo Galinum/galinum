@@ -1,0 +1,190 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "Galinum",
+  "colors": {
+    "primary": "#1A3A2A",
+    "light": "#2D7A4A",
+    "dark": "#1A3A2A"
+  },
+  "favicon": "/logo/favicon.png",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "icon": "book-open",
+        "groups": [
+          {
+            "group": "Get started",
+            "pages": [
+              "index",
+              "quickstart",
+              "concepts",
+              "usage-billing"
+            ]
+          },
+          {
+            "group": "Your agent",
+            "pages": [
+              "skill/claude-code",
+              "mcp-server"
+            ]
+          },
+          {
+            "group": "React SDK",
+            "pages": [
+              "sdk/react/overview",
+              "sdk/react/identify-track",
+              "sdk/react/in-app-messages",
+              "sdk/react/reference"
+            ]
+          },
+          {
+            "group": "Email",
+            "pages": [
+              "email/domain-setup"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "icon": "code",
+        "openapi": "openapi.json",
+        "groups": [
+          {
+            "group": "API Reference",
+            "pages": [
+              "api/overview",
+              "api/authentication",
+              "api/errors"
+            ]
+          },
+          {
+            "group": "SDK endpoints",
+            "pages": [
+              "POST /api/v1/identify",
+              "POST /api/v1/track",
+              "GET /api/v1/messages",
+              "POST /api/v1/deliveries/{id}/event"
+            ]
+          },
+          {
+            "group": "Audiences",
+            "pages": [
+              "GET /api/v1/audiences/capabilities",
+              "POST /api/v1/audiences/check",
+              "POST /api/v1/audiences/explain",
+              "POST /api/v1/segments",
+              "GET /api/v1/segments",
+              "GET /api/v1/segments/{id}",
+              "PATCH /api/v1/segments/{id}",
+              "POST /api/v1/segments/{id}/archive",
+              "GET /api/v1/segments/{id}/versions",
+              "GET /api/v1/segments/{id}/versions/{version}"
+            ]
+          },
+          {
+            "group": "Campaigns",
+            "pages": [
+              "POST /api/v1/campaign-media",
+              "POST /api/v1/campaigns",
+              "GET /api/v1/campaigns",
+              "GET /api/v1/campaigns/{id}",
+              "PATCH /api/v1/campaigns/{id}",
+              "POST /api/v1/campaigns/{id}/status",
+              "GET /api/v1/campaigns/{id}/deliveries",
+              "GET /api/v1/campaigns/{id}/conversions"
+            ]
+          },
+          {
+            "group": "Users & events",
+            "pages": [
+              "GET /api/v1/users",
+              "GET /api/v1/users/{id}",
+              "GET /api/v1/events"
+            ]
+          },
+          {
+            "group": "Goals",
+            "pages": [
+              "POST /api/v1/goals",
+              "GET /api/v1/goals",
+              "GET /api/v1/goals/{id}",
+              "PATCH /api/v1/goals/{id}"
+            ]
+          },
+          {
+            "group": "Agent runs",
+            "pages": [
+              "POST /api/v1/agent-runs",
+              "GET /api/v1/agent-runs"
+            ]
+          },
+          {
+            "group": "Hosted agent",
+            "pages": [
+              "GET /api/v1/agent/settings",
+              "POST /api/v1/agent/usage-reports",
+              "GET /api/v1/evaluations/due",
+              "PUT /api/v1/evaluations/{campaignId}",
+              "POST /api/v1/evaluations/{campaignId}/claim",
+              "POST /api/v1/evaluations/{campaignId}/mutate",
+              "POST /api/v1/evaluations/{campaignId}/complete",
+              "POST /api/v1/agent/proposals",
+              "GET /api/v1/agent/proposals"
+            ]
+          },
+          {
+            "group": "Usage",
+            "pages": [
+              "GET /api/v1/usage"
+            ]
+          }
+        ]
+      }
+    ],
+    "global": {
+      "anchors": [
+        {
+          "anchor": "Website",
+          "href": "https://galinum.com",
+          "icon": "globe"
+        },
+        {
+          "anchor": "GitHub",
+          "href": "https://github.com/Galinum",
+          "icon": "github"
+        }
+      ]
+    }
+  },
+  "logo": {
+    "light": "/logo/light.svg",
+    "dark": "/logo/dark.svg"
+  },
+  "navbar": {
+    "primary": {
+      "type": "button",
+      "label": "Get Early Access",
+      "href": "https://galinum.com"
+    }
+  },
+  "contextual": {
+    "options": [
+      "copy",
+      "view",
+      "chatgpt",
+      "claude",
+      "perplexity",
+      "mcp",
+      "cursor",
+      "vscode"
+    ]
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/Galinum"
+    }
+  }
+}

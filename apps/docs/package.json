@@ -1,0 +1,19 @@
+{
+  "name": "@galinum/docs",
+  "version": "0.0.0",
+  "description": "Galinum product documentation and agent skill",
+  "private": true,
+  "license": "Apache-2.0",
+  "homepage": "https://docs.galinum.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Galinum/galinum.git",
+    "directory": "apps/docs"
+  },
+  "scripts": {
+    "dev": "npx --yes mintlify@4.2.850 dev --port 3002",
+    "check:mcp": "node scripts/check-mcp.mjs",
+    "check:skill": "node scripts/check-skill.mjs",
+    "check:links": "node ../../scripts/check-docs-links.mjs"
+  }
+}

@@ -1,0 +1,22 @@
+name: Product improvement
+description: Propose a focused improvement to the reusable product.
+title: "[Proposal] "
+labels: []
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Product problem
+      description: Describe the user or operator problem, not only a proposed implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+    validations:
+      required: true
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Constraints or compatibility effects
