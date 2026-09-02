@@ -4,7 +4,7 @@ Web in-app delivery lets a customer launch a goal-linked message, serve it to an
 
 ## Sub-features
 
-- `delivery-goal` creates the target event used for conversion.
+- `delivery-goal` creates a goal that names the target event used for conversion.
 - `delivery-campaign` creates and launches a toast campaign linked to the goal.
 - `delivery-eligibility` returns one eligible SDK message for the user.
 - `delivery-impression` records that the message became visible.

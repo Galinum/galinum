@@ -9,7 +9,7 @@ Users, events, and metrics let a customer ingest product activity through the SD
 - `user-detail` reads the stored user and traits.
 - `events-track` records named events and properties.
 - `events-filter` filters event history by name and user.
-- `project-overview` reports recent user and event totals.
+- `project-overview` reports all users and recent event totals.
 - `project-metrics` reports event totals and activity state.
 - `project-usage` reports current active users.
 
