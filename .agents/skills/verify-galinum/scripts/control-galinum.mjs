@@ -305,8 +305,9 @@ async function audienceMatching(state, transcriptPath) {
 }
 
 async function segmentVersioning(state, transcriptPath) {
+  const segmentKey = `verify-enterprise-${state.runId.toLowerCase().replaceAll(".", "-")}`.slice(0, 64).replace(/[_-]+$/, "");
   const created = await request(state, transcriptPath, "1. Create a reusable segment", "secret", "POST", "/api/v1/segments", {
-    key: `verify-enterprise-${state.runId}`.slice(0, 64),
+    key: segmentKey,
     name: "Verification users",
     expression: freeExpression,
     reason: "Initial verification audience",
