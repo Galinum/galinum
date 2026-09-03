@@ -28,12 +28,13 @@ Preconditions:
 - **Create.** Step 1 sends `POST /api/v1/campaigns` with a named toast message. Status `201` returns a campaign in `draft` state.
 - **Read.** Step 2 sends `GET /api/v1/campaigns/{id}`. The response returns the same generated ID.
 - **Launch and filter.** Steps 3 and 4 send `action: launch`, then list `status=running`. The campaign enters `running` and appears in the filtered list.
-- **Pause and relaunch.** Steps 5 and 6 send `action: pause`, then `action: launch`. The responses show `paused`, then `running`.
-- **End and confirm.** Steps 7 and 8 send `action: end`, then read campaign detail. Both the action response and detail show `ended`.
+- **Pause and confirm.** Steps 5 and 6 send `action: pause`, then read campaign detail. Both responses show `paused`.
+- **Relaunch and confirm.** Steps 7 and 8 send `action: launch`, then read campaign detail. Both responses show `running`.
+- **End and confirm.** Steps 9 and 10 send `action: end`, then read campaign detail. Both responses show `ended`.
 - **Proof.** Require `campaign-lifecycle.http.txt` and `campaign-lifecycle.proof.json`. The proof lists the campaign ID and states `draft`, `running`, `paused`, `running`, and `ended`.
 
 ## Gotchas
 
 - A campaign cannot leave `ended` state. Use a fresh run for another lifecycle.
-- A write response alone does not prove persistence. Require the final detail read.
+- A write response alone does not prove persistence. Require each confirming detail read.
 - The status filter uses effective status. This scenario has no delivery window, so stored and effective states agree.

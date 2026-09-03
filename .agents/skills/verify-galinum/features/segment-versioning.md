@@ -30,7 +30,8 @@ Preconditions:
 - **Reject stale state.** Step 3 repeats an expression write with `expectedVersion: 1`. Status `409` reports `currentVersion: 2`.
 - **Read history.** Steps 4 and 5 list versions `2, 1`, then read version 1. The original free-plan expression remains unchanged.
 - **Archive.** Steps 6 and 7 archive the segment, then list archived segments. The generated ID appears with `status: archived`.
-- **Proof.** Require `segment-versioning.http.txt` and `segment-versioning.proof.json`. The proof records the segment ID, version order, conflict status, and final state.
+- **Preserve and reject.** Steps 8 and 9 read version 1 after archive, then require `409` when a new campaign selects the archived segment.
+- **Proof.** Require `segment-versioning.http.txt` and `segment-versioning.proof.json`. The proof records the segment ID, version order, conflict status, final state, retained history, and archived-selection rejection.
 
 ## Gotchas
 

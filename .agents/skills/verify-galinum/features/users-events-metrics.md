@@ -27,17 +27,17 @@ Preconditions:
 - No users or events exist in the run.
 
 - **Drive.** Run `fnm exec --using=24 -- node .agents/skills/verify-galinum/scripts/control-galinum.mjs scenario "$GALINUM_VERIFY_RUN_ID" users-events-metrics`.
-- **Identify.** Steps 1 and 2 create free and pro users with different regions.
-- **Track.** Steps 3 and 4 record activation and export events with properties.
-- **Filter users.** Step 5 filters `plan=free`. It returns only `verify-user-one`.
-- **Read detail.** Step 6 reads the generated Galinum user ID. The stored region is `south`.
-- **Filter events.** Step 7 filters activation events for `verify-user-one`. It returns the `source: verification` property.
-- **Read aggregates.** Steps 8-10 report two users, two recent events, two metric events, and two active users.
-- **Proof.** Require `users-events-metrics.http.txt` and `users-events-metrics.proof.json`. The proof records user, event, and usage totals.
+- **Identify and merge.** Steps 1-3 create free and pro users, then merge `region: south` into `verify-user-one` without losing its plan.
+- **Track.** Steps 4 and 5 record activation and export events with properties.
+- **Filter users.** Step 6 filters `plan=free`. It returns only `verify-user-one`.
+- **Read detail.** Step 7 reads the generated Galinum user ID. The stored traits include both `plan: free` and `region: south`.
+- **Filter events.** Step 8 filters activation events for `verify-user-one`. It returns the `source: verification` property.
+- **Read aggregates.** Steps 9-11 report two users, two recent events, two metric events, and two active users.
+- **Proof.** Require `users-events-metrics.http.txt` and `users-events-metrics.proof.json`. The proof records merged traits plus user, event, and usage totals.
 
 ## Gotchas
 
 - Management user detail accepts the generated Galinum ID used by this scenario.
 - Event filters use the external user ID parameter.
-- Overview uses a rolling time window. Drive it immediately after ingestion.
+- Only `eventsLast7d` in overview uses a rolling time window. Drive it immediately after ingestion.
 - Metrics and usage measure different concepts. Assert both when activity affects billing or supervision.

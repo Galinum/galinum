@@ -268,11 +268,15 @@ async function campaignLifecycle(state, transcriptPath) {
   assert(running.campaigns.some((campaign) => campaign.id === campaignId), "Running list omitted the campaign.");
   const paused = await request(state, transcriptPath, "5. Pause the campaign", "secret", "POST", `/api/v1/campaigns/${campaignId}/status`, { action: "pause" }, 200);
   assert(paused.status === "paused", "Campaign did not enter paused state.");
-  const relaunched = await request(state, transcriptPath, "6. Relaunch the campaign", "secret", "POST", `/api/v1/campaigns/${campaignId}/status`, { action: "launch" }, 200);
+  const pausedDetail = await request(state, transcriptPath, "6. Confirm the paused campaign", "secret", "GET", `/api/v1/campaigns/${campaignId}`, undefined, 200);
+  assert(pausedDetail.campaign.status === "paused", "Campaign detail did not persist the paused state.");
+  const relaunched = await request(state, transcriptPath, "7. Relaunch the campaign", "secret", "POST", `/api/v1/campaigns/${campaignId}/status`, { action: "launch" }, 200);
   assert(relaunched.status === "running", "Campaign did not return to running state.");
-  const ended = await request(state, transcriptPath, "7. End the campaign", "secret", "POST", `/api/v1/campaigns/${campaignId}/status`, { action: "end" }, 200);
+  const relaunchedDetail = await request(state, transcriptPath, "8. Confirm the relaunched campaign", "secret", "GET", `/api/v1/campaigns/${campaignId}`, undefined, 200);
+  assert(relaunchedDetail.campaign.status === "running", "Campaign detail did not persist the relaunched state.");
+  const ended = await request(state, transcriptPath, "9. End the campaign", "secret", "POST", `/api/v1/campaigns/${campaignId}/status`, { action: "end" }, 200);
   assert(ended.status === "ended", "Campaign did not enter ended state.");
-  const finalDetail = await request(state, transcriptPath, "8. Confirm the terminal state", "secret", "GET", `/api/v1/campaigns/${campaignId}`, undefined, 200);
+  const finalDetail = await request(state, transcriptPath, "10. Confirm the terminal state", "secret", "GET", `/api/v1/campaigns/${campaignId}`, undefined, 200);
   assert(finalDetail.campaign.status === "ended", "Campaign detail did not persist the ended state.");
   return { campaignId, observedStates: ["draft", "running", "paused", "running", "ended"] };
 }
@@ -284,6 +288,8 @@ async function audienceMatching(state, transcriptPath) {
   await request(state, transcriptPath, "4. Track a JSON export", "publishable", "POST", "/api/v1/track", { userId: "verify-pro", event: "exported", props: { format: "json" } }, 200);
   const capabilities = await request(state, transcriptPath, "5. Discover observed audience fields", "secret", "GET", "/api/v1/audiences/capabilities", undefined, 200);
   assert(capabilities.capabilities.traits.some((trait) => trait.key === "plan"), "Capabilities omitted the plan trait.");
+  const exportedCapability = capabilities.capabilities.events.find((event) => event.name === "exported");
+  assert(exportedCapability?.properties.some((property) => property.key === "format"), "Capabilities omitted the exported event format property.");
   const expression = {
     version: 1,
     root: {
@@ -299,8 +305,10 @@ async function audienceMatching(state, transcriptPath) {
   assert(checked.samples.some((sample) => sample.externalUserId === "verify-free"), "Audience sample omitted the matching user.");
   const matching = await request(state, transcriptPath, "7. Explain the matching user", "secret", "POST", "/api/v1/audiences/explain", { expression, userId: "verify-free" }, 200);
   assert(matching.matched === true, "The free CSV user did not match.");
+  assert(matching.trace.children?.[0]?.observed === "free" && matching.trace.children?.[1]?.occurrences === 1, "Matching explanation omitted condition evidence.");
   const excluded = await request(state, transcriptPath, "8. Explain the excluded user", "secret", "POST", "/api/v1/audiences/explain", { expression, userId: "verify-pro" }, 200);
   assert(excluded.matched === false, "The pro JSON user unexpectedly matched.");
+  assert(excluded.trace.children?.[0]?.observed === "pro" && excluded.trace.children?.[1]?.occurrences === 0, "Exclusion explanation omitted condition evidence.");
   return { matchedCount: checked.matchedCount, totalUsers: checked.totalUsers, matchedUser: "verify-free", excludedUser: "verify-pro" };
 }
 
@@ -333,7 +341,15 @@ async function segmentVersioning(state, transcriptPath) {
   assert(archived.segment.status === "archived", "Segment did not enter archived state.");
   const listed = await request(state, transcriptPath, "7. Confirm the archived segment", "secret", "GET", "/api/v1/segments?status=archived", undefined, 200);
   assert(listed.segments.some((segment) => segment.id === segmentId), "Archived list omitted the segment.");
-  return { segmentId, versions: [2, 1], staleWriteStatus: 409, finalStatus: "archived" };
+  const retained = await request(state, transcriptPath, "8. Read version 1 after archive", "secret", "GET", `/api/v1/segments/${segmentId}/versions/1`, undefined, 200);
+  assert(retained.version.expression.root.value === "free", "Archive did not preserve version history.");
+  const rejectedCampaign = await request(state, transcriptPath, "9. Reject a campaign using the archived segment", "secret", "POST", "/api/v1/campaigns", {
+    name: "Archived segment rejection",
+    message: { presentation: "toast", title: "This campaign must not exist" },
+    audience: { kind: "segment", segment: segmentId },
+  }, 409);
+  assert(rejectedCampaign.error === "Segment is archived", "Archived segment selection returned an unexpected error.");
+  return { segmentId, versions: [2, 1], staleWriteStatus: 409, finalStatus: "archived", historyReadableAfterArchive: true, archivedSelectionStatus: 409 };
 }
 
 async function webInappDelivery(state, transcriptPath) {
@@ -359,23 +375,24 @@ async function webInappDelivery(state, transcriptPath) {
 }
 
 async function usersEventsMetrics(state, transcriptPath) {
-  await request(state, transcriptPath, "1. Identify the first user", "publishable", "POST", "/api/v1/identify", { userId: "verify-user-one", traits: { plan: "free", region: "south" } }, 200);
-  await request(state, transcriptPath, "2. Identify the second user", "publishable", "POST", "/api/v1/identify", { userId: "verify-user-two", traits: { plan: "pro", region: "north" } }, 200);
-  await request(state, transcriptPath, "3. Track an activation", "publishable", "POST", "/api/v1/track", { userId: "verify-user-one", event: "activated", props: { source: "verification" } }, 200);
-  await request(state, transcriptPath, "4. Track an export", "publishable", "POST", "/api/v1/track", { userId: "verify-user-two", event: "exported", props: { format: "csv" } }, 200);
-  const users = await request(state, transcriptPath, "5. Filter the user list", "secret", "GET", "/api/v1/users?traitKey=plan&traitValue=free", undefined, 200);
+  await request(state, transcriptPath, "1. Identify the first user", "publishable", "POST", "/api/v1/identify", { userId: "verify-user-one", traits: { plan: "free" } }, 200);
+  await request(state, transcriptPath, "2. Merge a region into the first user", "publishable", "POST", "/api/v1/identify", { userId: "verify-user-one", traits: { region: "south" } }, 200);
+  await request(state, transcriptPath, "3. Identify the second user", "publishable", "POST", "/api/v1/identify", { userId: "verify-user-two", traits: { plan: "pro", region: "north" } }, 200);
+  await request(state, transcriptPath, "4. Track an activation", "publishable", "POST", "/api/v1/track", { userId: "verify-user-one", event: "activated", props: { source: "verification" } }, 200);
+  await request(state, transcriptPath, "5. Track an export", "publishable", "POST", "/api/v1/track", { userId: "verify-user-two", event: "exported", props: { format: "csv" } }, 200);
+  const users = await request(state, transcriptPath, "6. Filter the user list", "secret", "GET", "/api/v1/users?traitKey=plan&traitValue=free", undefined, 200);
   assert(users.total === 1 && users.users[0].externalUserId === "verify-user-one", "Filtered user list did not return only the free user.");
-  const detail = await request(state, transcriptPath, "6. Read the user detail", "secret", "GET", `/api/v1/users/${users.users[0].id}`, undefined, 200);
-  assert(detail.user.traits.region === "south", "User detail omitted the stored region.");
-  const events = await request(state, transcriptPath, "7. Filter the event list", "secret", "GET", "/api/v1/events?name=activated&externalUserId=verify-user-one", undefined, 200);
+  const detail = await request(state, transcriptPath, "7. Read the user detail", "secret", "GET", `/api/v1/users/${users.users[0].id}`, undefined, 200);
+  assert(detail.user.traits.plan === "free" && detail.user.traits.region === "south", "User detail did not preserve merged traits.");
+  const events = await request(state, transcriptPath, "8. Filter the event list", "secret", "GET", "/api/v1/events?name=activated&externalUserId=verify-user-one", undefined, 200);
   assert(events.total === 1 && events.events[0].props.source === "verification", "Filtered event list omitted the activation.");
-  const overview = await request(state, transcriptPath, "8. Read the project overview", "secret", "GET", "/api/v1/overview", undefined, 200);
+  const overview = await request(state, transcriptPath, "9. Read the project overview", "secret", "GET", "/api/v1/overview", undefined, 200);
   assert(overview.endUsers === 2 && overview.eventsLast7d === 2, "Overview totals did not include both users and events.");
-  const metrics = await request(state, transcriptPath, "9. Read project metrics", "secret", "GET", "/api/v1/metrics", undefined, 200);
+  const metrics = await request(state, transcriptPath, "10. Read project metrics", "secret", "GET", "/api/v1/metrics", undefined, 200);
   assert(metrics.totals.events === 2 && metrics.hasAnyActivity === true, "Metrics did not report two events.");
-  const usage = await request(state, transcriptPath, "10. Read current usage", "secret", "GET", "/api/v1/usage", undefined, 200);
+  const usage = await request(state, transcriptPath, "11. Read current usage", "secret", "GET", "/api/v1/usage", undefined, 200);
   assert(usage.activeUsers === 2, "Usage did not report two active users.");
-  return { endUsers: overview.endUsers, events: metrics.totals.events, activeUsers: usage.activeUsers };
+  return { mergedTraits: ["plan", "region"], endUsers: overview.endUsers, events: metrics.totals.events, activeUsers: usage.activeUsers };
 }
 
 const scenarios = {

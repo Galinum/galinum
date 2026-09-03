@@ -25,11 +25,11 @@ Preconditions:
 
 - **Drive.** Run `fnm exec --using=24 -- node .agents/skills/verify-galinum/scripts/control-galinum.mjs scenario "$GALINUM_VERIFY_RUN_ID" audience-matching`.
 - **Seed.** Steps 1-4 create `verify-free` and `verify-pro`. They track CSV and JSON export events through SDK routes.
-- **Discover.** Step 5 reads capabilities. The observed trait list contains `plan`.
+- **Discover.** Step 5 reads capabilities. The observed fields contain the `plan` trait and the `exported.format` event property.
 - **Check.** Step 6 evaluates `plan = free` and `exported.format = csv`. The response reports one match from two users and samples `verify-free`.
-- **Explain inclusion.** Step 7 explains `verify-free`. The response returns `matched: true` with condition evidence.
-- **Explain exclusion.** Step 8 explains `verify-pro`. The response returns `matched: false`.
-- **Proof.** Require `audience-matching.http.txt` and `audience-matching.proof.json`. The proof names the included and excluded external user IDs.
+- **Explain inclusion.** Step 7 explains `verify-free`. The response returns `matched: true` with trait and event evidence.
+- **Explain exclusion.** Step 8 explains `verify-pro`. The response returns `matched: false` with the observed trait and event count.
+- **Proof.** Require `audience-matching.http.txt` and `audience-matching.proof.json`. The transcript keeps discovered fields and explanation evidence. The proof names the included and excluded external user IDs.
 
 ## Gotchas
 
