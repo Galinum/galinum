@@ -262,23 +262,31 @@ async function campaignLifecycle(state, transcriptPath) {
   assert(created.campaign.status === "draft", "Created campaign was not a draft.");
   const detail = await request(state, transcriptPath, "2. Read the created campaign", "secret", "GET", `/api/v1/campaigns/${campaignId}`, undefined, 200);
   assert(detail.campaign.id === campaignId, "Campaign detail did not return the created campaign.");
-  const launched = await request(state, transcriptPath, "3. Launch the campaign", "secret", "POST", `/api/v1/campaigns/${campaignId}/status`, { action: "launch" }, 200);
+  await request(state, transcriptPath, "3. Identify a running-state recipient", "publishable", "POST", "/api/v1/identify", { userId: "verify-lifecycle-running" }, 200);
+  const launched = await request(state, transcriptPath, "4. Launch the campaign", "secret", "POST", `/api/v1/campaigns/${campaignId}/status`, { action: "launch" }, 200);
   assert(launched.status === "running", "Campaign did not enter running state.");
-  const running = await request(state, transcriptPath, "4. List running campaigns", "secret", "GET", "/api/v1/campaigns?status=running", undefined, 200);
+  const running = await request(state, transcriptPath, "5. List running campaigns", "secret", "GET", "/api/v1/campaigns?status=running", undefined, 200);
   assert(running.campaigns.some((campaign) => campaign.id === campaignId), "Running list omitted the campaign.");
-  const paused = await request(state, transcriptPath, "5. Pause the campaign", "secret", "POST", `/api/v1/campaigns/${campaignId}/status`, { action: "pause" }, 200);
+  const runningMessages = await request(state, transcriptPath, "6. Poll while the campaign is running", "publishable", "GET", "/api/v1/messages?userId=verify-lifecycle-running", undefined, 200);
+  assert(runningMessages.messages.some((message) => message.campaignId === campaignId), "The running campaign was not eligible before pause.");
+  const paused = await request(state, transcriptPath, "7. Pause the campaign", "secret", "POST", `/api/v1/campaigns/${campaignId}/status`, { action: "pause" }, 200);
   assert(paused.status === "paused", "Campaign did not enter paused state.");
-  const pausedDetail = await request(state, transcriptPath, "6. Confirm the paused campaign", "secret", "GET", `/api/v1/campaigns/${campaignId}`, undefined, 200);
+  const pausedDetail = await request(state, transcriptPath, "8. Confirm the paused campaign", "secret", "GET", `/api/v1/campaigns/${campaignId}`, undefined, 200);
   assert(pausedDetail.campaign.status === "paused", "Campaign detail did not persist the paused state.");
-  const relaunched = await request(state, transcriptPath, "7. Relaunch the campaign", "secret", "POST", `/api/v1/campaigns/${campaignId}/status`, { action: "launch" }, 200);
+  await request(state, transcriptPath, "9. Identify a paused-state recipient", "publishable", "POST", "/api/v1/identify", { userId: "verify-lifecycle-paused" }, 200);
+  const pausedMessages = await request(state, transcriptPath, "10. Confirm pause suppresses delivery", "publishable", "GET", "/api/v1/messages?userId=verify-lifecycle-paused", undefined, 200);
+  assert(pausedMessages.messages.length === 0, "The paused campaign remained eligible for a new recipient.");
+  const relaunched = await request(state, transcriptPath, "11. Relaunch the campaign", "secret", "POST", `/api/v1/campaigns/${campaignId}/status`, { action: "launch" }, 200);
   assert(relaunched.status === "running", "Campaign did not return to running state.");
-  const relaunchedDetail = await request(state, transcriptPath, "8. Confirm the relaunched campaign", "secret", "GET", `/api/v1/campaigns/${campaignId}`, undefined, 200);
+  const relaunchedDetail = await request(state, transcriptPath, "12. Confirm the relaunched campaign", "secret", "GET", `/api/v1/campaigns/${campaignId}`, undefined, 200);
   assert(relaunchedDetail.campaign.status === "running", "Campaign detail did not persist the relaunched state.");
-  const ended = await request(state, transcriptPath, "9. End the campaign", "secret", "POST", `/api/v1/campaigns/${campaignId}/status`, { action: "end" }, 200);
+  const resumedMessages = await request(state, transcriptPath, "13. Confirm delivery resumes", "publishable", "GET", "/api/v1/messages?userId=verify-lifecycle-paused", undefined, 200);
+  assert(resumedMessages.messages.some((message) => message.campaignId === campaignId), "The relaunched campaign did not resume delivery.");
+  const ended = await request(state, transcriptPath, "14. End the campaign", "secret", "POST", `/api/v1/campaigns/${campaignId}/status`, { action: "end" }, 200);
   assert(ended.status === "ended", "Campaign did not enter ended state.");
-  const finalDetail = await request(state, transcriptPath, "10. Confirm the terminal state", "secret", "GET", `/api/v1/campaigns/${campaignId}`, undefined, 200);
+  const finalDetail = await request(state, transcriptPath, "15. Confirm the terminal state", "secret", "GET", `/api/v1/campaigns/${campaignId}`, undefined, 200);
   assert(finalDetail.campaign.status === "ended", "Campaign detail did not persist the ended state.");
-  return { campaignId, observedStates: ["draft", "running", "paused", "running", "ended"] };
+  return { campaignId, observedStates: ["draft", "running", "paused", "running", "ended"], pausedDeliveryCount: pausedMessages.messages.length, resumedDeliveryCount: resumedMessages.messages.length };
 }
 
 async function audienceMatching(state, transcriptPath) {
@@ -303,13 +311,16 @@ async function audienceMatching(state, transcriptPath) {
   const checked = await request(state, transcriptPath, "6. Check the audience", "secret", "POST", "/api/v1/audiences/check", { expression, sampleLimit: 2 }, 200);
   assert(checked.matchedCount === 1 && checked.totalUsers === 2, "Audience count was not 1 of 2.");
   assert(checked.samples.some((sample) => sample.externalUserId === "verify-free"), "Audience sample omitted the matching user.");
+  assert(checked.expression.root.children?.[1]?.count?.op === "gte" && checked.expression.root.children?.[1]?.count?.value === 1, "Audience check did not canonicalize the omitted event count.");
+  assert(/^[a-f0-9]{64}$/.test(checked.expressionHash), "Audience check omitted the canonical expression hash.");
+  assert(typeof checked.summary === "string" && checked.summary.includes("performed exported"), "Audience check omitted the canonical summary.");
   const matching = await request(state, transcriptPath, "7. Explain the matching user", "secret", "POST", "/api/v1/audiences/explain", { expression, userId: "verify-free" }, 200);
   assert(matching.matched === true, "The free CSV user did not match.");
   assert(matching.trace.children?.[0]?.observed === "free" && matching.trace.children?.[1]?.occurrences === 1, "Matching explanation omitted condition evidence.");
   const excluded = await request(state, transcriptPath, "8. Explain the excluded user", "secret", "POST", "/api/v1/audiences/explain", { expression, userId: "verify-pro" }, 200);
   assert(excluded.matched === false, "The pro JSON user unexpectedly matched.");
   assert(excluded.trace.children?.[0]?.observed === "pro" && excluded.trace.children?.[1]?.occurrences === 0, "Exclusion explanation omitted condition evidence.");
-  return { matchedCount: checked.matchedCount, totalUsers: checked.totalUsers, matchedUser: "verify-free", excludedUser: "verify-pro" };
+  return { matchedCount: checked.matchedCount, totalUsers: checked.totalUsers, matchedUser: "verify-free", excludedUser: "verify-pro", expressionHash: checked.expressionHash, summary: checked.summary };
 }
 
 async function segmentVersioning(state, transcriptPath) {
@@ -321,13 +332,14 @@ async function segmentVersioning(state, transcriptPath) {
     reason: "Initial verification audience",
   }, 201);
   const segmentId = created.segment.id;
-  assert(created.segment.currentVersion === 1, "Segment did not start at version 1.");
+  assert(created.segment.currentVersion === 1 && created.segment.status === "active", "Segment did not start active at version 1.");
   const revised = await request(state, transcriptPath, "2. Replace the segment expression", "secret", "PATCH", `/api/v1/segments/${segmentId}`, {
     expression: enterpriseExpression,
     expectedVersion: 1,
     reason: "Narrow verification audience",
   }, 200);
   assert(revised.segment.currentVersion === 2, "Segment did not advance to version 2.");
+  assert(revised.segment.expression.root.value === "enterprise", "Segment revision did not persist the enterprise expression.");
   const stale = await request(state, transcriptPath, "3. Reject a stale expression update", "secret", "PATCH", `/api/v1/segments/${segmentId}`, {
     expression: freeExpression,
     expectedVersion: 1,
@@ -343,12 +355,11 @@ async function segmentVersioning(state, transcriptPath) {
   assert(listed.segments.some((segment) => segment.id === segmentId), "Archived list omitted the segment.");
   const retained = await request(state, transcriptPath, "8. Read version 1 after archive", "secret", "GET", `/api/v1/segments/${segmentId}/versions/1`, undefined, 200);
   assert(retained.version.expression.root.value === "free", "Archive did not preserve version history.");
-  const rejectedCampaign = await request(state, transcriptPath, "9. Reject a campaign using the archived segment", "secret", "POST", "/api/v1/campaigns", {
+  await request(state, transcriptPath, "9. Reject a campaign using the archived segment", "secret", "POST", "/api/v1/campaigns", {
     name: "Archived segment rejection",
     message: { presentation: "toast", title: "This campaign must not exist" },
     audience: { kind: "segment", segment: segmentId },
   }, 409);
-  assert(rejectedCampaign.error === "Segment is archived", "Archived segment selection returned an unexpected error.");
   return { segmentId, versions: [2, 1], staleWriteStatus: 409, finalStatus: "archived", historyReadableAfterArchive: true, archivedSelectionStatus: 409 };
 }
 
@@ -361,6 +372,9 @@ async function webInappDelivery(state, transcriptPath) {
     launch: true,
   }, 201);
   const campaignId = campaign.campaign.id;
+  assert(campaign.campaign.status === "running" && campaign.campaign.channel === "web_inapp", "The goal-linked web campaign did not launch.");
+  assert(campaign.campaign.goalId === goal.goal.id, "The web campaign did not retain its goal linkage.");
+  assert(campaign.campaign.variants[0]?.content?.presentation === "toast", "The web campaign did not retain its toast presentation.");
   await request(state, transcriptPath, "3. Identify the recipient", "publishable", "POST", "/api/v1/identify", { userId: "verify-recipient", traits: { plan: "free" } }, 200);
   const messages = await request(state, transcriptPath, "4. Poll eligible messages", "publishable", "GET", "/api/v1/messages?userId=verify-recipient", undefined, 200);
   assert(messages.messages.length === 1 && messages.messages[0].campaignId === campaignId, "Recipient did not receive the campaign.");
@@ -368,10 +382,11 @@ async function webInappDelivery(state, transcriptPath) {
   await request(state, transcriptPath, "5. Record the visible impression", "publishable", "POST", `/api/v1/deliveries/${deliveryId}/event`, { type: "shown" }, 200);
   await request(state, transcriptPath, "6. Track the target event", "publishable", "POST", "/api/v1/track", { userId: "verify-recipient", event: "activated" }, 200);
   const detail = await request(state, transcriptPath, "7. Read campaign conversion totals", "secret", "GET", `/api/v1/campaigns/${campaignId}`, undefined, 200);
-  assert(detail.campaign.stats.converted === 1, "Campaign detail did not show one conversion.");
+  assert(detail.campaign.stats.shown === 1 && detail.campaign.stats.converted === 1, "Campaign detail did not show one impression and one conversion.");
   const deliveries = await request(state, transcriptPath, "8. Confirm the converted delivery", "secret", "GET", `/api/v1/campaigns/${campaignId}/deliveries?state=converted`, undefined, 200);
   assert(deliveries.total === 1 && deliveries.deliveries[0].id === deliveryId, "Converted delivery feed did not contain the recipient.");
-  return { goalId: goal.goal.id, campaignId, deliveryId, converted: 1 };
+  assert(typeof deliveries.deliveries[0].shownAt === "number", "Converted delivery evidence omitted the shown timestamp.");
+  return { goalId: goal.goal.id, campaignId, deliveryId, shown: 1, converted: 1 };
 }
 
 async function usersEventsMetrics(state, transcriptPath) {

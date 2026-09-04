@@ -27,14 +27,14 @@ Preconditions:
 - **Drive.** Run `fnm exec --using=24 -- node .agents/skills/verify-galinum/scripts/control-galinum.mjs scenario "$GALINUM_VERIFY_RUN_ID" campaign-lifecycle`.
 - **Create.** Step 1 sends `POST /api/v1/campaigns` with a named toast message. Status `201` returns a campaign in `draft` state.
 - **Read.** Step 2 sends `GET /api/v1/campaigns/{id}`. The response returns the same generated ID.
-- **Launch and filter.** Steps 3 and 4 send `action: launch`, then list `status=running`. The campaign enters `running` and appears in the filtered list.
-- **Pause and confirm.** Steps 5 and 6 send `action: pause`, then read campaign detail. Both responses show `paused`.
-- **Relaunch and confirm.** Steps 7 and 8 send `action: launch`, then read campaign detail. Both responses show `running`.
-- **End and confirm.** Steps 9 and 10 send `action: end`, then read campaign detail. Both responses show `ended`.
-- **Proof.** Require `campaign-lifecycle.http.txt` and `campaign-lifecycle.proof.json`. The proof lists the campaign ID and states `draft`, `running`, `paused`, `running`, and `ended`.
+- **Launch and filter.** Steps 3-6 identify a recipient, launch the campaign, list `status=running`, and confirm one eligible message.
+- **Pause and confirm.** Steps 7-10 pause the campaign, read its state, identify another recipient, and confirm that recipient gets no message.
+- **Relaunch and confirm.** Steps 11-13 relaunch the campaign, read its state, and confirm delivery resumes for the second recipient.
+- **End and confirm.** Steps 14 and 15 end the campaign, then read campaign detail. Both responses show `ended`.
+- **Proof.** Require `campaign-lifecycle.http.txt` and `campaign-lifecycle.proof.json`. The proof lists every state plus paused and resumed delivery counts.
 
 ## Gotchas
 
 - A campaign cannot leave `ended` state. Use a fresh run for another lifecycle.
-- A write response alone does not prove persistence. Require each confirming detail read.
+- A write response alone does not prove persistence. Require a confirming public read.
 - The status filter uses effective status. This scenario has no delivery window, so stored and effective states agree.

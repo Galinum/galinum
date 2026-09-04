@@ -25,13 +25,13 @@ Preconditions:
 - No user, goal, campaign, or delivery exists in the run.
 
 - **Drive.** Run `fnm exec --using=24 -- node .agents/skills/verify-galinum/scripts/control-galinum.mjs scenario "$GALINUM_VERIFY_RUN_ID" web-inapp-delivery`.
-- **Create.** Steps 1 and 2 create an `activated` goal and launch a linked toast campaign.
+- **Create.** Steps 1 and 2 create an `activated` goal and confirm a linked, running web toast campaign.
 - **Identify and poll.** Steps 3 and 4 identify `verify-recipient` and request messages. One message returns with the created campaign ID and a delivery ID.
 - **Expose.** Step 5 sends a `shown` event for that delivery. Status `200` accepts the visible impression.
 - **Convert.** Step 6 tracks `activated` for the same user through the SDK route.
-- **Confirm totals.** Step 7 reads campaign detail. `stats.converted` equals one.
-- **Confirm side effect.** Step 8 lists converted deliveries. It returns the same delivery ID and total one.
-- **Proof.** Require `web-inapp-delivery.http.txt` and `web-inapp-delivery.proof.json`. The proof keeps goal, campaign, and delivery IDs.
+- **Confirm totals.** Step 7 reads campaign detail. `stats.shown` and `stats.converted` each equal one.
+- **Confirm side effect.** Step 8 lists converted deliveries. It returns the same delivery ID, total one, and a shown timestamp.
+- **Proof.** Require `web-inapp-delivery.http.txt` and `web-inapp-delivery.proof.json`. The proof keeps goal, campaign, delivery, shown, and conversion evidence.
 
 ## Gotchas
 
