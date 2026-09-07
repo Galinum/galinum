@@ -27,7 +27,8 @@
             "group": "Your agent",
             "pages": [
               "skill/claude-code",
-              "mcp-server"
+              "mcp-server",
+              "github"
             ]
           },
           {
@@ -139,6 +140,14 @@
             "group": "Usage",
             "pages": [
               "GET /api/v1/usage"
+            ]
+          },
+          {
+            "group": "GitHub sources",
+            "pages": [
+              "GET /api/v1/github/refs/due",
+              "POST /api/v1/github/refs/{refId}/claim",
+              "POST /api/v1/github/refs/{refId}/reconcile"
             ]
           }
         ]

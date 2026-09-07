@@ -44,10 +44,11 @@ describe("release registry", () => {
     assert.deepEqual(validateRegistry(registry), []);
   });
 
-  it("keeps all product packages private at lockstep 0.16.0", () => {
+  it("keeps all product packages in one versioned release", () => {
     assert.deepEqual(registry.packages.map((entry) => entry.name), ["@galinum/core", "@galinum/dashboard", "@galinum/react", "@galinum/server"]);
+    assert.deepEqual(resolveReleaseVersion([corePackage, dashboardPackage, reactPackage, serverPackage]).failures, []);
     for (const manifest of [corePackage, dashboardPackage, reactPackage, serverPackage]) {
-      assert.equal(manifest.version, "0.16.0", manifest.name);
+      assert.equal(manifest.version, corePackage.version, manifest.name);
       assert.equal(manifest.private, true, manifest.name);
       assert.equal(manifest.license, "Apache-2.0", manifest.name);
       assert.equal(manifest.publishConfig, undefined, manifest.name);
@@ -60,7 +61,7 @@ describe("release registry", () => {
     assert.ok(reactPackage.files.includes("LICENSE"));
     assert.deepEqual(packedManifestFailures(reactPackage, {
       name: "@galinum/react",
-      version: "0.16.0",
+      version: reactPackage.version,
       license: "Apache-2.0",
       releaseNames: ["@galinum/core", "@galinum/dashboard", "@galinum/react", "@galinum/server"],
       requires: [],

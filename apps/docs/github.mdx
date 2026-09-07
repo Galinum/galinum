@@ -1,0 +1,64 @@
+---
+title: "GitHub integration"
+description: "Prepare communications from code changes, review drafts, and launch when your product is ready."
+---
+
+Connect a repository so Galinum can prepare communications from relevant code
+changes. Pushes to your selected branch cover both direct commits and merged
+pull requests. GitHub events never launch a campaign.
+
+## Connect a repository
+
+1. Select your project in Galinum.
+2. Open **Settings → GitHub** and connect your GitHub account.
+3. Install the Galinum GitHub App for the repositories you want it to read.
+4. Select a repository and its target branch, usually `main`.
+5. Add project instructions for the agent's audience, tone, and announcement priorities.
+
+The App reads repository contents and pull requests. It does not write code,
+comment on PRs, or block merges and deployments.
+
+Galinum starts from the branch's current state when you connect it. Later
+pushes become new input. It does not announce the repository's full history.
+
+## Prepare drafts before a PR merges
+
+Enable **Draft from ready pull requests** to prepare communications earlier.
+A non-draft PR targeting your selected branch becomes eligible when it opens
+or is marked ready for review. Opening a draft PR alone does not start drafting.
+
+Relevant commits refresh the existing draft. Returning the PR to draft pauses
+updates for that PR. Closing it without merging withdraws its contribution.
+Merging reconciles the early draft with the branch change instead of creating
+a duplicate campaign.
+
+## Review a communication
+
+The agent assesses customer impact using the code changes, repository context,
+project instructions, and existing campaigns. It groups related changes into
+an unlaunched campaign. Unrelated changes can produce separate drafts. Changes
+without communication value produce no campaign. You do not need a PR label
+or checkbox.
+
+Open the campaign to inspect its current content and GitHub sources. Approval
+records your review. It does not publish or schedule the campaign.
+
+## Revise with your own agent
+
+Copy the revision prompt from the campaign and add your feedback. Run it in
+an agent connected to the authenticated [Galinum MCP server](/mcp-server).
+The prompt identifies the actual campaign, so the revision appears in the
+same dashboard preview.
+
+Relevant GitHub changes can still update a customer-edited draft. The agent
+uses its current content and preserves unrelated edits. Approval survives
+these revisions. Refresh the preview to inspect the latest content.
+
+## Launch when the product is ready
+
+Select **Launch** when you want users to receive the current communication.
+You can review and approve a draft between a push and a separate production
+deployment. No release or deployment integration is required.
+
+After launch, this integration leaves the campaign unchanged. Later relevant
+changes can produce another unlaunched draft.

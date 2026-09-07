@@ -14,6 +14,7 @@ supervision pages. They do not have feature parity.
 | Campaign media | Local memory or filesystem | Managed object storage |
 | Email delivery | Not included | Managed |
 | Hosted optimization agent | Not included | Managed |
+| GitHub-triggered campaign drafts | Not included | Managed |
 | Hosted MCP endpoint and OAuth | Not included | Managed |
 | Billing and entitlements | Not included | Managed |
 | Organization membership and tenant provisioning | Not included | Managed |

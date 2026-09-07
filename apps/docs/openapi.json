@@ -3,7 +3,7 @@
   "info": {
     "title": "Galinum API",
     "version": "2026-08-22",
-    "description": "Galinum's HTTP API. The SDK endpoints power the browser SDK. Management endpoints use a project secret; Galinum's hosted agent uses a scoped pk_agent_ credential and can mutate campaigns only through lease-fenced evaluation routes. Some Hosted agent and Usage operations are available only in managed Galinum Cloud; the self-host server returns 501 for those operations."
+    "description": "Galinum's HTTP API. SDK endpoints power the browser SDK. Management endpoints use a project secret. The scoped hosted-agent credential writes only through lease-fenced evaluation and GitHub source endpoints. Managed-only operations return 501 on the self-host server."
   },
   "servers": [
     {
@@ -498,75 +498,7 @@
                     "description": "Weighted variants for an A/B test (at most one control, at least one positive weight). Mutually exclusive with `message`."
                   },
                   "audience": {
-                    "oneOf": [
-                      {
-                        "type": "null",
-                        "description": "Everyone."
-                      },
-                      {
-                        "type": "object",
-                        "required": [
-                          "kind"
-                        ],
-                        "additionalProperties": false,
-                        "properties": {
-                          "kind": {
-                            "const": "all"
-                          },
-                          "reason": {
-                            "type": "string",
-                            "maxLength": 500
-                          }
-                        },
-                        "description": "Everyone."
-                      },
-                      {
-                        "type": "object",
-                        "required": [
-                          "kind",
-                          "expression"
-                        ],
-                        "additionalProperties": false,
-                        "properties": {
-                          "kind": {
-                            "const": "expression"
-                          },
-                          "expression": {
-                            "$ref": "#/components/schemas/AudienceExpression"
-                          },
-                          "reason": {
-                            "type": "string",
-                            "maxLength": 500,
-                            "description": "Concise note on why this audience was chosen or revised; stored on the immutable audience version."
-                          }
-                        },
-                        "description": "Inline audience: validated, canonicalized, and stored as an immutable audience version the campaign pins."
-                      },
-                      {
-                        "type": "object",
-                        "required": [
-                          "kind",
-                          "segment"
-                        ],
-                        "additionalProperties": false,
-                        "properties": {
-                          "kind": {
-                            "const": "segment"
-                          },
-                          "segment": {
-                            "type": "string",
-                            "description": "Segment id (seg_…) or machine key."
-                          },
-                          "version": {
-                            "type": "integer",
-                            "minimum": 1,
-                            "description": "Pin a specific immutable version; omitted = the segment's current version, resolved atomically at write time."
-                          }
-                        },
-                        "description": "Pin a saved segment's audience version. Archived segments are refused (409). A `reason` is rejected here — the pinned version carries its own revision reason."
-                      }
-                    ],
-                    "description": "Canonical audience union. `null` or `{ \"kind\": \"all\" }` targets everyone. `{ \"kind\": \"expression\", \"expression\": { … }, \"reason\": \"…\" }` authors an inline audience stored as an immutable audience version. `{ \"kind\": \"segment\", \"segment\": \"id-or-key\", \"version\": n? }` pins a saved segment version (omitted version = current, resolved atomically; archived segments are refused). Check expressions first with POST /api/v1/audiences/check. Mutually exclusive with the deprecated `targeting` field."
+                    "$ref": "#/components/schemas/CampaignAudienceInput"
                   },
                   "targeting": {
                     "anyOf": [
@@ -994,75 +926,7 @@
                     "description": "Rename the campaign."
                   },
                   "audience": {
-                    "oneOf": [
-                      {
-                        "type": "null",
-                        "description": "Everyone."
-                      },
-                      {
-                        "type": "object",
-                        "required": [
-                          "kind"
-                        ],
-                        "additionalProperties": false,
-                        "properties": {
-                          "kind": {
-                            "const": "all"
-                          },
-                          "reason": {
-                            "type": "string",
-                            "maxLength": 500
-                          }
-                        },
-                        "description": "Everyone."
-                      },
-                      {
-                        "type": "object",
-                        "required": [
-                          "kind",
-                          "expression"
-                        ],
-                        "additionalProperties": false,
-                        "properties": {
-                          "kind": {
-                            "const": "expression"
-                          },
-                          "expression": {
-                            "$ref": "#/components/schemas/AudienceExpression"
-                          },
-                          "reason": {
-                            "type": "string",
-                            "maxLength": 500,
-                            "description": "Concise note on why this audience was chosen or revised; stored on the immutable audience version."
-                          }
-                        },
-                        "description": "Inline audience: validated, canonicalized, and stored as an immutable audience version the campaign pins."
-                      },
-                      {
-                        "type": "object",
-                        "required": [
-                          "kind",
-                          "segment"
-                        ],
-                        "additionalProperties": false,
-                        "properties": {
-                          "kind": {
-                            "const": "segment"
-                          },
-                          "segment": {
-                            "type": "string",
-                            "description": "Segment id (seg_…) or machine key."
-                          },
-                          "version": {
-                            "type": "integer",
-                            "minimum": 1,
-                            "description": "Pin a specific immutable version; omitted = the segment's current version, resolved atomically at write time."
-                          }
-                        },
-                        "description": "Pin a saved segment's audience version. Archived segments are refused (409). A `reason` is rejected here — the pinned version carries its own revision reason."
-                      }
-                    ],
-                    "description": "Canonical audience union. `null` or `{ \"kind\": \"all\" }` targets everyone. `{ \"kind\": \"expression\", \"expression\": { … }, \"reason\": \"…\" }` authors an inline audience stored as an immutable audience version. `{ \"kind\": \"segment\", \"segment\": \"id-or-key\", \"version\": n? }` pins a saved segment version (omitted version = current, resolved atomically; archived segments are refused). Check expressions first with POST /api/v1/audiences/check. Mutually exclusive with the deprecated `targeting` field."
+                    "$ref": "#/components/schemas/CampaignAudienceInput"
                   },
                   "targeting": {
                     "anyOf": [
@@ -1692,7 +1556,7 @@
               "type": "string",
               "maxLength": 256
             },
-          "description": "Case-insensitive substring match on the external user id or stored trait JSON."
+            "description": "Case-insensitive substring match on the external user id or stored trait JSON."
           },
           {
             "name": "traitKey",
@@ -6019,6 +5883,329 @@
           "reason": "not-exposed"
         }
       }
+    },
+    "/api/v1/github/refs/due": {
+      "get": {
+        "operationId": "listDueGithubRefs",
+        "summary": "List pending GitHub source work",
+        "description": "Lists project-scoped source work for connected repositories. Metadata settlement may require no model work. Available in Galinum Cloud.",
+        "security": [
+          {
+            "secretKey": []
+          },
+          {
+            "hostedAgentKey": []
+          }
+        ],
+        "tags": [
+          "GitHub sources"
+        ],
+        "responses": {
+          "200": {
+            "description": "The successful source-work result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GithubDueRefs"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid source request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GithubSourceError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "The source policy or lease refuses this action.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GithubSourceError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The source ref is not available in this project.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GithubSourceError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The work, coverage, or current campaign conflicts with this request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GithubSourceError"
+                }
+              }
+            }
+          },
+          "413": {
+            "$ref": "#/components/responses/TooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "description": "Source evidence is unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GithubSourceError"
+                }
+              }
+            }
+          }
+        },
+        "x-mcp": {
+          "exposed": false,
+          "reason": "hosted-agent"
+        }
+      }
+    },
+    "/api/v1/github/refs/{refId}/claim": {
+      "post": {
+        "operationId": "claimGithubRef",
+        "summary": "Claim GitHub source work",
+        "description": "Refreshes source evidence and grants a bounded lease, or settles lifecycle work without model execution. Read the returned state before acting. Available in Galinum Cloud.",
+        "security": [
+          {
+            "secretKey": []
+          },
+          {
+            "hostedAgentKey": []
+          }
+        ],
+        "tags": [
+          "GitHub sources"
+        ],
+        "parameters": [
+          {
+            "name": "refId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The successful source-work result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GithubClaimResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid source request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GithubSourceError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "The source policy or lease refuses this action.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GithubSourceError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The source ref is not available in this project.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GithubSourceError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The work, coverage, or current campaign conflicts with this request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GithubSourceError"
+                }
+              }
+            }
+          },
+          "413": {
+            "$ref": "#/components/responses/TooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "description": "Source evidence is unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GithubSourceError"
+                }
+              }
+            }
+          }
+        },
+        "x-mcp": {
+          "exposed": false,
+          "reason": "hosted-agent"
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GithubClaimRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/github/refs/{refId}/reconcile": {
+      "post": {
+        "operationId": "reconcileGithubRef",
+        "summary": "Reconcile claimed GitHub changes",
+        "description": "Applies an atomic plan to current unlaunched campaigns. Source generations, leases, content hashes, and coverage are checked on the server. Approval remains unchanged. This operation cannot launch or schedule campaigns. Available in Galinum Cloud.",
+        "security": [
+          {
+            "secretKey": []
+          },
+          {
+            "hostedAgentKey": []
+          }
+        ],
+        "tags": [
+          "GitHub sources"
+        ],
+        "parameters": [
+          {
+            "name": "refId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The successful source-work result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GithubReconcileResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid source request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GithubSourceError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "The source policy or lease refuses this action.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GithubSourceError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The source ref is not available in this project.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GithubSourceError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The work, coverage, or current campaign conflicts with this request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GithubSourceError"
+                }
+              }
+            }
+          },
+          "413": {
+            "$ref": "#/components/responses/TooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "description": "Source evidence is unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GithubSourceError"
+                }
+              }
+            }
+          }
+        },
+        "x-mcp": {
+          "exposed": false,
+          "reason": "hosted-agent"
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GithubReconcilePlan"
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -6036,7 +6223,7 @@
       "hostedAgentKey": {
         "type": "http",
         "scheme": "bearer",
-        "description": "Galinum's scoped hosted-agent key (`pk_agent_…`). It can read required project state and call hosted evaluation routes, but ordinary campaign, status, goal, segment, and media writes return 403."
+        "description": "Galinum's scoped hosted-agent key (pk_agent_...). It can read required project state and use fenced evaluation or GitHub source operations. Ordinary campaign, status, goal, segment, and media writes return 403."
       }
     },
     "schemas": {
@@ -8321,27 +8508,27 @@
             "type": "string",
             "example": "A"
           },
-        "state": {
-          "type": "string",
-          "enum": [
-            "queued",
-            "sending",
-            "retryable",
-            "frequency_capped",
-            "sent",
-            "delivered",
-            "shown",
-            "opened",
-            "clicked",
-            "dismissed",
-            "bounced",
-            "complained",
-            "unsubscribed",
-            "failed",
-            "converted"
-          ],
-          "example": "shown"
-        },
+          "state": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "sending",
+              "retryable",
+              "frequency_capped",
+              "sent",
+              "delivered",
+              "shown",
+              "opened",
+              "clicked",
+              "dismissed",
+              "bounced",
+              "complained",
+              "unsubscribed",
+              "failed",
+              "converted"
+            ],
+            "example": "shown"
+          },
           "queuedAt": {
             "type": "integer",
             "description": "Epoch milliseconds."
@@ -8369,6 +8556,1217 @@
             }
           }
         }
+      },
+      "CampaignAudienceInput": {
+        "oneOf": [
+          {
+            "type": "null",
+            "description": "Everyone."
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "all"
+              },
+              "reason": {
+                "type": "string",
+                "maxLength": 500
+              }
+            },
+            "description": "Everyone."
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind",
+              "expression"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "expression"
+              },
+              "expression": {
+                "$ref": "#/components/schemas/AudienceExpression"
+              },
+              "reason": {
+                "type": "string",
+                "maxLength": 500,
+                "description": "Concise note on why this audience was chosen or revised; stored on the immutable audience version."
+              }
+            },
+            "description": "Inline audience: validated, canonicalized, and stored as an immutable audience version the campaign pins."
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind",
+              "segment"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "segment"
+              },
+              "segment": {
+                "type": "string",
+                "description": "Segment id (seg_…) or machine key."
+              },
+              "version": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Pin a specific immutable version; omitted = the segment's current version, resolved atomically at write time."
+              }
+            },
+            "description": "Pin a saved segment's audience version. Archived segments are refused (409). A `reason` is rejected here — the pinned version carries its own revision reason."
+          }
+        ],
+        "description": "Canonical audience union. `null` or `{ \"kind\": \"all\" }` targets everyone. `{ \"kind\": \"expression\", \"expression\": { … }, \"reason\": \"…\" }` authors an inline audience stored as an immutable audience version. `{ \"kind\": \"segment\", \"segment\": \"id-or-key\", \"version\": n? }` pins a saved segment version (omitted version = current, resolved atomically; archived segments are refused). Check expressions first with POST /api/v1/audiences/check. Mutually exclusive with the deprecated `targeting` field."
+      },
+      "GithubSourceError": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "status",
+          "error"
+        ],
+        "properties": {
+          "ok": {
+            "const": false
+          },
+          "status": {
+            "type": "integer",
+            "enum": [
+              400,
+              403,
+              404,
+              409,
+              503
+            ]
+          },
+          "error": {
+            "type": "string"
+          },
+          "retryAfterMs": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "GithubDueRefs": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "refs",
+          "aiLimitReached",
+          "loopPaused",
+          "runsUsedToday",
+          "maxRunsPerDay"
+        ],
+        "properties": {
+          "refs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "refId",
+                "sourceId",
+                "repository",
+                "branch",
+                "refKey"
+              ],
+              "properties": {
+                "refId": {
+                  "type": "string"
+                },
+                "sourceId": {
+                  "type": "string"
+                },
+                "repository": {
+                  "type": "string"
+                },
+                "branch": {
+                  "type": "string"
+                },
+                "refKey": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "aiLimitReached": {
+            "type": "boolean"
+          },
+          "loopPaused": {
+            "type": "boolean"
+          },
+          "runsUsedToday": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "maxRunsPerDay": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "GithubClaimResult": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "ok",
+              "state",
+              "claim"
+            ],
+            "properties": {
+              "ok": {
+                "const": true
+              },
+              "state": {
+                "const": "claimed"
+              },
+              "claim": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "refId",
+                  "sourceId",
+                  "sourceGeneration",
+                  "instructions",
+                  "leaseToken",
+                  "expiresAt",
+                  "fromSha",
+                  "toSha",
+                  "complete",
+                  "comparison",
+                  "repositoryContext",
+                  "files",
+                  "changes",
+                  "withdrawals",
+                  "drafts"
+                ],
+                "properties": {
+                  "refId": {
+                    "type": "string"
+                  },
+                  "sourceId": {
+                    "type": "string"
+                  },
+                  "sourceGeneration": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "instructions": {
+                    "type": "string",
+                    "maxLength": 8000
+                  },
+                  "leaseToken": {
+                    "type": "string"
+                  },
+                  "expiresAt": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "fromSha": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{40}$"
+                  },
+                  "toSha": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{40}$"
+                  },
+                  "complete": {
+                    "const": true
+                  },
+                  "comparison": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "beforeSha",
+                      "afterSha"
+                    ],
+                    "properties": {
+                      "beforeSha": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{40}$"
+                      },
+                      "afterSha": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{40}$"
+                      }
+                    }
+                  },
+                  "repositoryContext": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "description",
+                      "readme",
+                      "commitSha"
+                    ],
+                    "properties": {
+                      "description": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "readme": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "commitSha": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{40}$"
+                      }
+                    }
+                  },
+                  "files": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "path",
+                        "patch"
+                      ],
+                      "properties": {
+                        "path": {
+                          "type": "string"
+                        },
+                        "patch": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "changes": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "sha",
+                        "message",
+                        "pullRequests",
+                        "sourceCampaignIds"
+                      ],
+                      "properties": {
+                        "sha": {
+                          "type": "string",
+                          "pattern": "^[a-f0-9]{40}$"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "pullRequests": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "number",
+                              "mergedHeadSha"
+                            ],
+                            "properties": {
+                              "number": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "mergedHeadSha": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "pattern": "^[a-f0-9]{40}$"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            }
+                          }
+                        },
+                        "sourceCampaignIds": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "withdrawals": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "campaignId",
+                        "contributions",
+                        "patch"
+                      ],
+                      "properties": {
+                        "campaignId": {
+                          "type": "string"
+                        },
+                        "contributions": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "id",
+                              "ordinal",
+                              "withdrawn",
+                              "edits"
+                            ],
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "ordinal": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "withdrawn": {
+                                "type": "boolean"
+                              },
+                              "edits": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "additionalProperties": false,
+                                  "required": [
+                                    "variantId",
+                                    "field",
+                                    "before",
+                                    "after"
+                                  ],
+                                  "properties": {
+                                    "variantId": {
+                                      "type": "string"
+                                    },
+                                    "field": {
+                                      "type": "string",
+                                      "enum": [
+                                        "title",
+                                        "body",
+                                        "subject",
+                                        "previewText",
+                                        "cta.label",
+                                        "cta.url"
+                                      ]
+                                    },
+                                    "before": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    },
+                                    "after": {
+                                      "type": "string"
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        },
+                        "patch": {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "object",
+                              "properties": {
+                                "before": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 80
+                                },
+                                "after": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 80
+                                }
+                              },
+                              "required": [
+                                "before",
+                                "after"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "variants": {
+                              "minItems": 1,
+                              "maxItems": 10,
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 128
+                                  },
+                                  "edits": {
+                                    "minItems": 1,
+                                    "maxItems": 20,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "field": {
+                                          "type": "string",
+                                          "enum": [
+                                            "title",
+                                            "body",
+                                            "subject",
+                                            "previewText",
+                                            "cta.label",
+                                            "cta.url"
+                                          ]
+                                        },
+                                        "before": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 16384
+                                        },
+                                        "after": {
+                                          "type": "string",
+                                          "maxLength": 16384
+                                        }
+                                      },
+                                      "required": [
+                                        "field",
+                                        "before",
+                                        "after"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "edits"
+                                ],
+                                "additionalProperties": false
+                              }
+                            }
+                          },
+                          "additionalProperties": false
+                        }
+                      }
+                    }
+                  },
+                  "drafts": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "campaignId",
+                        "origin",
+                        "contentHash",
+                        "customerEditedFields",
+                        "review",
+                        "campaign"
+                      ],
+                      "properties": {
+                        "campaignId": {
+                          "type": "string"
+                        },
+                        "origin": {
+                          "type": "string",
+                          "enum": [
+                            "source",
+                            "customer"
+                          ]
+                        },
+                        "contentHash": {
+                          "type": "string",
+                          "pattern": "^[a-f0-9]{64}$"
+                        },
+                        "customerEditedFields": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "review": {
+                          "type": "string",
+                          "enum": [
+                            "pending",
+                            "approved"
+                          ]
+                        },
+                        "campaign": {
+                          "$ref": "#/components/schemas/CampaignDetail"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "ok",
+              "state",
+              "refId"
+            ],
+            "properties": {
+              "ok": {
+                "const": true
+              },
+              "state": {
+                "const": "settled"
+              },
+              "refId": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      },
+      "GithubClaimRequest": {
+        "type": "object",
+        "properties": {
+          "leaseSeconds": {
+            "default": 600,
+            "type": "integer",
+            "minimum": 30,
+            "maximum": 900
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "GithubReconcileResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "campaigns",
+          "reconciledSha",
+          "replayed"
+        ],
+        "properties": {
+          "ok": {
+            "const": true
+          },
+          "campaigns": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "campaignId",
+                "created"
+              ],
+              "properties": {
+                "campaignId": {
+                  "type": "string"
+                },
+                "created": {
+                  "type": "boolean"
+                }
+              }
+            }
+          },
+          "reconciledSha": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{40}$"
+          },
+          "replayed": {
+            "type": "boolean"
+          }
+        }
+      },
+      "GithubReconcilePlan": {
+        "type": "object",
+        "properties": {
+          "leaseToken": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "sourceGeneration": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "fromSha": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[a-f0-9]{40}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "toSha": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{40}$"
+          },
+          "rationale": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          },
+          "ops": {
+            "minItems": 1,
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "op": {
+                      "type": "string",
+                      "const": "create"
+                    },
+                    "shas": {
+                      "minItems": 1,
+                      "maxItems": 500,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{40}$"
+                      }
+                    },
+                    "campaign": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 80
+                        },
+                        "channel": {
+                          "type": "string",
+                          "enum": [
+                            "web_inapp",
+                            "email"
+                          ]
+                        },
+                        "message": {
+                          "type": "object",
+                          "properties": {
+                            "title": {
+                              "type": "string",
+                              "maxLength": 16384
+                            },
+                            "body": {
+                              "type": "string",
+                              "maxLength": 16384
+                            },
+                            "subject": {
+                              "type": "string",
+                              "maxLength": 16384
+                            },
+                            "previewText": {
+                              "type": "string",
+                              "maxLength": 16384
+                            },
+                            "presentation": {
+                              "type": "string",
+                              "maxLength": 30
+                            },
+                            "cta": {
+                              "type": "object",
+                              "properties": {
+                                "label": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 16384
+                                },
+                                "url": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 16384
+                                }
+                              },
+                              "required": [
+                                "label"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "media": {
+                              "type": "object",
+                              "properties": {
+                                "url": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 16384
+                                },
+                                "alt": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 16384
+                                },
+                                "decorative": {
+                                  "type": "boolean"
+                                }
+                              },
+                              "required": [
+                                "url"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        "variants": {
+                          "minItems": 1,
+                          "maxItems": 10,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "name": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 16384
+                              },
+                              "message": {
+                                "type": "object",
+                                "properties": {
+                                  "title": {
+                                    "type": "string",
+                                    "maxLength": 16384
+                                  },
+                                  "body": {
+                                    "type": "string",
+                                    "maxLength": 16384
+                                  },
+                                  "subject": {
+                                    "type": "string",
+                                    "maxLength": 16384
+                                  },
+                                  "previewText": {
+                                    "type": "string",
+                                    "maxLength": 16384
+                                  },
+                                  "presentation": {
+                                    "type": "string",
+                                    "maxLength": 30
+                                  },
+                                  "cta": {
+                                    "type": "object",
+                                    "properties": {
+                                      "label": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 16384
+                                      },
+                                      "url": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 16384
+                                      }
+                                    },
+                                    "required": [
+                                      "label"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  "media": {
+                                    "type": "object",
+                                    "properties": {
+                                      "url": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 16384
+                                      },
+                                      "alt": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 16384
+                                      },
+                                      "decorative": {
+                                        "type": "boolean"
+                                      }
+                                    },
+                                    "required": [
+                                      "url"
+                                    ],
+                                    "additionalProperties": false
+                                  }
+                                },
+                                "additionalProperties": false
+                              },
+                              "weight": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100
+                              },
+                              "isControl": {
+                                "type": "boolean"
+                              }
+                            },
+                            "required": [
+                              "message"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "audience": {
+                          "$ref": "#/components/schemas/CampaignAudienceInput"
+                        },
+                        "pages": {
+                          "anyOf": [
+                            {
+                              "maxItems": 100,
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "maxLength": 1024
+                              }
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "name",
+                        "channel"
+                      ],
+                      "additionalProperties": false,
+                      "oneOf": [
+                        {
+                          "required": [
+                            "message"
+                          ],
+                          "not": {
+                            "required": [
+                              "variants"
+                            ]
+                          }
+                        },
+                        {
+                          "required": [
+                            "variants"
+                          ],
+                          "not": {
+                            "required": [
+                              "message"
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "op",
+                    "shas",
+                    "campaign"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "op": {
+                      "type": "string",
+                      "const": "revise"
+                    },
+                    "shas": {
+                      "minItems": 1,
+                      "maxItems": 500,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{40}$"
+                      }
+                    },
+                    "campaignId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128
+                    },
+                    "baseContentHash": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9]{64}$"
+                    },
+                    "patch": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "object",
+                          "properties": {
+                            "before": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 80
+                            },
+                            "after": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 80
+                            }
+                          },
+                          "required": [
+                            "before",
+                            "after"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "variants": {
+                          "minItems": 1,
+                          "maxItems": 10,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 128
+                              },
+                              "edits": {
+                                "minItems": 1,
+                                "maxItems": 20,
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "field": {
+                                      "type": "string",
+                                      "enum": [
+                                        "title",
+                                        "body",
+                                        "subject",
+                                        "previewText",
+                                        "cta.label",
+                                        "cta.url"
+                                      ]
+                                    },
+                                    "before": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 16384
+                                    },
+                                    "after": {
+                                      "type": "string",
+                                      "maxLength": 16384
+                                    }
+                                  },
+                                  "required": [
+                                    "field",
+                                    "before",
+                                    "after"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "edits"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "op",
+                    "shas",
+                    "campaignId",
+                    "baseContentHash",
+                    "patch"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "op": {
+                      "type": "string",
+                      "const": "withdraw"
+                    },
+                    "campaignId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128
+                    },
+                    "baseContentHash": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9]{64}$"
+                    },
+                    "patch": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "object",
+                          "properties": {
+                            "before": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 80
+                            },
+                            "after": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 80
+                            }
+                          },
+                          "required": [
+                            "before",
+                            "after"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "variants": {
+                          "minItems": 1,
+                          "maxItems": 10,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 128
+                              },
+                              "edits": {
+                                "minItems": 1,
+                                "maxItems": 20,
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "field": {
+                                      "type": "string",
+                                      "enum": [
+                                        "title",
+                                        "body",
+                                        "subject",
+                                        "previewText",
+                                        "cta.label",
+                                        "cta.url"
+                                      ]
+                                    },
+                                    "before": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 16384
+                                    },
+                                    "after": {
+                                      "type": "string",
+                                      "maxLength": 16384
+                                    }
+                                  },
+                                  "required": [
+                                    "field",
+                                    "before",
+                                    "after"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "edits"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "op",
+                    "campaignId",
+                    "baseContentHash",
+                    "patch"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "op": {
+                      "type": "string",
+                      "const": "skip"
+                    },
+                    "shas": {
+                      "minItems": 1,
+                      "maxItems": 500,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{40}$"
+                      }
+                    },
+                    "reason": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 2000
+                    }
+                  },
+                  "required": [
+                    "op",
+                    "shas",
+                    "reason"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          }
+        },
+        "required": [
+          "leaseToken",
+          "sourceGeneration",
+          "fromSha",
+          "toSha",
+          "rationale",
+          "ops"
+        ],
+        "additionalProperties": false
       }
     },
     "responses": {

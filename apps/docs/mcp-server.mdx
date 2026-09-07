@@ -121,6 +121,24 @@ to do next: a lifecycle conflict asks the agent to read the campaign back, a
 rate limit reports how long to wait, and an uncertain campaign creation tells
 the agent never to retry.
 
+## Revise an unlaunched campaign
+
+Connect your agent to the full MCP endpoint and authenticate for the campaign's
+project. Copy the campaign ID from its dashboard detail page.
+
+Replace the placeholders in this prompt:
+
+```text
+Use the Galinum MCP to read and modify campaign <campaign id> with this feedback:
+<feedback>. Use its current content and preserve unrelated edits. Keep it
+unlaunched and summarize the changes. If it has already launched, stop and
+report that instead of changing it.
+```
+
+Your agent reads the campaign with `get_campaign` and applies the requested
+revision with `update_campaign`. Refresh the dashboard to review the saved
+content. Launch remains a separate action.
+
 ## Images
 
 MCP cannot carry a file upload, so `upload_campaign_media` takes the image as

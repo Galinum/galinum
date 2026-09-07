@@ -280,6 +280,24 @@ export const OPERATIONS = [
     "path": "/api/v1/metrics",
     "operationId": "getProjectMetrics",
     "availability": "product"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/github/refs/due",
+    "operationId": "listDueGithubRefs",
+    "availability": "galinum_cloud"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/github/refs/{refId}/claim",
+    "operationId": "claimGithubRef",
+    "availability": "galinum_cloud"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/github/refs/{refId}/reconcile",
+    "operationId": "reconcileGithubRef",
+    "availability": "galinum_cloud"
   }
 ] as const;
 

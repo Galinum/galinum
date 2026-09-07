@@ -38,6 +38,7 @@ export type CampaignDetailPageProps = {
   query: { state: CampaignDeliveryState | ""; page: number };
   Link: DashboardLink;
   renderActions?: (input: { campaign: CampaignDetail; windowElapsed: boolean }) => ReactNode;
+  renderContext?: (input: { campaign: CampaignDetail }) => ReactNode | Promise<ReactNode>;
   deliveryControls?: ReactNode;
   renderPagination?: (page: { page: number; pageCount: number; total: number }) => ReactNode;
   renderMessage?: CampaignMessageRenderer;
@@ -50,6 +51,7 @@ export async function CampaignDetailPage({
   query,
   Link,
   renderActions,
+  renderContext,
   deliveryControls,
   renderPagination,
   renderMessage = ({ campaign, variant }) => (
@@ -72,6 +74,7 @@ export async function CampaignDetailPage({
       query: { ...query, page: feed.pageCount },
       Link,
       renderActions,
+      renderContext,
       deliveryControls,
       renderPagination,
       renderMessage,
@@ -90,6 +93,7 @@ export async function CampaignDetailPage({
   );
   const windowElapsed = campaign.deliverUntil !== null && campaign.deliverUntil <= evaluatedAt;
   const previews = await Promise.all(campaign.variants.map((variant) => renderMessage({ campaign, variant })));
+  const context = await renderContext?.({ campaign });
 
   return (
     <div className="flex flex-col gap-8">
@@ -105,6 +109,7 @@ export async function CampaignDetailPage({
         }${windowLabel ? ` · ${windowLabel}` : ""}`}
         actions={renderActions?.({ campaign, windowElapsed })}
       />
+      {context}
 
       {email ? (
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-5 xl:grid-cols-9">

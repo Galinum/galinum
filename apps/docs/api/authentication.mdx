@@ -15,10 +15,10 @@ Content-Type: application/json
 | --- | ------ | ------- | ----------------- |
 | Publishable key | `pk_pub_…` | SDK endpoints: identify, track, messages, delivery feedback | Browser code — safe to expose |
 | Secret key | `pk_…` | Management endpoints: campaigns, media, users/events reads, goals, agent runs | Your agent and servers only |
-| Hosted-agent key | `pk_agent_…` | Required reads and lease-fenced hosted evaluation routes | Galinum's hosted runtime only |
+| Hosted-agent key | `pk_agent_…` | Required reads and fenced evaluation or GitHub source work | Galinum's hosted runtime only |
 
 Your publishable and secret keys are on **Settings → Projects**. Galinum
-provisions the scoped hosted-agent key when it enables hosted evaluation for a
+provisions the scoped hosted-agent key when it enables hosted work for a
 project.
 
 ## Publishable keys are not secrets
@@ -51,14 +51,16 @@ stops working immediately.
 
 ## Hosted-agent keys are scoped
 
-The hosted evaluator uses its own `pk_agent_…` credential. It can read the
-project state needed for one due evaluation, check audiences, log its work,
-claim and complete evaluations, apply lease-fenced mutations, and create
-exact-payload approval proposals.
+The hosted agent uses its own `pk_agent_…` credential. It can read required
+project state, check audiences, log work, and claim bounded work. Optimization
+uses fenced evaluation mutations and exact-payload approval proposals.
+GitHub work uses fenced source reconciliation to prepare unlaunched drafts.
 
 It cannot use ordinary campaign, status, goal, segment, or media writes. Those
-routes return `403`. Campaign changes must go through the claimed evaluation's
-`/evaluations/{campaignId}/mutate` route. Revoking this key stops hosted access
+routes return `403`. Optimization writes use the claimed evaluation's
+`/evaluations/{campaignId}/mutate` route. GitHub writes use the claimed source's
+`/github/refs/{refId}/reconcile` route, which cannot launch or modify live
+campaigns. Revoking this key stops hosted access
 without rotating your project secret.
 
 ## Authentication errors

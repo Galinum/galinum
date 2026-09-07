@@ -104,6 +104,35 @@ describe("CampaignDetailPage", () => {
     });
   });
 
+  it("places context after the header and shares the final pagination snapshot with previews", async () => {
+    const latest = { ...detail, campaign: { ...detail.campaign, name: "Current revision" } };
+    const getCampaign = vi.fn().mockResolvedValueOnce(detail).mockResolvedValueOnce(latest);
+    const renderContext = vi.fn(async ({ campaign }) => <aside>Review {campaign.name}</aside>);
+    const renderMessage = vi.fn(({ campaign }) => <span>Preview {campaign.name}</span>);
+    const html = renderToStaticMarkup(await CampaignDetailPage({
+      management: {
+        getCampaign,
+        listCampaignDeliveries: vi.fn(async () => ({ values: [], total: 0, page: 1, pageCount: 1 })),
+      },
+      campaignId: "campaign",
+      projectName: "Project",
+      query: { state: "", page: 9 },
+      Link: (props) => <a {...props} />,
+      renderActions: () => <span>Separate launch</span>,
+      renderContext,
+      renderMessage,
+    }));
+
+    expect(getCampaign).toHaveBeenCalledTimes(2);
+    expect(renderContext).toHaveBeenCalledTimes(1);
+    expect(renderContext.mock.calls[0][0].campaign).toBe(latest.campaign);
+    expect(renderMessage.mock.calls[0][0].campaign).toBe(latest.campaign);
+    expect(html.indexOf("Separate launch")).toBeLessThan(html.indexOf("Review Current revision"));
+    expect(html.indexOf("Review Current revision")).toBeLessThan(html.indexOf("Impressions"));
+    expect(html).toContain("Preview Current revision");
+    expect(html).not.toContain("Review Welcome");
+  });
+
   it("returns null for an unknown campaign without listing deliveries", async () => {
     const listCampaignDeliveries = vi.fn();
     const management = {

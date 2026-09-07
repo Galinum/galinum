@@ -1,12 +1,15 @@
 {
   "operations": [
     "claimCampaignEvaluation",
+    "claimGithubRef",
     "completeCampaignEvaluation",
     "createAgentProposal",
     "getAgentSettings",
     "listAgentProposals",
     "listDueEvaluations",
+    "listDueGithubRefs",
     "mutateClaimedCampaign",
+    "reconcileGithubRef",
     "reportAgentUsage",
     "scheduleCampaignEvaluation"
   ]
