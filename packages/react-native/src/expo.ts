@@ -1,9 +1,9 @@
+import { checkLegacyState } from "./legacy-store.js";
 import { createNativeJournal } from './journal-native.js';
 import * as Crypto from "expo-crypto";
 import * as Notifications from "expo-notifications";
 import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
-import { createProtectedStore } from "./protected-store.js";
 import { GalinumError, type NativeAdapter, type Permission } from "./types.js";
 
 function permission(value: Notifications.NotificationPermissionsStatus): Permission {
@@ -20,7 +20,7 @@ export function createExpoAdapter(options: { androidChannel: { id: string; name:
   return {
     journal: createNativeJournal(),
     secrets,
-    storage: createProtectedStore(secrets, Crypto.getRandomBytesAsync),
+    checkLegacyState,
     randomBytes: length => Crypto.getRandomBytesAsync(length),
     getPermission: async () => permission(await Notifications.getPermissionsAsync()),
     requestPermission: async () => {

@@ -15,7 +15,7 @@ public final class GalinumJournalModule extends NativeGalinumJournalSpec {
   public void invalidate() {
     synchronized (owned) {
       for (java.util.Map.Entry<String, String> entry : owned.entrySet()) try {
-          JournalActor.get(entry.getKey(), entry.getValue()).release(null);
+          JournalActor.get(entry.getKey(), entry.getValue()).release(false, null);
         } catch (JournalActor.Failure stale) {
         }
       owned.clear();
@@ -39,24 +39,46 @@ public final class GalinumJournalModule extends NativeGalinumJournalSpec {
     return JournalActor.get(scope, owner).reserve((long) intent, eventId);
   }
   @Override
-  public void resolveInitialIntent(String scope, String owner, double destination) {
+  public boolean resolveInitialIntent(String scope, String owner, double destination) {
     JournalActor.get(scope, owner).resolveInitial((long) destination);
+    return true;
   }
   @Override
-  public void setIntent(String scope, String owner, double intent) {
-    JournalActor.get(scope, owner).setIntent((long) intent);
+  public double setIntent(String scope, String owner, double intent) {
+    return JournalActor.get(scope, owner).setIntent((long) intent);
   }
   @Override
-  public void rejectTicket(String scope, String owner, String ticket) {
+  public boolean rejectTicket(String scope, String owner, String ticket) {
     JournalActor.get(scope, owner).reject(ticket);
+    return true;
   }
   @Override
-  public void hasStore(String scope, Promise promise) {
-    JournalActor.hasStore(getReactApplicationContext(), scope, promise);
+  public double restrictDisplay(String scope, String owner) {
+    return JournalActor.get(scope, owner).restrictDisplay();
   }
   @Override
-  public void open(String scope, String owner, String key, Promise promise) {
-    JournalActor.get(scope, owner).open(key, promise);
+  public String proposeDisplay(String scope, String owner, String proposal) {
+    return JournalActor.get(scope, owner).proposeDisplay(proposal);
+  }
+  @Override
+  public void open(String scope, String owner, Promise promise) {
+    JournalActor.get(scope, owner).open(owner, promise);
+  }
+  @Override
+  public void readControl(String scope, String owner, Promise promise) {
+    JournalActor.get(scope, owner).readControl(owner, promise);
+  }
+  @Override
+  public void commitControl(String scope, String owner, String operationId, double expectedRevision, String state, boolean restrict, Promise promise) {
+    JournalActor.get(scope, owner).commitControl(owner, operationId, (long) expectedRevision, state, restrict, promise);
+  }
+  @Override
+  public void operation(String scope, String owner, String operationId, Promise promise) {
+    JournalActor.get(scope, owner).operation(owner, operationId, promise);
+  }
+  @Override
+  public void publishDisplay(String scope, String owner, String proposal, Promise promise) {
+    JournalActor.get(scope, owner).publishDisplay(owner, proposal, promise);
   }
   @Override
   public void closeGate(String scope, String owner, double intent, Promise promise) {
@@ -83,6 +105,9 @@ public final class GalinumJournalModule extends NativeGalinumJournalSpec {
   }
   @Override
   public void release(String scope, String owner, Promise promise) {
-    JournalActor.get(scope, owner).release(promise);
+    synchronized (owned) {
+      owned.remove(scope);
+    }
+    JournalActor.get(scope, owner).release(true, promise);
   }
 }

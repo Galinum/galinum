@@ -52,8 +52,8 @@ it('explicit identify and start still send identification while cold replay vali
 it('replay waits for actual storage writes and remains fenced by a newer identity', async () => {
   const f = await fixture();const client = f.create();
   await client.identify('A');await client.track('once', {}, { eventId: 'fenced-replay' });await client.flush();
-  const entered = deferred<void>(), release = deferred<void>();const set = f.adapter.storage.set;let hold = true;
-  f.adapter.storage.set = async (key, value) => { if (hold) { hold = false;entered.resolve();await release.promise; } await set(key, value); };
+  const entered = deferred<void>(), release = deferred<void>();let hold = true;
+  f.hooks.commit = async perform => { if (hold) { hold = false;entered.resolve();await release.promise; } return perform(); };
   const replay = client.track('once', {}, { eventId: 'fenced-replay' });
   const rejected = expect(replay).rejects.toMatchObject({ code: 'superseded' });
   await entered.promise;const switched = client.identify('B');release.resolve();await rejected;await switched;

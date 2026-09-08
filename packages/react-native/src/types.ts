@@ -8,7 +8,7 @@ export type KeyValueStore = { get(key: string): Promise<string | null>; set(key:
 export type NativeAdapter = {
   journal: JournalPort;
   secrets: KeyValueStore;
-  storage: KeyValueStore;
+  checkLegacyState(storageKey: string): Promise<void>;
   randomBytes(length: number): Promise<Uint8Array>;
   getPermission(signal?: AbortSignal): Promise<Permission>;
   requestPermission(signal?: AbortSignal): Promise<Permission>;

@@ -18,6 +18,10 @@ export class GalinumClient {
   private readonly journal: JournalController;
   private journalInitialResolved = false;
   private journalIntent: JournalIntent = { version: 0, userId: undefined, confirmed: false };
+  private displayRestricted = true;
+  private displayRevision = 0;
+  private consentRevision = 0;
+  private tokenRevoked = false;
   private sender: Promise<void> | undefined;
   private epoch = 0;
   private cancellation = new AbortController();
@@ -38,9 +42,9 @@ export class GalinumClient {
     const insecureDevelopment = config.environment === "development" && ["localhost", "127.0.0.1", "[::1]", "10.0.2.2"].includes(url.hostname);
     if (url.protocol !== "https:" && !(url.protocol === "http:" && insecureDevelopment) || url.username || url.password || url.search || url.hash || url.pathname !== "/" || !config.publishableKey || !config.appId || !/^[\w.-]+$/.test(config.storageKey) || [config.requestTimeoutMs, config.nativeTimeoutMs, config.storageTimeoutMs].some(value => value !== undefined && (!Number.isFinite(value) || value <= 0))) throw new GalinumError("invalid_config");
     this.config = { ...config, apiBase: url.origin };
-    this.storage = new InstallationStorage(this.config);
     if (!config.adapter.journal) throw new GalinumError("journal_required");
-    this.journal = new JournalController(config.adapter.journal, digest(JSON.stringify([url.origin, config.publishableKey, config.appId, config.platform, config.environment, config.storageKey])), config.adapter.secrets, config.adapter.randomBytes, config.storageTimeoutMs ?? 10000);
+    this.journal = new JournalController(config.adapter.journal, digest(JSON.stringify([url.origin, config.publishableKey, config.appId, config.platform, config.environment, config.storageKey])), config.storageTimeoutMs ?? 10000, () => config.adapter.checkLegacyState(config.storageKey));
+    this.storage = new InstallationStorage(this.config, this.journal);
   }
 
   getSnapshot = (): NativeSnapshot => this.snapshot;
@@ -227,11 +231,19 @@ export class GalinumClient {
     const context = { epoch: this.epoch };
     this.unsubscribeToken = this.config.adapter.subscribeToken(token => {
       if (context.epoch !== this.epoch || this.disposed) return;
-      this.tokenSequence++;
+      const sequence = ++this.tokenSequence;
+      this.tokenRevoked = token === null;
+      let closure: Promise<void>;
+      try { closure = token === null ? this.closeDisplay(context.epoch) : Promise.resolve(); }
+      catch { return; }
+      void closure.catch(() => {});
       void this.enqueue(async () => {
         this.assertCurrent(context.epoch);
+        if (sequence !== this.tokenSequence) return;
+        await closure;
+        if (sequence !== this.tokenSequence) return;
         await this.initialize();
-        await this.sync(context.epoch, undefined, { token });
+        await this.sync(context.epoch, undefined, { token, sequence });
         this.publish();
       }, context).catch(() => {});
     });
@@ -243,6 +255,9 @@ export class GalinumClient {
     if (reset || this.journalIntent.userId !== userId) {
       this.journalIntent = { version: this.journalIntent.version + 1, userId, confirmed: true };
       this.journal.intent(this.journalIntent.version);
+      this.displayRestricted = true;
+      this.displayRevision++;
+      this.tokenRevoked = false;
     } else this.journalIntent.confirmed = true;
     const capture = this.journalIntent;
     const savedUser = !unresolved ? Promise.resolve(null) : this.storage.local ? Promise.resolve(this.storage.local.session.userId) : this.storage.load().then(() => this.storage.local!.session.userId);
@@ -263,6 +278,21 @@ export class GalinumClient {
     if (intent.userId === undefined) intent.userId = this.storage.local!.session.userId;
     if (intent.userId !== this.state!.userId) throw new GalinumError('superseded');
     await this.journal.publish(intent.version, this.state!, this.storage.local!.bindingRevision, this.storage.local!.acknowledgedBindingRevision!, intent.confirmed);
+  }
+  private async publishDisplay(epoch: number, revision: number) {
+    if (revision !== this.displayRevision || this.tokenRevoked) return;
+    this.assertCurrent(epoch);
+    const local = this.storage.local!, state = this.state!;
+    const open = local.session.consent && local.session.userId !== null && local.acknowledgedBindingRevision === local.bindingRevision && state.userId === local.session.userId && eligible(state.permission) && state.hasToken;
+    if (!open) {
+      if (this.storage.display === "open") { this.journal.restrict(); this.displayRestricted = true; await this.storage.persist(true); }
+      return;
+    }
+    if (this.storage.display === "open" && !this.displayRestricted || this.storage.revision === null || !this.storage.receipt) return;
+    const proposal = this.journal.propose({ operationId: this.storage.receipt.operationId, controlRevision: this.storage.revision, userId: local.session.userId!, deadlineMs: this.config.storageTimeoutMs ?? 10000 });
+    const receipt = await this.journal.publishDisplay(proposal);
+    this.assertCurrent(epoch);
+    if (receipt.state === "open" && this.storage.revision === receipt.controlRevision) { this.storage.display = "open"; this.displayRestricted = false; }
   }
 
   private async bind(userId: string | null, epoch?: number, traits?: Properties, force = false) {
@@ -294,19 +324,40 @@ export class GalinumClient {
     await this.storage.persist();
   }
 
-  private async sync(epoch: number, permission?: Permission, update?: { token: string | null }) {
-    const sequence = this.tokenSequence;
+  private closeDisplay(epoch: number, consent?: false): Promise<void> {
+    this.assertCurrent(epoch);
+    this.journal.restrict();
+    this.displayRestricted = true;
+    this.displayRevision++;
+    const apply = () => {
+      this.assertCurrent(epoch);
+      if (consent === false) this.storage.local!.session = { ...this.storage.local!.session, consent: false };
+      return this.storage.persist(true);
+    };
+    return this.storage.local ? apply() : this.storage.load().then(apply);
+  }
+
+  private async sync(epoch: number, permission?: Permission, update?: { token: string | null; sequence: number }) {
+    const sequence = update?.sequence ?? this.tokenSequence;
+    if (sequence !== this.tokenSequence) return;
+    const displayRevision = this.displayRevision;
     const version = this.permissionVersion;
     let currentPermission = permission ?? await this.native(signal => this.config.adapter.getPermission(signal), epoch);
     this.assertCurrent(epoch);
     if (permission === undefined && version !== this.permissionVersion && this.promptPermission !== undefined) currentPermission = this.promptPermission;
+    if (!eligible(currentPermission)) await this.closeDisplay(epoch);
+    if (update && sequence !== this.tokenSequence) return;
     const { userId, consent } = this.storage.local!.session;
     if (this.state!.permission !== currentPermission || this.state!.consent !== consent || JSON.stringify(this.state!.capabilities) !== JSON.stringify(emptyCapabilities)) await this.mutate("facts", { permission: currentPermission, consent, capabilities: emptyCapabilities }, epoch);
+    if (update && sequence !== this.tokenSequence) return;
     if (!consent || userId === null || !eligible(currentPermission)) { await this.token(null, epoch); return; }
     const token = update ? update.token : await this.native(signal => this.config.adapter.getToken(signal), epoch);
     this.assertCurrent(epoch);
-    if (sequence !== this.tokenSequence || token === null && !update) return;
-    await this.token(token, epoch);
+    if (sequence !== this.tokenSequence) return;
+    if (token !== null || update) await this.token(token, epoch);
+    if (sequence !== this.tokenSequence) return;
+    if (token !== null) this.tokenRevoked = false;
+    await this.publishDisplay(epoch, displayRevision);
   }
 
   start = (): Promise<void> => {
@@ -382,15 +433,33 @@ export class GalinumClient {
     }, context);
     return Object.freeze({
       track: (event: string, props?: Properties, options?: { eventId?: string }): Promise<EventReceipt> => this.orderedTrack(capturedIntent, event, props, options),
-      setConsent: (consent: boolean) => run(async () => {
-        if (typeof consent !== "boolean") throw new GalinumError("invalid_consent");
-        if (!this.storage.local!.session.userId && consent) throw new GalinumError("identify_required");
-        this.storage.local!.session = { ...this.storage.local!.session, consent };
-        await this.storage.persist();
-        this.assertCurrent(context.epoch);
-        if (!consent) await this.token(null, context.epoch);
-        await this.sync(context.epoch);
-      }),
+      setConsent: (consent: boolean): Promise<void> => {
+        let durable: Promise<void>;
+        let revision: number;
+        try {
+          this.assertCurrent(context.epoch);
+          if (typeof consent !== "boolean") throw new GalinumError("invalid_consent");
+          revision = ++this.consentRevision;
+          durable = consent ? Promise.resolve() : this.closeDisplay(context.epoch, false);
+        } catch (error) { return Promise.reject(error); }
+        void durable.catch(() => {});
+        return this.enqueue(async () => {
+          await durable;
+          this.assertCurrent(context.epoch);
+          await this.storage.load();
+          this.assertCurrent(context.epoch);
+          if (consent && revision === this.consentRevision) {
+            if (!this.storage.local!.session.userId) throw new GalinumError("identify_required");
+            this.storage.local!.session = { ...this.storage.local!.session, consent: true };
+            await this.storage.persist();
+          }
+          await this.initialize();
+          this.assertCurrent(context.epoch);
+          if (!this.storage.local!.session.consent) await this.token(null, context.epoch);
+          await this.sync(context.epoch);
+          this.publish();
+        }, context);
+      },
       requestPermission: async () => {
         this.assertCurrent(context.epoch);
         const sequence = ++this.promptSequence;
@@ -399,6 +468,7 @@ export class GalinumClient {
           if (sequence !== this.promptSequence) throw new GalinumError("superseded");
           this.promptPermission = permission;
           this.permissionVersion++;
+          if (!eligible(permission)) await this.closeDisplay(context.epoch);
           await run(() => this.sync(context.epoch, permission));
         } catch (error) {
           if (context.epoch === this.epoch && error instanceof GalinumError && error.code !== "superseded") this.publish("error", error);

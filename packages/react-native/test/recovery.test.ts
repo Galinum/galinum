@@ -35,7 +35,7 @@ for (const read of ["getToken", "getPermission"] as const) {
       else await client.identify("B");
       await rejected;
       const userId = next === "reset" ? null : "B";
-      expect(JSON.parse(f.storage.get(f.config.storageKey)!).session).toEqual({ userId, consent: false });
+      expect(f.control.state()!.session).toEqual({ userId, consent: false });
       expect((await f.inspect())[0]).toMatchObject({ userId, consent: false, hasToken: false });
       client.dispose();
       await f.journalReleased();
@@ -62,7 +62,7 @@ it("writes reset intent while essential HTTP remains blocked, and reconciles aft
   const trackFailure = expect(track).rejects.toMatchObject({ code: "superseded" });
   await started.promise;
   const reset = client.reset();
-  await vi.waitFor(() => expect(JSON.parse(f.storage.get(f.config.storageKey)!).session.userId).toBeNull(), { interval: 1 });
+  await vi.waitFor(() => expect(f.control.state()!.session.userId).toBeNull(), { interval: 1 });
   expect((await f.inspect())[0].userId).toBe("A");
   await reset;
   await trackFailure;
@@ -81,16 +81,16 @@ it("serializes delayed old writes before the latest intent without claiming earl
   await client.setConsent(true);
   const started = deferred<void>();
   const release = deferred<void>();
-  const set = f.adapter.storage.set;
   let delay = true;
   let active = 0;
   let peak = 0;
-  f.adapter.storage.set = async (key, value) => {
+  f.hooks.commit = async perform => {
     active++;
     peak = Math.max(peak, active);
     if (delay) { delay = false; started.resolve(); await release.promise; }
-    await set(key, value);
+    const receipt = await perform();
     active--;
+    return receipt;
   };
   const old = client.syncDevice();
   const oldFailure = expect(old).rejects.toMatchObject({ code: "storage_timeout" });
@@ -98,11 +98,11 @@ it("serializes delayed old writes before the latest intent without claiming earl
   const reset = client.reset();
   const resetFailure = expect(reset).rejects.toMatchObject({ code: "storage_timeout" });
   expect(client.getSnapshot().userId).toBeNull();
-  expect(JSON.parse(f.storage.get(f.config.storageKey)!).session.userId).toBe("A");
+  expect(f.control.state()!.session.userId).toBe("A");
   await Promise.all([oldFailure, resetFailure]);
   expect(client.getSnapshot()).toMatchObject({ status: "error", error: { code: "storage_timeout" } });
   release.resolve();
-  await vi.waitFor(() => expect(JSON.parse(f.storage.get(f.config.storageKey)!).session.userId).toBeNull());
+  await vi.waitFor(() => expect(f.control.state()!.session.userId).toBeNull());
   expect(peak).toBe(1);
   client.dispose();
   await f.journalReleased();
@@ -118,11 +118,10 @@ it("late A storage completions cannot overwrite B's persisted intent", async () 
   await client.setConsent(true);
   const started = deferred<void>();
   const release = deferred<void>();
-  const set = f.adapter.storage.set;
   let delay = true;
-  f.adapter.storage.set = async (key, value) => {
+  f.hooks.commit = async perform => {
     if (delay) { delay = false; started.resolve(); await release.promise; }
-    await set(key, value);
+    return perform();
   };
   const old = client.syncDevice();
   const oldFailure = expect(old).rejects.toMatchObject({ code: "superseded" });
@@ -131,7 +130,7 @@ it("late A storage completions cannot overwrite B's persisted intent", async () 
   const b = client.identify("B");
   release.resolve();
   await Promise.all([oldFailure, reset, b]);
-  expect(JSON.parse(f.storage.get(f.config.storageKey)!).session).toEqual({ userId: "B", consent: false });
+  expect(f.control.state()!.session).toEqual({ userId: "B", consent: false });
   client.dispose();
   await f.journalReleased();
   const restarted = f.create();
@@ -143,10 +142,10 @@ it("reports unavailable storage without claiming reset success", async () => {
   const f = await fixture();
   const client = f.create();
   await client.identify("A");
-  f.adapter.storage.set = async () => { throw new Error("unavailable"); };
+  f.hooks.commit = async () => { throw new Error("unavailable"); };
   await expect(client.reset()).rejects.toMatchObject({ code: "storage_failure" });
   expect(client.getSnapshot()).toMatchObject({ userId: null, status: "error", error: { code: "storage_failure" } });
-  expect(JSON.parse(f.storage.get(f.config.storageKey)!).session.userId).toBe("A");
+  expect(f.control.state()!.session.userId).toBe("A");
   expect((await f.inspect())[0].userId).toBe("A");
 });
 
@@ -204,7 +203,7 @@ it("reinstall-surviving credentials never restore identity without app state", a
   expect(credentials).not.toContain('"session"');
   client.dispose();
   await f.journalReleased();
-  f.storage.clear();
+  f.control.clear();
   const restarted = f.create();
   await restarted.start();
   expect(f.secrets.get(f.config.storageKey)).toBe(credentials);

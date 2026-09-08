@@ -130,12 +130,19 @@ budget. There is no fixed lifetime row limit. Storage exhaustion rejects admissi
 without reporting it queued. Existing rows and their ordering remain intact.
 
 SQLCipher files remain in Android `noBackupFilesDir` or the iOS app Application
-Support directory, excluded from backup with first-unlock file protection. Only a
-separate 256-bit journal key enters SecureStore/Keychain. Missing keys never trigger
-replacement of an existing database. MMKV still stores installation state.
+Support directory, excluded from backup with first-unlock file protection. Native code
+owns the journal key and its provisioning: Android wraps a random 256-bit key with an
+app-specific AndroidKeyStore alias into a no-backup file; iOS keeps it in a device-only
+keychain item. JavaScript never reads or supplies that key. A registry marker records
+the app incarnation and provisioning stage. A database without its key, a ready registry
+without its database, a mismatched incarnation, or a database created by an earlier
+JavaScript-keyed format all fail closed (`journal_key_missing`, `journal_state_loss`,
+`journal_incarnation_mismatch`, `legacy_format`) and preserve existing bytes.
 
-One process-local native owner controls each scoped journal. A live owner cannot
-be stolen. Reset waits for durable native closure as well as the installation's
+One app-process native actor owns each scoped journal and survives JavaScript reload.
+A client attaches a lease; a live lease cannot be stolen, and a new lease is refused
+with `journal_writer_busy` until the previous lease's actual write tail settles.
+Reset waits for durable native closure as well as the installation's
 actual-write and acknowledged binding fences. Startup closes the native gate;
 rehydration leaves application identity unconfirmed. Explicit `identify` confirms
 application identity. The SDK does not route or display notifications.
@@ -153,27 +160,32 @@ concurrently with start, or runs in a child effect before the provider's effect.
 A real A-to-B switch clears consent and invalidates A's session handles.
 
 Two stores separate credentials from operational data. SecureStore on Expo and
-Keychain on bare hold only the installation credentials and a small encryption key.
+Keychain on bare hold only the installation credentials.
 The installation ID contains 128 random bits; the capability contains 256 random
 bits. Both use native cryptographic randomness and the installation API's hex encoding.
 The scope is a SHA-256 digest, not an unbounded configuration string.
 
-Both adapters use encrypted `react-native-mmkv` for session intent, one pending
-installation mutation and the last acknowledged token fingerprint/revision. Token
-values can occur in pending bodies, never in the small credential record. MMKV uses
-AES-256 with a 32-character random key containing 192 bits of entropy. An HMAC from
-a separately derived key authenticates the serialized operational record. Native
-write failures, missing keys, malformed data and failed integrity checks are errors.
-There is no size-warning suppression, truncation or automatic data clearing.
+Operational state (session intent, binding intent counters, one pending installation
+mutation and the last acknowledged token fingerprint/revision) lives in a single
+control row of the same SQLCipher database as the journal. Every write is one native
+transaction with a revision compare-and-set and an operation receipt, so a lost reply
+can be resolved by reading the receipt instead of repeating a stale snapshot. A write
+that changes the user, consent or binding intent, or that explicitly revokes, closes
+the native display publication tag in that same transaction; nothing else can reopen
+it except a fresh proposal validated against the current row. Token values can occur
+in pending bodies, never in the small credential record. Native write failures,
+missing keys and malformed data are errors. There is no truncation or automatic data
+clearing.
 
-The operational file belongs in the application's container. Secure credentials
-may survive iOS reinstall; if the operational file is absent, the client starts
-anonymous, unbinds the old server user and clears its token during startup. It never
-restores a user or consent from Keychain alone. Do not configure MMKV's automatic
-`AppGroupIdentifier` storage for installation state. Shared extension/headless storage
-ownership is not implemented; such hosts need an app-container `KeyValueStore` in
-a custom adapter. Keep device-only keys and exclude these operational files from
-backup/restore that could move them without their keys. Missing keys fail visibly.
+The operational file belongs in the application's container. A ready registry with
+a missing database fails closed as state loss. Credentials alone do not restore user
+identity. Default adapters check the old MMKV namespace through its supported presence
+API before provisioning. Any old operational file blocks with `legacy_format`;
+its bytes and keys remain untouched. There is no automatic transfer or fallback.
+Shared extension/headless storage
+ownership is not implemented. Keep device-only keys and exclude these operational
+files from backup/restore that could move them without their keys. Missing keys fail
+visibly.
 
 Storage writes have their own serialization chain, independent of HTTP and native
 permission/token reads. Reset/switch update in-memory intent, fence old work, and
@@ -236,6 +248,24 @@ Failed analytics preserve the last acknowledged installation snapshot. Pending
 identity transitions hide the previous installation; a user ID represents local
 intent until the operation succeeds. Operations reject `binding_changed` if local
 intent and server binding differ. Retry identity reconciliation before proceeding.
+
+## Control recovery
+
+A control write uses a lease-local increasing operation number and expected revision.
+An applied write whose reply is lost is reconciled through its receipt and the current
+control row before another write starts. A stale revision is read back; the next
+attempt captures current desired state without changing a pending HTTP request.
+
+Only the latest control receipt and latest publication receipt are retained. A following
+control transaction consumes the preceding expected revision and replaces its receipts.
+Its caller must first reconcile an uncertain write; native executor ordering retains the
+actual tail. A newer durable close resolves an uncertain open. Old operation numbers
+cannot be submitted again, and an old lease cannot write. No event, command, cursor,
+or uncertain observation batch is retired by this rule.
+
+Local consent revocation closes independently of HTTP progress. Known permission denial
+and definite token revocation also close before reconciliation. Older continuations cannot
+publish using a newer restriction. A null token lookup still means unavailable.
 
 ## Scope and key rotation
 

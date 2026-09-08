@@ -57,7 +57,7 @@ for (const initialUser of [null, "B"]) {
     try {
       const superseding = initialUser === null ? f.client.reset() : f.client.identify("B");
       await expect(superseding).rejects.toMatchObject({ code: "http_error", status: 503 });
-      const saved = JSON.parse(f.storage.get(f.config.storageKey)!);
+      const saved = f.control.state()!;
       expect(saved.session.userId).toBe(initialUser);
       expect(saved.acknowledgedBindingRevision).not.toBe(saved.bindingRevision);
       f.client.dispose();
@@ -65,7 +65,7 @@ for (const initialUser of [null, "B"]) {
       f.allowFence();
       const restarted = f.create({ fetch: f.transport });
       await restarted.start();
-      const acknowledged = JSON.parse(f.storage.get(f.config.storageKey)!);
+      const acknowledged = f.control.state()!;
       expect(acknowledged.acknowledgedBindingRevision).toBe(acknowledged.bindingRevision);
       f.release.resolve();
       expect(await Promise.all(f.held.map(request => request.applied))).toEqual([409, 409]);
@@ -83,7 +83,7 @@ it("retains a fence after its mutation applied but both acknowledgement response
   f.loseFence();
   try {
     await expect(f.client.reset()).rejects.toMatchObject({ code: "transport_uncertain" });
-    const saved = JSON.parse(f.storage.get(f.config.storageKey)!);
+    const saved = f.control.state()!;
     expect(saved.acknowledgedBindingRevision).not.toBe(saved.bindingRevision);
     expect((await f.inspect())[0].userId).toBeNull();
     f.client.dispose();
@@ -91,7 +91,7 @@ it("retains a fence after its mutation applied but both acknowledgement response
     f.allowFence();
     const restarted = f.create({ fetch: f.transport });
     await restarted.start();
-    const acknowledged = JSON.parse(f.storage.get(f.config.storageKey)!);
+    const acknowledged = f.control.state()!;
     expect(acknowledged.acknowledgedBindingRevision).toBe(acknowledged.bindingRevision);
     f.release.resolve();
     expect(await Promise.all(f.held.map(request => request.applied))).toEqual([409, 409]);
@@ -127,10 +127,10 @@ it("missing binding intent counters fail before network work", async () => {
   const before = (await f.inspect())[0];
   previous.dispose();
   await f.journalReleased();
-  const saved = JSON.parse(f.storage.get(f.config.storageKey)!);
+  const saved = f.control.state() as Record<string, unknown>;
   delete saved.bindingRevision;
   delete saved.acknowledgedBindingRevision;
-  f.storage.set(f.config.storageKey, JSON.stringify(saved));
+  f.control.set(saved as never);
   const client = f.create();
   const requests = f.requests.length;
   await expect(client.start()).rejects.toMatchObject({ code: "invalid_storage" });

@@ -1,6 +1,7 @@
 import type { NativeConfig } from "./types.js";
 import { GalinumError } from "./types.js";
 import { digest } from "./wire.js";
+import type { ControlReceipt, DisplayTag, JournalController } from "./journal.js";
 
 export type Session = { userId: string | null; consent: boolean };
 export type Pending = { route: "binding" | "facts" | "token" | "activity"; body: Record<string, unknown> };
@@ -26,11 +27,16 @@ export async function bounded<T>(promise: Promise<T>, milliseconds: number | und
 export class InstallationStorage {
   credentials: Credentials | null = null;
   local: LocalState | null = null;
+  revision: number | null = null;
+  display: DisplayTag = "closed";
+  receipt: ControlReceipt | null = null;
+  private operationSequence = 0;
+  private uncertain: { operationId: string; expectedRevision: number | null } | null = null;
   private loaded: Promise<void> | undefined;
   private writes: Promise<unknown> = Promise.resolve();
   private readonly scope: string;
 
-  constructor(private readonly config: NativeConfig) {
+  constructor(private readonly config: NativeConfig, private readonly journal: JournalController) {
     this.scope = digest(JSON.stringify([config.apiBase, config.publishableKey, config.appId, config.platform, config.environment]));
   }
 
@@ -51,8 +57,48 @@ export class InstallationStorage {
     return this.io(result);
   }
 
-  persist() {
-    return this.write(() => this.config.adapter.storage.set(this.config.storageKey, JSON.stringify(this.local)));
+  private async recover({ operationId, expectedRevision }: { operationId: string; expectedRevision: number | null }) {
+    const operation = await this.journal.operation(operationId);
+    const row = await this.journal.readControl();
+    if (!row) {
+      if (operation.state !== "unknown" || expectedRevision !== null) throw new GalinumError("control_recovery_failed");
+      this.revision = null;
+      this.display = "closed";
+      this.receipt = null;
+      this.uncertain = null;
+      return false;
+    }
+    this.revision = row.revision;
+    this.display = row.display;
+    this.uncertain = null;
+    if (operation.state === "committed") {
+      this.receipt = { operationId, revision: row.revision, display: row.display, restrictive: row.display === "closed" };
+      return true;
+    }
+    this.receipt = null;
+    return false;
+  }
+
+  persist(restrict = false) {
+    return this.write(async () => {
+      if (this.uncertain) await this.recover(this.uncertain);
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const operationId = this.journal.owner + ":" + (++this.operationSequence);
+        const expectedRevision = this.revision;
+        try {
+          const receipt = await this.journal.commitControl(operationId, expectedRevision, this.local!, restrict);
+          this.revision = receipt.revision;
+          this.display = receipt.display;
+          this.receipt = receipt;
+          return;
+        } catch (error) {
+          if (!(error instanceof GalinumError) || !["control_stale", "journal_storage_failure"].includes(error.code)) throw error;
+          this.uncertain = { operationId, expectedRevision };
+          if (await this.recover(this.uncertain)) return;
+          if (attempt === 1) throw error;
+        }
+      }
+    });
   }
 
   load(): Promise<void> {
@@ -73,9 +119,10 @@ export class InstallationStorage {
       if (credentials.version !== 2 || !/^[a-f0-9]{64}$/.test(credentials.scope) || !/^[a-f0-9]{32}$/.test(credentials.installationId) || !/^[a-f0-9]{64}$/.test(credentials.capability)) throw new GalinumError("invalid_storage");
       if (credentials.scope !== this.scope) throw new GalinumError("scope_mismatch");
     }
-    const data = await this.io(this.config.adapter.storage.get(this.config.storageKey));
-    try { local = data === null ? null : JSON.parse(data); } catch { throw new GalinumError("invalid_storage"); }
-    if (data !== null && (!local || typeof local !== "object")) throw new GalinumError("invalid_storage");
+    const row = await this.io(this.journal.readControl());
+    if (row !== null && (!row || typeof row !== "object" || !Number.isSafeInteger(row.revision) || row.revision < 1)) throw new GalinumError("invalid_storage");
+    local = row?.state ?? null;
+    if (local !== null && (!local || typeof local !== "object")) throw new GalinumError("invalid_storage");
     if (!credentials) {
       if (local) throw new GalinumError("missing_credentials");
       credentials = { version: 2, scope: this.scope, installationId: await this.random(16), capability: await this.random(32) };
@@ -89,6 +136,8 @@ export class InstallationStorage {
     } else local = { version: 2, scope: this.scope, installationId: credentials.installationId, session: { userId: null, consent: false }, bindingRevision: 0, acknowledgedBindingRevision: null, pending: null, token: null };
     this.credentials = credentials;
     this.local = local;
+    this.revision = row?.revision ?? null;
+    this.display = row?.display ?? "closed";
     await this.persist();
   }
 }

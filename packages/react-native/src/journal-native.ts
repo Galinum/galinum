@@ -8,7 +8,7 @@ function synchronous<T>(operation: () => T): T {
   catch (error) {
     if (error instanceof GalinumError) throw error;
     const message = error instanceof Error ? error.message : '';
-    const code = /\b(journal_writer_busy|journal_owner_stale|superseded|invalid_scope|invalid_event)\b/.exec(message)?.[1] ?? 'journal_bridge_failure';
+    const code = /\b(journal_writer_busy|journal_owner_stale|superseded|invalid_scope|invalid_event|invalid_proposal)\b/.exec(message)?.[1] ?? 'journal_bridge_failure';
     throw new GalinumError(code);
   }
 }
@@ -23,11 +23,16 @@ export function createNativeJournal(): JournalPort {
   return {
     claim: scope => synchronous(() => nativeJournalModule().claim(scope)),
     reserve: (scope, owner, intent, eventId) => synchronous(() => JSON.parse(nativeJournalModule().reserve(scope, owner, intent, eventId))),
-    resolveInitialIntent: (scope, owner, destination) => synchronous(() => nativeJournalModule().resolveInitialIntent(scope, owner, destination)),
-    setIntent: (scope, owner, intent) => synchronous(() => nativeJournalModule().setIntent(scope, owner, intent)),
-    rejectTicket: (scope, owner, ticket) => synchronous(() => nativeJournalModule().rejectTicket(scope, owner, ticket)),
-    hasStore: scope => call(() => nativeJournalModule().hasStore(scope)),
-    open: (scope, owner, key) => call(() => nativeJournalModule().open(scope, owner, key)),
+    resolveInitialIntent: (scope, owner, destination) => { synchronous(() => nativeJournalModule().resolveInitialIntent(scope, owner, destination)); },
+    setIntent: (scope, owner, intent) => { synchronous(() => nativeJournalModule().setIntent(scope, owner, intent)); },
+    rejectTicket: (scope, owner, ticket) => { synchronous(() => nativeJournalModule().rejectTicket(scope, owner, ticket)); },
+    restrictDisplay: (scope, owner) => { synchronous(() => nativeJournalModule().restrictDisplay(scope, owner)); },
+    proposeDisplay: (scope, owner, proposal) => synchronous(() => nativeJournalModule().proposeDisplay(scope, owner, JSON.stringify(proposal))),
+    open: (scope, owner) => call(() => nativeJournalModule().open(scope, owner)),
+    readControl: (scope, owner) => call(async () => JSON.parse(await nativeJournalModule().readControl(scope, owner))),
+    commitControl: (scope, owner, operationId, expectedRevision, state, restrict) => call(async () => JSON.parse(await nativeJournalModule().commitControl(scope, owner, operationId, expectedRevision ?? -1, JSON.stringify(state), restrict))),
+    operation: (scope, owner, operationId) => call(async () => JSON.parse(await nativeJournalModule().operation(scope, owner, operationId))),
+    publishDisplay: (scope, owner, proposal) => call(async () => JSON.parse(await nativeJournalModule().publishDisplay(scope, owner, proposal))),
     closeGate: (scope, owner, intent) => call(() => nativeJournalModule().closeGate(scope, owner, intent)),
     publishBinding: (scope, owner, intent, binding) => call(() => nativeJournalModule().publishBinding(scope, owner, intent, JSON.stringify(binding))),
     admitEvent: (scope, owner, ticket, event) => call(async () => JSON.parse(await nativeJournalModule().admitEvent(scope, owner, ticket, event))),

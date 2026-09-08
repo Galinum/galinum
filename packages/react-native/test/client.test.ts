@@ -6,7 +6,7 @@ describe("native client against installation HTTP contracts", () => {
     const f = await fixture();
     let fail = true;
     const send: typeof fetch = async (input, init) => {
-      expect(f.storage.size).toBe(1);
+      expect(f.control.size()).toBe(1);
       const response = await f.transport(input, init);
       if (fail && String(input).endsWith("/installations")) throw new Error("response lost");
       return response;
@@ -28,13 +28,13 @@ describe("native client against installation HTTP contracts", () => {
 
   it("does not bootstrap when durable storage fails", async () => {
     const f = await fixture();
-    const set = f.adapter.storage.set;
-    f.adapter.storage.set = async () => { throw new Error("disk unavailable"); };
+    const commit = f.hooks.commit;
+    f.hooks.commit = async () => { throw new Error("disk unavailable"); };
     const client = f.create();
     await expect(client.start()).rejects.toMatchObject({ code: "storage_failure" });
     await expect(client.start()).rejects.toMatchObject({ code: "storage_failure" });
     expect(f.requests).toHaveLength(0);
-    f.adapter.storage.set = set;
+    f.hooks.commit = commit;
     await client.start();
     expect(await f.inspect()).toHaveLength(1);
   });
@@ -210,7 +210,7 @@ describe("native client against installation HTTP contracts", () => {
     await client.setConsent(true);
     offline = true;
     await expect(client.reset()).rejects.toMatchObject({ code: "transport_uncertain" });
-    expect(JSON.parse(f.storage.get(f.config.storageKey)!).session).toEqual({ userId: null, consent: false });
+    expect(f.control.state()!.session).toEqual({ userId: null, consent: false });
     client.dispose();
     await f.journalReleased();
     const restarted = f.create();
@@ -312,7 +312,7 @@ it("resumes one durable pending acknowledgement after a process restart", async 
   await client.identify("A");
   await expect(client.recordForegroundActivity()).rejects.toMatchObject({ code: "transport_uncertain" });
   const before = (await f.inspect())[0];
-  expect(JSON.parse(f.storage.get(f.config.storageKey)!).pending.route).toBe("activity");
+  expect(f.control.state()!.pending!.route).toBe("activity");
   client.dispose();
   await f.journalReleased();
   const restarted = f.create();
@@ -322,7 +322,7 @@ it("resumes one durable pending acknowledgement after a process restart", async 
   const activities = f.requests.filter(r => r.path.endsWith("/activity"));
   expect(activities).toHaveLength(3);
   expect(activities[0]!.body).toEqual(activities[2]!.body);
-  expect(JSON.parse(f.storage.get(f.config.storageKey)!).pending).toBeNull();
+  expect(f.control.state()!.pending).toBeNull();
 });
 
 it("a rejected mutation does not permanently poison the queue", async () => {

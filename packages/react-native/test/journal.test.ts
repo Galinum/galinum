@@ -1,14 +1,17 @@
 import { expect, expectTypeOf, it, vi } from 'vitest';
-import { JournalController, type JournalPort, type BindingPublication, type JournalPrefix, type EventReceipt } from '../src/journal.js';
+import { JournalController, type JournalPort, type BindingPublication, type JournalPrefix, type EventReceipt, type ControlRow } from '../src/journal.js';
 import { GalinumError } from '../src/types.js';
 import { deferred, fixture } from './fixture.js';
 
-function journal() {
+const seeded = (f: Awaited<ReturnType<typeof fixture>>): ControlRow => ({ revision: f.control.revision()!, state: f.control.state()!, display: 'closed' });
+
+function journal(initial: ControlRow | null = null) {
   let initialResolved = false;
   let owner: string | undefined, intent = 0, serial = 0, gate: BindingPublication | undefined;
   const commands: any[] = [], reservations: string[] = [];
   const tickets = new Map<string, { intent: number; eventId: string; encoded?: string; done?: ReturnType<typeof deferred<EventReceipt>> }>();
   let ack = 0, batch: any[] | undefined;
+  let row: ControlRow | null = initial;
   const drain = () => {
     for (const [id, ticket] of tickets) {
       if (ticket.intent === 0 && !initialResolved && intent !== Number.MAX_SAFE_INTEGER) return;
@@ -28,8 +31,13 @@ function journal() {
     resolveInitialIntent: (_s, _o, destination) => { initialResolved = true;for (const ticket of tickets.values()) if (ticket.intent === 0) ticket.intent = destination;drain(); },
     setIntent: (_s, _o, value) => { intent = value;gate = undefined;drain(); },
     rejectTicket: (_s, _o, id) => { tickets.get(id)?.done?.reject(new GalinumError('superseded'));tickets.delete(id);drain(); },
-    hasStore: vi.fn(async () => false),
+    restrictDisplay: () => {},
+    proposeDisplay: () => 'proposal',
     open: vi.fn(async () => {}),
+    readControl: vi.fn(async () => structuredClone(row)),
+    commitControl: vi.fn(async (_s, _o, operationId, _e, state, restrict) => { row = { revision: (row?.revision ?? 0) + 1, state: structuredClone(state), display: 'closed' };return { operationId, revision: row.revision, display: 'closed' as const, restrictive: restrict }; }),
+    operation: vi.fn(async () => ({ state: 'unknown' as const })),
+    publishDisplay: vi.fn(async () => { throw new GalinumError('display_ineligible'); }),
     closeGate: vi.fn(async () => { gate = undefined; }),
     publishBinding: vi.fn(async (_s, _o, capture, proof) => { if (capture !== intent) throw new GalinumError('superseded');gate = proof;drain(); }),
     admitEvent: (_s, _o, id, encoded) => { const ticket = tickets.get(id)!;ticket.encoded = encoded;ticket.done = deferred<EventReceipt>();drain();return ticket.done.promise; },
@@ -44,39 +52,39 @@ function journal() {
   return { port, reservations, commands };
 }
 
-it('reserves before a blocked key read and retains the actual opening barrier after timeout', async () => {
-  const j = journal(), key = deferred<string | null>();
-  const secrets = { get: vi.fn(() => key.promise), set: vi.fn(async () => {}) };
-  const controller = new JournalController(j.port, 'scope', secrets, async () => new Uint8Array(32), 5);
+it('reserves before a blocked native bootstrap and retains the actual opening barrier after timeout', async () => {
+  const j = journal(), opening = deferred<void>();
+  vi.mocked(j.port.open).mockReturnValue(opening.promise);
+  const controller = new JournalController(j.port, 'scope', 5);
   const ticket = controller.reserve(0, 'business');
-  expect(secrets.get).not.toHaveBeenCalled();
+  expect(j.port.open).not.toHaveBeenCalled();
   await expect(controller.admit(ticket, JSON.stringify({ event: 'one', eventId: 'business', propsJson: '{}' }))).rejects.toMatchObject({ code: 'journal_storage_timeout', eventId: 'business' });
+  expect(j.port.open).toHaveBeenCalledOnce();
   controller.dispose();
   expect(j.port.release).not.toHaveBeenCalled();
-  expect(() => new JournalController(j.port, 'scope', secrets, async () => new Uint8Array(32), 5)).toThrow('journal_writer_busy');
-  key.resolve('a'.repeat(64));
+  expect(() => new JournalController(j.port, 'scope', 5)).toThrow('journal_writer_busy');
+  opening.resolve();
   await vi.waitFor(() => expect(j.port.release).toHaveBeenCalledOnce());
-  expect(j.port.open).not.toHaveBeenCalled();
 });
 
-it('does not create a replacement key for an existing encrypted journal', async () => {
-  const j = journal();vi.mocked(j.port.hasStore).mockResolvedValue(true);
-  const secrets = { get: vi.fn(async () => null), set: vi.fn(async () => {}) };
-  const controller = new JournalController(j.port, 'scope', secrets, async () => new Uint8Array(32), 100);
+it('surfaces a native missing-key bootstrap failure without JS key handling', async () => {
+  const j = journal();vi.mocked(j.port.open).mockRejectedValue(new GalinumError('journal_key_missing'));
+  const controller = new JournalController(j.port, 'scope', 100);
   await expect(controller.close(0)).rejects.toMatchObject({ code: 'journal_key_missing' });
-  expect(secrets.set).not.toHaveBeenCalled();expect(j.port.open).not.toHaveBeenCalled();controller.dispose();
+  await expect(controller.readControl()).rejects.toMatchObject({ code: 'journal_key_missing' });
+  expect(j.port.open).toHaveBeenCalledTimes(2);expect(j.port.commitControl).not.toHaveBeenCalled();controller.dispose();
 });
 
 it('does not report durable closure until the native write completes', async () => {
   const j = journal(), write = deferred<void>();vi.mocked(j.port.closeGate).mockReturnValue(write.promise);
-  const controller = new JournalController(j.port, 'scope', { get: async () => 'a'.repeat(64), set: async () => {} }, async () => new Uint8Array(32), 5);
+  const controller = new JournalController(j.port, 'scope', 5);
   await expect(controller.close(0)).rejects.toMatchObject({ code: 'journal_storage_timeout' });
   write.resolve();controller.dispose();
 });
 
 it('tracks immediately after identify intent with blocked initialization, without push consent', async () => {
   const f = await fixture(), j = journal(), latch = deferred<void>();f.adapter.journal = j.port;
-  const get = f.adapter.storage.get;f.adapter.storage.get = async key => { await latch.promise;return get(key); };
+  vi.mocked(j.port.readControl).mockImplementationOnce(async () => { await latch.promise;return null; });
   const client = f.create();const identify = client.identify('A');
   const event = client.track('ordered', { nested: { array: [null, true, 2.5] } }, { eventId: 'business-E' });
   expect(j.reservations).toHaveLength(1);expect(f.requests).toHaveLength(0);
@@ -110,7 +118,7 @@ it('reset closes native admission before waiting on the foundation and rejects o
 
 it('rehydration alone does not publish app-auth confirmation', async () => {
   const f = await fixture();const seed = f.create();await seed.identify('A');seed.dispose();
-  const j = journal();f.adapter.journal = j.port;const client = f.create();await client.start();
+  const j = journal(seeded(f));f.adapter.journal = j.port;const client = f.create();await client.start();
   expect(vi.mocked(j.port.publishBinding).mock.calls.at(-1)![3].appConfirmed).toBe(false);
   await client.identify('A');expect(vi.mocked(j.port.publishBinding).mock.calls.at(-1)![3].appConfirmed).toBe(true);
 });
@@ -118,8 +126,8 @@ it('rehydration alone does not publish app-auth confirmation', async () => {
 
 it('preserves an earlier unresolved event when identify confirms the same stored user', async () => {
   const f = await fixture();const seed = f.create();await seed.identify('A');seed.dispose();
-  const j = journal(), latch = deferred<void>();f.adapter.journal = j.port;
-  const get = f.adapter.storage.get;f.adapter.storage.get = async key => { await latch.promise;return get(key); };
+  const j = journal(seeded(f)), latch = deferred<void>();f.adapter.journal = j.port;
+  const read = j.port.readControl;vi.mocked(j.port.readControl).mockImplementationOnce(async (...args) => { await latch.promise;return read(...args); });
   const client = f.create();const event = client.track('earlier', {}, { eventId: 'initial-E' });
   const identity = client.identify('A');latch.resolve();
   expect(await event).toEqual({ eventId: 'initial-E', state: 'queued' });await identity;await client.flush();
@@ -128,8 +136,8 @@ it('preserves an earlier unresolved event when identify confirms the same stored
 
 it('does not adopt an unresolved old-user event into a different identified user', async () => {
   const f = await fixture();const seed = f.create();await seed.identify('A');seed.dispose();
-  const j = journal(), latch = deferred<void>();f.adapter.journal = j.port;
-  const get = f.adapter.storage.get;f.adapter.storage.get = async key => { await latch.promise;return get(key); };
+  const j = journal(seeded(f)), latch = deferred<void>();f.adapter.journal = j.port;
+  const read = j.port.readControl;vi.mocked(j.port.readControl).mockImplementationOnce(async (...args) => { await latch.promise;return read(...args); });
   const client = f.create();const event = client.track('earlier', {}, { eventId: 'initial-A' });
   const rejected = expect(event).rejects.toMatchObject({ code: 'superseded' });
   const identity = client.identify('B');latch.resolve();await rejected;await identity;

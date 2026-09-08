@@ -1,3 +1,4 @@
+vi.mock("react-native-mmkv", () => ({ existsMMKV: () => false }));
 import { beforeEach, expect, it, vi } from "vitest";
 const native = vi.hoisted(() => ({
   platform: { OS: "ios" },
@@ -5,7 +6,6 @@ const native = vi.hoisted(() => ({
   checkNotifications: vi.fn(), requestNotifications: vi.fn(), fcm: vi.fn(), apns: vi.fn(), register: vi.fn(), onRefresh: vi.fn(),
   messaging: { isDeviceRegisteredForRemoteMessages: false }, keychainGet: vi.fn(), keychainSet: vi.fn(), secureGet: vi.fn(), secureSet: vi.fn(),
 }));
-vi.mock("../src/protected-store.js", () => ({ createProtectedStore: () => ({ get: vi.fn(), set: vi.fn() }) }));
 vi.mock("react-native", () => ({ Platform: native.platform, TurboModuleRegistry: { get: () => null } }));
 vi.mock("expo-notifications", () => ({
   getPermissionsAsync: native.getPermissions, requestPermissionsAsync: native.requestPermissions,
