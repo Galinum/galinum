@@ -1,3 +1,4 @@
+import { campaignDefinitionReadiness } from "./activation/readiness.js";
 import { campaignContent } from "./activation/requirements.js";
 import type { ProductActivationData } from "./activation/store.js";
 import { MemoryActivationData } from "./activation/memory.js";
@@ -856,31 +857,40 @@ export function stockDefinition(campaign: ProductCampaign) {
 }
 
 export async function stockWebReadiness(store: ProductStoreAccess, campaign: ProductCampaign, media: MediaStore, projectId: string): Promise<LaunchReadiness> {
-  if (campaign.channel !== "web_inapp") return { ok: false, error: "Unsupported campaign channel." };
-  if (!campaign.name || campaign.name.length > 80 || !validatePages(campaign.pages).ok) return { ok: false, error: "Invalid campaign definition." };
-  if (!campaign.variants.length || campaign.variants.length > 10 || !campaign.variants.some((variant) => variant.weight > 0) ||
-    campaign.variants.filter((variant) => variant.isControl).length > 1 || campaign.variants.some((variant) => !Number.isInteger(variant.weight) || variant.weight < 0 || variant.weight > 100)) {
-    return { ok: false, error: "Invalid variant allocation." };
-  }
   try {
-    for (const variant of campaign.variants) {
-      const parsed = await parseMessage(JSON.parse(variant.content_json), media, projectId);
-      if (!parsed.ok) return { ok: false, error: parsed.error };
-    }
-    if (campaign.audience.kind === "invalid") return { ok: false, error: "Invalid audience." };
-    if (campaign.audience.kind === "legacy") {
-      const parsed = validateTargeting(campaign.audience.targetingJson);
-      if (!parsed.ok) return { ok: false, error: parsed.error };
-    } else if (campaign.audience.kind !== "all") {
-      if (!prepareAudience(JSON.parse(campaign.audience.expressionJson)).ok) return { ok: false, error: "Invalid audience expression." };
-      if (campaign.audience.kind === "segment") {
-        const version = await store.getSegmentVersion(campaign.audience.segmentId, campaign.audience.segmentVersion);
-        if (!version || version.id !== campaign.audience.audienceVersionId || version.expressionHash !== campaign.audience.expressionHash) return { ok: false, error: "Audience version is unavailable." };
-      }
-    }
-    if (campaign.goalId && !await store.getGoal(campaign.goalId)) return { ok: false, error: "Goal not found." };
-    if (campaign.deliverFrom !== null && campaign.deliverUntil !== null && campaign.deliverFrom >= campaign.deliverUntil) return { ok: false, error: "Invalid delivery window." };
-    return { ok: true };
+    return await campaignDefinitionReadiness(projectId, {
+      name: campaign.name, channel: campaign.channel, pages: campaign.pages, deliverFrom: campaign.deliverFrom, deliverUntil: campaign.deliverUntil,
+      goalId: campaign.goalId, audience: campaignAudienceView(campaign.audience),
+      ...(campaign.audience.kind === "legacy" ? { legacyTargetingJson: campaign.audience.targetingJson } : {}),
+      variants: campaign.variants.map((variant) => ({ id: variant.id, name: variant.name, contentJson: variant.content_json, weight: variant.weight, isControl: variant.isControl })),
+    }, {
+      async getGoal(scope, id) {
+        if (scope !== projectId) return null;
+        const goal = await store.getGoal(id);
+        return goal ? { projectId, id: goal.id } : null;
+      },
+      async getAudienceVersion(scope, reference) {
+        if (scope !== projectId) return null;
+        if (reference.segmentId !== null && reference.segmentVersion !== null) {
+          const version = await store.getSegmentVersion(reference.segmentId, reference.segmentVersion);
+          return version ? { projectId, ...version } : null;
+        }
+        const current = await store.getCampaign(campaign.id);
+        const audience = current?.audience;
+        return audience?.kind === "expression" && audience.audienceVersionId === reference.id ? { projectId, id: audience.audienceVersionId,
+          segmentId: null, segmentVersion: null, schemaVersion: audience.schemaVersion, expressionJson: audience.expressionJson, expressionHash: audience.expressionHash } : null;
+      },
+      async getMedia(scope, url) {
+        if (scope !== projectId) return null;
+        const reference = media.resolve(projectId, url);
+        if (!reference) return null;
+        const stored = await media.get(reference.key);
+        return stored && stored.key === reference.key ? { projectId, url } : null;
+      },
+      async channelReadiness(scope, channel) {
+        return scope === projectId && channel === "web_inapp" ? { ok: true } : { ok: false, error: "Unsupported campaign channel." };
+      },
+    });
   } catch { return { ok: false, error: "Campaign definition could not be verified." }; }
 }
 
