@@ -61,7 +61,7 @@ async function identify(client: TestClient, userId = "user") {
 async function createDelivery(client: TestClient) {
   const campaign = await createCampaign(client, true);
   await identify(client);
-  const response = await client.call("/api/v1/messages?userId=user", "GET", undefined, true);
+  const response = await client.call("/api/v1/messages?entryId=test-entry&requestId=test-request&path=%2Fdashboard&userId=user", "GET", undefined, true);
   expect(response.status).toBe(200);
   return { campaign, delivery: (await response.json()).messages[0] };
 }
@@ -142,12 +142,12 @@ const scenarios = {
   },
   async getMessages(client) {
     const { campaign } = await createDelivery(client);
-    const response = await client.call("/api/v1/messages?userId=user", "GET", undefined, true);
+    const response = await client.call("/api/v1/messages?entryId=test-entry&requestId=test-request&path=%2Fdashboard&userId=user", "GET", undefined, true);
     await expectJson(response, 200, { messages: [{ campaignId: campaign.id, content: { title: "Welcome" } }] });
   },
   async recordDeliveryEvent(client) {
     const { delivery } = await createDelivery(client);
-    await expectJson(await client.call(`/api/v1/deliveries/${delivery.deliveryId}/event`, "POST", { type: "shown" }, true), 200, { ok: true });
+    await expectJson(await client.call(`/api/v1/deliveries/${delivery.deliveryId}/event`, "POST", { userId: "user", type: "shown", feedbackId: "user" + ":shown" }, true), 200, { type: "shown", userId: "user" });
   },
   async uploadCampaignMedia(client) {
     const bytes = Buffer.alloc(58);

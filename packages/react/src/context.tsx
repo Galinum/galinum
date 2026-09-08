@@ -1,5 +1,8 @@
 "use client";
 
+import { reset as closeEntry, invalidateUncommitted } from "./scheduler.js";
+import { queueFeedback, flushFeedback, type FeedbackReceipt } from "./feedback.js";
+
 import {
   createContext,
   useCallback,
@@ -13,7 +16,6 @@ import {
 import { collectAutoContext, collectEventContext } from "./auto-context.js";
 import {
   devWarn,
-  feedbackRequest,
   identifyRequest,
   trackRequest,
 } from "./client.js";
@@ -26,43 +28,24 @@ type GalinumContextValue = {
   identify: (userId: string, traits?: Traits) => Promise<void>;
   track: (event: string, props?: EventProps) => Promise<void>;
   reset: () => void;
-  // Resolves with the request outcome (never throws): "ok" accepted,
-  // "transient" worth retrying, "permanent" not.
-  sendFeedback: (deliveryId: string, type: DeliveryFeedback) => Promise<PostResult>;
-  // Resolves once every track() request that was in flight at call time has
-  // settled, or after `timeoutMs` — whichever comes first. Message polling
-  // awaits this so event targeting never evaluates against facts that predate
-  // an in-flight track; the timeout keeps it fail-open (a stalled track must
-  // not block delivery). Tracks fired *after* the call don't extend the wait.
+  sendFeedback: (deliveryId: string, type: DeliveryFeedback, entryId?: string) => Promise<FeedbackReceipt>;
   waitForTracks: (timeoutMs?: number) => Promise<void>;
-  // Counts the facts a message fetch depends on: track() calls started, plus
-  // identify() requests that have SETTLED. Message delivery compares it across
-  // a request to tell "another widget asked for the same refresh" (same count,
-  // so they share it) from "the server learned something this in-flight
-  // request cannot have seen" (higher count, so it must refetch).
   factsVersion: () => number;
-  // Resolves once the identify request for the current user has settled (or
-  // immediately when none is in flight). The first message fetch awaits it:
-  // a first-time user does not exist server-side until identify lands.
   waitForIdentify: () => Promise<void>;
-  // Increments on every identify() call, including re-identifying the same
-  // user with new traits. Message delivery re-evaluates on a change.
+  hasPendingIdentity: () => boolean;
   identifyVersion: number;
+  flushFeedback: () => Promise<void>;
 };
 
 const GalinumContext = createContext<GalinumContextValue | null>(null);
 
 export type GalinumProviderProps = {
   publishableKey: string;
-  // Where the Galinum API is hosted. Defaults to the current origin so a
-  // same-origin proxy works out of the box; set it to your Galinum host in prod.
   apiBase?: string;
-  // If provided, the user is identified automatically whenever it changes.
   userId?: string;
   traits?: Traits;
-  // Auto-collect device/browser/locale context ($-prefixed traits on identify,
-  // $current_url/$pathname on track). Defaults to true; set false to opt out.
   autoContext?: boolean;
+  appSchemes?: string[];
   children: ReactNode;
 };
 
@@ -72,48 +55,51 @@ export function GalinumProvider({
   userId: userIdProp,
   traits,
   autoContext = true,
+  appSchemes,
   children,
 }: GalinumProviderProps) {
   const [userId, setUserId] = useState<string | null>(userIdProp ?? null);
   const [identifyVersion, setIdentifyVersion] = useState(0);
-  // Track requests currently in flight. trackRequest() never rejects, so
-  // entries always remove themselves; the Set only grows while requests are
-  // genuinely outstanding.
+  const [lastUserProp, setLastUserProp] = useState(userIdProp);
+  if (lastUserProp !== userIdProp) { closeEntry(); setLastUserProp(userIdProp); setUserId(userIdProp ?? null); }
   const pendingTracks = useRef<Set<Promise<void>>>(new Set());
   const tracksStarted = useRef(0);
-  // Bumped when an identify request settles, not when it is issued: a fetch
-  // that started earlier may have asked about a user the server did not have.
   const identifySettled = useRef(0);
-  // The identify request for the current user, while it is in flight.
-  const pendingIdentify = useRef<Promise<void> | null>(null);
+  const identifyInvoked = useRef(0);
+  const pendingIdentify = useRef<Set<Promise<void>>>(new Set());
 
   const config = useMemo<GalinumConfig>(
-    () => ({ publishableKey, apiBase: normalizeBase(apiBase) }),
-    [publishableKey, apiBase],
+    () => ({ publishableKey, apiBase: normalizeBase(apiBase), appSchemes }),
+    [publishableKey, apiBase, appSchemes],
   );
 
   const identify = useCallback(
     async (id: string, t?: Traits) => {
+      identifyInvoked.current += 1;
+      if (id !== userId) closeEntry();
+      else invalidateUncommitted(config, id);
       setUserId(id);
       setIdentifyVersion((version) => version + 1);
-      // Explicit traits win over auto-collected context on key collisions.
       const merged = autoContext ? { ...collectAutoContext(), ...t } : t;
       const request = identifyRequest(config, id, merged);
-      pendingIdentify.current = request;
+      pendingIdentify.current.add(request);
       try {
         await request;
       } finally {
         identifySettled.current += 1;
-        if (pendingIdentify.current === request) pendingIdentify.current = null;
+        invalidateUncommitted(config, id);
+        pendingIdentify.current.delete(request);
       }
     },
-    [config, autoContext],
+    [config, autoContext, userId],
   );
 
   const waitForIdentify = useCallback(async () => {
-    // identifyRequest never rejects by contract; stay fail-open regardless.
-    await pendingIdentify.current?.catch(() => undefined);
+    await Promise.resolve();
+    while (pendingIdentify.current.size) await Promise.allSettled([...pendingIdentify.current]);
   }, []);
+
+  const hasPendingIdentity = useCallback(() => pendingIdentify.current.size > 0, []);
 
   const track = useCallback(
     async (event: string, props?: EventProps) => {
@@ -122,6 +108,7 @@ export function GalinumProvider({
         return;
       }
       tracksStarted.current += 1;
+      invalidateUncommitted(config, userId);
       const merged = autoContext ? { ...collectEventContext(), ...props } : props;
       const request = trackRequest(config, userId, event, merged);
       pendingTracks.current.add(request);
@@ -135,8 +122,6 @@ export function GalinumProvider({
   );
 
   const waitForTracks = useCallback(async (timeoutMs = 2000) => {
-    // Snapshot at call time: only tracks already in flight gate this waiter,
-    // so continuous tracking can't postpone a poll indefinitely.
     const snapshot = [...pendingTracks.current];
     if (snapshot.length === 0) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -147,12 +132,7 @@ export function GalinumProvider({
     try {
       const outcome = await Promise.race([Promise.allSettled(snapshot), timeout]);
       if (outcome === TIMED_OUT) {
-        // A track that outlived the fail-open window is treated as abandoned
-        // for gating purposes: evict it so later waiters neither wait on it
-        // again nor accumulate allSettled reactions against a promise that
-        // may never settle. (track() itself still deletes it if it ever
-        // completes — double deletion is harmless.)
-        for (const request of snapshot) pendingTracks.current.delete(request);
+        throw new Error("Track facts deadline exceeded");
       }
     } finally {
       clearTimeout(timer);
@@ -160,18 +140,22 @@ export function GalinumProvider({
   }, []);
 
   const factsVersion = useCallback(
-    () => tracksStarted.current + identifySettled.current,
+    () => tracksStarted.current + identifyInvoked.current + identifySettled.current,
     [],
   );
 
-  // Clears the identified user (e.g. on logout) so tracking/messages stop until
-  // the next identify().
-  const reset = useCallback(() => setUserId(null), []);
+  const reset = useCallback(() => { closeEntry(); setUserId(null); }, []);
 
   const sendFeedback = useCallback(
-    (deliveryId: string, type: DeliveryFeedback) => feedbackRequest(config, deliveryId, type),
-    [config],
+    (deliveryId: string, type: DeliveryFeedback, entryId?: string) => userId ? queueFeedback(config, userId, deliveryId, type, entryId) : Promise.resolve({ status: "failed" as const, userId: "", deliveryId, type, feedbackId: (entryId ?? "manual") + ":" + deliveryId + ":" + type }),
+    [config, userId],
   );
+
+  useEffect(() => {
+    void flushFeedback(config);
+    const timer = setInterval(() => void flushFeedback(config), 5000);
+    return () => clearInterval(timer);
+  }, [config]);
 
   const identifyRef = useRef(identify);
   const traitsRef = useRef(traits);
@@ -192,8 +176,10 @@ export function GalinumProvider({
       sendFeedback,
       waitForTracks,
       waitForIdentify,
+      hasPendingIdentity,
       factsVersion,
       identifyVersion,
+      flushFeedback: () => flushFeedback(config),
     }),
     [
       config,
@@ -204,6 +190,7 @@ export function GalinumProvider({
       sendFeedback,
       waitForTracks,
       waitForIdentify,
+      hasPendingIdentity,
       factsVersion,
       identifyVersion,
     ],

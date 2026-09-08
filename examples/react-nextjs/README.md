@@ -7,8 +7,8 @@ development harness for SDK changes.
 
 - `GalinumProvider` with a publishable key + API base
 - `useGalinum()` — `identify` / `track` / `reset`
-- `<InAppMessages/>` prefetching messages and showing one per page view, with
-  feedback (clicked / dismissed) reported back automatically
+- `<InAppMessages/>` requesting fresh entry authority and committing at most
+  one message per entry, with durable shown and terminal feedback
 - Screen links (`/`, `/settings`, `/settings/billing`, `/reports`) for testing
   navigation unlocks and campaign `pages` targeting
 

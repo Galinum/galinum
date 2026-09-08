@@ -85,7 +85,7 @@ curl https://galinum.com/api/v1/track \
 Fetch the user's eligible messages:
 
 ```bash
-curl "https://galinum.com/api/v1/messages?userId=user_123" \
+curl "https://galinum.com/api/v1/messages?userId=user_123&entryId=entry-123&requestId=request-456&path=%2Fexports" \
   -H "Authorization: Bearer pk_pub_xxx"
 ```
 
@@ -95,7 +95,7 @@ Report what the user did with a message:
 curl https://galinum.com/api/v1/deliveries/del_xxx/event \
   -H "Authorization: Bearer pk_pub_xxx" \
   -H "Content-Type: application/json" \
-  -d '{ "type": "clicked" }'
+  -d '{ "userId": "user_123", "feedbackId": "render-123-shown", "type": "shown" }'
 ```
 
 Create and launch a campaign (secret key, from your backend):
@@ -109,7 +109,7 @@ curl https://galinum.com/api/v1/campaigns \
     "message": {
       "title": "CSV export is here 📊",
       "body": "Export any table to CSV from the toolbar.",
-      "cta": { "label": "Try it", "url": "/exports" },
+      "cta": { "label": "Try it", "destination": { "kind": "website", "url": "https://app.example.com/exports" } },
       "presentation": "toast"
     },
     "audience": { "kind": "expression", "reason": "users who have not tried the export", "expression": {
@@ -178,7 +178,7 @@ curl https://galinum.com/api/v1/campaign-media \
 "message": {
   "title": "CSV export is here 📊",
   "body": "Export any table to CSV from the toolbar.",
-  "cta": { "label": "Try it", "url": "/exports" },
+  "cta": { "label": "Try it", "destination": { "kind": "website", "url": "https://app.example.com/exports" } },
   "media": { "url": "https://storage.galinum.com/projects/…/campaign-media/….png",
              "alt": "The new export button in the table toolbar" },
   "presentation": "modal"

@@ -68,26 +68,40 @@ entirely with `<GalinumProvider autoContext={false} …>`.
 
 ### One message per page view
 
-Eligible messages are **prefetched** when the user is identified and cached in
-memory. Each page view then decides synchronously from that cache, so no
-network request sits on the render path and no message pops into a screen the
-user is already reading.
+Each entry requests a fresh authoritative decision after entry creation. The request
+captures user, project, path and distinct entry/request identifiers. Cached content
+cannot authorize display. Failed or timed-out entries settle empty; a later
+navigation may try again.
 
-- A user sees at most one message per page view, across every mounted
-  `<InAppMessages/>`.
-- Messages appear at page load or right after a navigation. Nothing appears
-  mid-screen.
-- Dismissing a message does not release the page view. Navigation is the only
-  unlock.
-- A message still on screen when the user navigates simply leaves. It sends no
-  dismissal, so the same message can appear again on a later page view.
-- Campaigns may target screens: a campaign with `pages` patterns renders only
-  on matching paths. A pattern starts with `/`, `*` matches any characters,
-  and matching is case-sensitive against the pathname (query and hash are
-  ignored).
+One elected renderer can commit one message per entry. Null custom rendering skips
+a candidate without an impression or consuming that slot. Completion is monotonic
+locally. A later entry observes completion acknowledged by another web/native
+client. Remote completion concurrent with an authorized entry can race its paint.
+Known local facts mutations immediately invalidate uncommitted authority, even
+after its response settled. Already-committed pixels are not globally retracted.
 
-Images are warmed in the background and each message reserves its image area,
-so a slow image never delays the text or shifts the layout.
+Feedback persists with a stable feedbackId before returning queued. The built-in
+renderer derives it from entry, delivery and type; distinct committed entries
+produce distinct shown facts. Exact retries retain the original ID. Retries retain the
+captured user and project. Terminal admission requires a durable shown record
+from the same entry, and sending waits for its validated acknowledgement.
+If shown persistence failed, terminal admission returns failed and the built-in
+renderer remains available to retry shown. No shown evidence is manufactured.
+useGalinum().sendFeedback returns a receipt with status queued, acknowledged,
+rejected or failed admission (including missing shown evidence or unavailable storage). flushFeedback drains a bounded page;
+repeating sendFeedback with the same entryId reads that operation's current status without creating a new
+exposure. Browser storage quota/private-mode failures remain explicit. Persistence
+uses localStorage; host code must not clear its Galinum records while relying on
+queued feedback or local completion. Successful feedback requires HTTP 200 with a
+canonical receipt matching the captured user, delivery, type and feedbackId,
+plus a valid nonnegative integer acknowledgement timestamp. Empty, malformed or
+mismatched success bodies remain retryable. Stored acknowledgements retain this
+validated receipt; unverified markers are revalidated using the same ID.
+
+CTA content uses {label,destination:{kind:"website"|"app",url}}. Website URLs use
+HTTPS without an origin allowlist. Supply appSchemes on GalinumProvider for app
+destinations. Existing CTA url fields must be updated by the campaign operator.
+Images retain their fixed layout areas, so loading does not delay message text.
 
 ### Default rendering: toast or announcement modal
 
@@ -174,7 +188,7 @@ as an impression.
 ## API surface
 
 - `GalinumProvider` — `{ publishableKey, apiBase?, userId?, traits?, autoContext? }`
-- `useGalinum()` — `{ identify, track, reset, sendFeedback, waitForTracks, waitForIdentify, userId, config }`
+- `useGalinum()` — `{ identify, track, reset, sendFeedback, flushFeedback, waitForTracks, waitForIdentify, userId, config }`
   - `reset()` clears the identified user on logout.
   - `waitForTracks(timeoutMs?)` resolves once the `track()` requests that were
     in flight when you called it have settled (or after the timeout, 2s by

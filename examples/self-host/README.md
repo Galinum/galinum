@@ -85,3 +85,14 @@ Existing installation-enabled databases require the separate transactional
 `packages/server/upgrades/push.sql` before upgrading the API. Stop workers, back
 up, then run `psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -f packages/server/upgrades/push.sql`
 from the repository root. Fresh databases already contain this schema.
+
+
+## In-app receipt upgrade
+
+Existing databases require the separate transactional
+packages/server/upgrades/inapp.sql after the installation and push upgrades.
+Back up and stop API workers, apply it with psql -X -v ON_ERROR_STOP=1 -f,
+then update SDK callers together with the server. Fresh schema initialization
+already includes the receipt table. Each actual shown operation has a stable
+feedbackId; retries preserve it, while distinct committed renders get new IDs.
+Receipt storage is indexed per operation, without a lifetime replay cap.

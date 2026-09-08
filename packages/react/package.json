@@ -60,5 +60,8 @@
     "react-dom": "19.2.7",
     "typescript": "5.9.3",
     "vitest": "4.1.8"
+  },
+  "dependencies": {
+    "@galinum/contracts": "workspace:*"
   }
 }

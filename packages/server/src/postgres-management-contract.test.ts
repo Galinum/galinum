@@ -61,9 +61,10 @@ async function seed(call: Caller, at: (value: number) => void) {
     goalId: goal.id,
     launch: true,
   })).body.campaign;
-  const messages = (await call("/api/v1/messages?userId=recent_user", "GET", undefined, true)).body.messages;
+  const messages = (await call("/api/v1/messages?entryId=test-entry&requestId=test-request&path=%2Fdashboard&userId=recent_user", "GET", undefined, true)).body.messages;
   const deliveryId = messages[0].deliveryId;
-  await call(`/api/v1/deliveries/${deliveryId}/event`, "POST", { type: "clicked" }, true);
+  await call(`/api/v1/deliveries/${deliveryId}/event`, "POST", { userId: "recent_user", type: "shown", feedbackId: "recent_user" + ":shown" }, true);
+  await call(`/api/v1/deliveries/${deliveryId}/event`, "POST", { userId: "recent_user", type: "clicked", feedbackId: "recent_user" + ":clicked" }, true);
 
   at(CLOCK);
   await call("/api/v1/track", "POST", { userId: "recent_user", event: "checkout_completed" }, true);

@@ -404,6 +404,11 @@ function messageContent(value: unknown, channel: CampaignDetail["channel"]): Cam
   if (item.cta !== undefined && (!cta || typeof cta.label !== "string" || (cta.url !== undefined && typeof cta.url !== "string"))) {
     return null;
   }
+  if (channel === "web_inapp" && cta?.url !== undefined) return null;
+  if (cta?.destination !== undefined) {
+    const destination = record(cta.destination);
+    if (channel === "email" || !destination || !["website", "app"].includes(String(destination.kind)) || typeof destination.url !== "string") return null;
+  }
   const media = item.media === undefined ? undefined : record(item.media);
   if (
     item.media !== undefined &&

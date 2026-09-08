@@ -45,6 +45,8 @@ const packageLanes = [
   {
     name: "react",
     paths: ["packages/react/"],
+    requires: ["contracts"],
+    prerequisites: [["pnpm", "--filter", "@galinum/contracts", "build"]],
     release: true,
     commands: [
       ["pnpm", "--filter", "@galinum/react", "typecheck"],
@@ -56,7 +58,7 @@ const packageLanes = [
     name: "react-example",
     paths: ["examples/react-nextjs/"],
     requires: ["react"],
-    prerequisites: [["pnpm", "--filter", "@galinum/react", "build"]],
+    prerequisites: [["pnpm", "--filter", "@galinum/contracts", "build"], ["pnpm", "--filter", "@galinum/react", "build"]],
     commands: [
       ["pnpm", "--filter", "@galinum/example-react-nextjs", "typecheck"],
       ["pnpm", "--filter", "@galinum/example-react-nextjs", "build"],

@@ -12,6 +12,7 @@ icon: "code"
 | `apiBase` | `string` | current origin | Where the Galinum API is hosted, e.g. `https://galinum.com`. |
 | `userId` | `string` | — | If set, the user is identified automatically whenever it changes. |
 | `traits` | `Traits` | — | Traits sent with the automatic identify. |
+| `appSchemes` | `string[]` | `[]` | Allowed app URL schemes. |
 | `autoContext` | `boolean` | `true` | Auto-collect device/locale context on identify and page context on track. |
 
 ## `useGalinum()`
@@ -22,10 +23,10 @@ Must be called inside a `GalinumProvider` (throws otherwise).
 | --- | --- | --- |
 | `identify` | `(userId, traits?) => Promise<void>` | Set the current user and merge traits. |
 | `track` | `(event, props?) => Promise<void>` | Record a behavioral event. Ignored before identify. |
-| `reset` | `() => void` | Clear the user (logout); stops tracking and clears the message cache. |
-| `sendFeedback` | `(deliveryId, type) => Promise<"ok" \| "transient" \| "permanent">` | Report `"shown" \| "clicked" \| "dismissed" \| "converted"` for a delivery. Resolves with the request outcome. |
-| `waitForTracks` | `(timeoutMs?) => Promise<void>` | Resolves once the `track()` requests in flight at call time settle, or after `timeoutMs` (default 2000). `<InAppMessages/>` awaits this before each fetch. |
-| `waitForIdentify` | `() => Promise<void>` | Resolves once the current user's `identify()` request has settled. The first message fetch awaits it, so a brand-new user is never queried before they exist. |
+| `reset` | `() => void` | Clear the user (logout); closes the current entry and identity. |
+| `sendFeedback` | `(deliveryId, type, entryId?) => Promise<FeedbackReceipt>` | Report `"shown" \| "clicked" \| "dismissed" \| "converted"` for a delivery. Returns durable admission or acknowledgement status. Distinct actual renders need distinct stable entryIds; the built-in renderer supplies them. |
+| `waitForTracks` | `(timeoutMs?) => Promise<void>` | Resolves once the `track()` requests in flight at call time settle, or rejects on `timeoutMs` (default 2000). `<InAppMessages/>` awaits this before each fetch. |
+| `waitForIdentify` | `() => Promise<void>` | Resolves once outstanding `identify()` requests have settled. The first message fetch awaits it, so a brand-new user is never queried before they exist. |
 | `userId` | `string \| null` | The currently identified user. |
 | `config` | `GalinumConfig` | `{ publishableKey, apiBase }`. |
 
@@ -39,14 +40,18 @@ development only.
 | `theme` | `"light" \| "dark" \| "auto"` | `"auto"` | Palette of the built-in renderer. `"auto"` follows your page's `color-scheme`. |
 | `render` | `(message, actions) => ReactNode` | built-in renderer | Custom renderer for the message scheduled on this page view. Return `null` to render nothing and let the next candidate through. |
 
-Messages are prefetched and shown one per page view, at page load or right
-after a navigation (see
+Messages require a fresh correlated decision for each entry, with at most one
+actual render (see
 [In-app messages](/sdk/react/in-app-messages)). There is no polling prop.
 
 The built-in renderer follows `content.presentation`: `"toast"` renders the
 compact bottom-right card, `"modal"` renders a centered announcement with a
 full-screen backdrop. Media rides along in both (see
 [In-app messages](/sdk/react/in-app-messages)).
+
+Feedback returns a receipt whose status is queued, acknowledged, rejected or failed.
+Use flushFeedback to process a bounded outbox page, then resend the same tuple to
+read its status. Records keep their original user and project on retries. Terminal admission needs a durable same-entry shown predecessor. Invalid success receipts remain retryable; failed admission does not close the built-in renderer.
 
 ## Types
 
@@ -62,7 +67,7 @@ type InAppMessage = {
 type MessageContent = {
   title?: string;
   body?: string;
-  cta?: { label: string; url?: string };
+  cta?: { label: string; destination?: { kind: "website" | "app"; url: string } };
   media?: MessageMedia;
   presentation?: "toast" | "modal"; // always present on delivered messages
   [key: string]: unknown; // campaigns may carry any JSON
@@ -77,9 +82,9 @@ type MessageMedia = {
 };
 
 type MessageActions = {
-  onClick: () => void;
-  onDismiss: () => void;
-  onConvert: () => void;
+  onClick: () => Promise<FeedbackReceipt>;
+  onDismiss: () => Promise<FeedbackReceipt>;
+  onConvert: () => Promise<FeedbackReceipt>;
 };
 
 type DeliveryFeedback = "shown" | "clicked" | "dismissed" | "converted";

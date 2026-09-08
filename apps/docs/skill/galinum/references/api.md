@@ -383,7 +383,7 @@ Web in-app message content:
 {
   "title": "CSV export is here 📊",
   "body": "Export any table to CSV from the toolbar.",
-  "cta": { "label": "Try it", "url": "/exports" },
+  "cta": { "label": "Try it", "destination": { "kind": "website", "url": "https://app.example.com/exports" } },
   "media": {
     "url": "https://storage.galinum.com/projects/prj_123/campaign-media/9c2f….png",
     "alt": "The new export button in the table toolbar"
@@ -393,8 +393,8 @@ Web in-app message content:
 ```
 
 - `title` ≤ 120 chars, `body` ≤ 600; at least one of the two is required.
-- `cta.label` is required if `cta` is present; `cta.url` is optional but must
-  be `https://`, `http://`, `mailto:`, or a path starting with `/`.
+- `cta.label` is required if `cta` is present; `cta.destination` is optional: {kind:"website"|"app",url}.
+  Websites require HTTPS; app URL schemes must be configured by the client.
 - `presentation` is **required**: `"toast"` (compact bottom-right card) or
   `"modal"` (centered announcement over a full-screen backdrop). Omitting it
   or sending another value is a 400. Choose the least interruptive option

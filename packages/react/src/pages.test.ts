@@ -85,3 +85,11 @@ describe("currentPath", () => {
     expect(currentPath()).toBe("/dashboard");
   });
 });
+
+it("validates typed destinations without a mandatory website-origin allowlist", async () => {
+  const { destinationUrl } = await import("@galinum/contracts/entry");
+  expect(destinationUrl({ kind: "website", url: "https://independent.example/path" })).toBe("https://independent.example/path");
+  expect(destinationUrl({ kind: "app", url: "myapp://screen" })).toBeNull();
+  expect(destinationUrl({ kind: "app", url: "myapp://screen" }, ["myapp"])).toBe("myapp://screen");
+  expect(destinationUrl({ kind: "app", url: "javascript:alert(1)" }, ["javascript"])).toBeNull();
+});

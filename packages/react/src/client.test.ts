@@ -75,7 +75,7 @@ describe("fetchMessages", () => {
     const result = await fetchMessages(config, "user/1");
     expect(result).toEqual({ ok: true, messages: [message] });
     const [url] = mock.mock.calls[0] as unknown as [string];
-    expect(url).toBe("https://galinum.test/api/v1/messages?userId=user%2F1&pages=1");
+    expect(url).toBe("https://galinum.test/api/v1/messages?userId=user%2F1&entryId=&requestId=&path=%2F");
   });
 
   // A failure must be distinguishable from an empty result: the scheduler
@@ -103,11 +103,11 @@ describe("fetchMessages", () => {
 
 describe("feedbackRequest", () => {
   it("POSTs the feedback type to the delivery, URL-encoding the id", async () => {
-    const mock = stubFetch(json({ ok: true }));
-    await feedbackRequest(config, "del/1", "dismissed");
+    const mock = stubFetch(json({ userId: "user_1", deliveryId: "del/1", type: "dismissed", receiptId: "feedback", acknowledgedAt: 1000 }));
+    expect(await feedbackRequest(config, "del/1", "dismissed", "user_1", "feedback")).toBe("ok");
 
     const [url, init] = mock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe("https://galinum.test/api/v1/deliveries/del%2F1/event");
-    expect(JSON.parse(init.body as string)).toEqual({ type: "dismissed" });
+    expect(JSON.parse(init.body as string)).toEqual({ userId: "user_1", type: "dismissed", feedbackId: "feedback" });
   });
 });

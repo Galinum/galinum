@@ -83,3 +83,6 @@
 !packages/push/src/storage.ts
 !packages/push/src/identity.ts
 !packages/push/src/recovery.ts
+!packages/contracts/src/entry.ts
+!packages/core/src/inapp.ts
+!packages/server/upgrades/inapp.sql

@@ -1,3 +1,5 @@
+import { matchesPages, destinationUrl } from "@galinum/contracts/entry";
+import { createInAppService, InAppError, type InAppHost, type InAppPersistence, type InAppFeedbackRecord, type InAppTransaction } from "@galinum/core";
 import { validateSchema, installationSchemas } from "@galinum/contracts";
 import { createServerPush, pushTransaction, recordServerEvent } from "./push.js";
 import { PushError, validatePushContent, validatePushSettings, type PushSettings, type PushProvider, type PushPersistence, type PushRecords, type RecordKind, type PushQuery, MemoryPushRecords, type AcceptanceFact, type PushTransaction } from "@galinum/push";
@@ -299,7 +301,7 @@ export type DeliveryStats = {
 };
 export type CampaignStats = { total: DeliveryStats; variants: Map<string, DeliveryStats> };
 
-export interface ProductStoreAccess extends InstallationAccess, PushPersistence {
+export interface ProductStoreAccess extends InstallationAccess, PushPersistence, InAppPersistence {
   queryPushUsers(afterId: string | null, limit: number): Promise<ProductUser[]>;
   identifyUser(externalId: string, traits: JsonObject, now: number): Promise<ProductUser>;
   getUserById(id: string): Promise<ProductUser | null>;
@@ -366,6 +368,8 @@ export interface ProductStore extends ProductStoreAccess {
 }
 
 export type LocalProductOptions = {
+  inAppMayServe?: InAppHost["mayServe"];
+  inAppRecordExposure?: InAppHost["recordExposure"];
   pushEncryptionKey?: string;
   pushProvider?: PushProvider;
   pushMaySend?: (transaction: PushTransaction, userId: string, now: number) => Promise<boolean>;
@@ -472,7 +476,7 @@ const DELIVERY_STATE_PRECEDENCE: Record<ProductDelivery["state"], number> = {
 };
 
 function applyDeliveryFeedback(delivery: ProductDelivery, type: DeliveryFeedback, now: number) {
-  delivery.shownAt ??= now;
+  if (type === "shown") delivery.shownAt ??= now;
   if (type === "clicked") delivery.clickedAt ??= now;
   if (type === "dismissed") delivery.dismissedAt ??= now;
   if (type === "converted") delivery.convertedAt ??= now;
@@ -795,7 +799,12 @@ async function parseMessage(
     if (!message.cta || typeof message.cta !== "object" || Array.isArray(message.cta)) return { ok: false, status: 400, error: "Invalid CTA" };
     const cta = message.cta as JsonObject;
     if (typeof cta.label !== "string" || !cta.label) return { ok: false, status: 400, error: "CTA label is required" };
-    if (cta.url !== undefined && (typeof cta.url !== "string" || !validCtaUrl(cta.url))) return { ok: false, status: 400, error: "Invalid CTA URL" };
+    if (cta.url !== undefined) return { ok: false, status: 400, error: "Use a typed CTA destination" };
+    if (cta.destination !== undefined) {
+      const destination = cta.destination as { kind: "website" | "app"; url: string };
+      if (!destination || !["website", "app"].includes(destination.kind) || typeof destination.url !== "string" || !destinationUrl(destination, [destination.url.split(":")[0]])) return { ok: false, status: 400, error: "Invalid CTA destination" };
+      try { new URL(destination.url); } catch { return { ok: false, status: 400, error: "Invalid CTA destination" }; }
+    }
   }
   if (message.media !== undefined) {
     if (!message.media || typeof message.media !== "object" || Array.isArray(message.media)) return { ok: false, status: 400, error: "Invalid media" };
@@ -1072,6 +1081,69 @@ export function createProduct(store: ProductStore, options: LocalProductOptions 
     return { ok: false };
   };
   const capacityResponse = () => json({ error: "Audience facts exceed local evaluation capacity" }, 503);
+
+  const inapp = createInAppService({
+    projectId, now,
+    mayServe: options.inAppMayServe ?? (async () => true),
+    recordExposure: options.inAppRecordExposure ?? (async () => {}),
+    transaction: (work) => store.transaction(async (tx) => {
+      await tx.lockInstallations();
+      const adapter: InAppTransaction = {
+        getInAppFeedback: (id) => tx.getInAppFeedback(id),
+        insertInAppFeedback: (record) => tx.insertInAppFeedback(record),
+        user: (externalId) => tx.getUserByExternalId(externalId),
+        async candidates(userId, path, evaluatedAt) {
+          const page = await tx.queryCampaigns({ channel: "web_inapp", effectiveStatus: "running", query: null, evaluatedAt, offset: 0, limit: 101 });
+          if (page.values.length > 100) throw new InAppError(503, "Too many eligible campaigns");
+          const user = await tx.getUserById(userId);
+          if (!user) return [];
+          const eligible = [];
+          for (const campaign of page.values) {
+            if (!matchesPages(campaign.pages, path)) continue;
+            let events: ProductEvent[] = [];
+            if (campaign.audience.kind !== "all" && campaign.audience.kind !== "invalid") {
+              const names = referencedVocabulary((JSON.parse(campaign.audience.expressionJson) as AudienceExpression).root).events;
+              if (names.size) {
+                const facts = await tx.loadAudienceFacts({ userId, afterUserId: null, limit: 1, traitKeys: [], eventNames: [...names], evaluatedAt, maxOccurrences: LIMITS.maxEvaluatedEventOccurrences, eventRowBudget: names.size * LIMITS.maxEvaluatedEventOccurrences });
+                if (facts.overflow) throw new InAppError(503, "Audience facts unavailable");
+                events = facts.eventsByUser.get(userId) ?? [];
+              }
+            }
+            if (campaignMatches(campaign, user, events, evaluatedAt)) eligible.push(campaign);
+          }
+          return eligible;
+        },
+        delivery: (campaign, userId, variantId, queuedAt) => tx.getOrCreateDelivery({
+          id: "del_" + randomUUID(), campaignId: campaign.id, userId, variantId, state: "queued", queuedAt,
+          sentAt: null, deliveredAt: null, shownAt: null, openedAt: null, clickedAt: null, dismissedAt: null,
+          bouncedAt: null, complainedAt: null, unsubscribedAt: null, convertedAt: null,
+        }),
+        getDelivery: (id) => tx.getDeliveryForUpdate(id),
+        isInApp: async (id) => (await tx.getCampaign(id))?.channel === "web_inapp",
+        content: (value) => publicMessageContent(JSON.parse(value), media, projectId),
+        async saveFeedback(id, type, timestamp) {
+          const delivery = await tx.getDeliveryForUpdate(id);
+          if (!delivery) throw new InAppError(404, "Delivery not found");
+          const firstExposure = delivery.shownAt === null;
+          applyDeliveryFeedback(delivery, type, timestamp);
+          if (type === "shown" && firstExposure) {
+            const campaign = await tx.getCampaign(delivery.campaignId);
+            const goal = campaign?.goalId ? await tx.getGoal(campaign.goalId) : null;
+            if (goal?.targetEvent) {
+              const event = await tx.findFirstEventAtOrAfter(delivery.userId, goal.targetEvent, timestamp);
+              if (event) { delivery.state = "converted"; delivery.convertedAt = event.occurredAt; }
+            }
+          }
+          await tx.saveDelivery(delivery);
+        },
+      };
+      return work(adapter);
+    }),
+  });
+  const inappResponse = async (work: () => Promise<unknown>) => {
+    try { return Response.json(await work(), { headers: { "Cache-Control": "no-store" } }); }
+    catch (error) { return Response.json({ error: error instanceof InAppError ? error.message : "In-app operation failed" }, { status: error instanceof InAppError ? error.status : 500, headers: { "Cache-Control": "no-store" } }); }
+  };
 
   const rawHandlers: OperationHandlers = {
     uploadCampaignMedia: createUploadCampaignMediaHandler({ projectId, secretKey, media }),
@@ -1959,100 +2031,18 @@ export function createProduct(store: ProductStore, options: LocalProductOptions 
 
     async getMessages(request) {
       if (!requireKey(request, publishableKey)) return json({ error: "Unauthorized" }, 401);
-      const url = new URL(request.url);
-      const externalId = url.searchParams.get("userId");
-      if (!externalId) return json({ error: "userId is required" }, 400);
-      const evaluatedAt = now();
-      const facts = await store.withReadSnapshot(async (snapshot) => {
-        const { values: campaigns } = await snapshot.queryCampaigns({ channel: "web_inapp", effectiveStatus: "running", query: null, evaluatedAt, offset: 0, limit: 101 });
-        if (campaigns.length > 100) return { kind: "candidates" as const };
-        const user = await snapshot.getUserByExternalId(externalId);
-        if (!user) return { kind: "missing" as const };
-        const eventNames = new Set<string>();
-        const traitKeys = new Set<string>();
-        for (const campaign of campaigns) {
-          if (campaign.audience.kind === "all" || campaign.audience.kind === "invalid") continue;
-          const vocabulary = referencedVocabulary((JSON.parse(campaign.audience.expressionJson) as AudienceExpression).root);
-          vocabulary.events.forEach((name) => eventNames.add(name));
-          vocabulary.traits.forEach((key) => traitKeys.add(key));
-        }
-        const loaded = await loadFactsWithinBudget(snapshot, {
-          afterUserId: null, userId: user.id, traitKeys: [...traitKeys], eventNames: [...eventNames], evaluatedAt,
-          maxOccurrences: LIMITS.maxEvaluatedEventOccurrences, eventRowBudget: audienceEventRowBudget,
-        }, 1);
-        if (!loaded.ok) return { kind: "overflow" as const };
-        return { kind: "loaded" as const, campaigns, user: loaded.batch.users[0], events: loaded.batch.eventsByUser.get(user.id) ?? [] };
-      });
-      if (facts.kind === "candidates") return json({ error: "Too many eligible campaigns to evaluate safely" }, 503);
-      if (facts.kind === "missing") return json({ messages: [] });
-      if (facts.kind === "overflow") return capacityResponse();
-      const { campaigns, user, events: userEvents } = facts;
-      const messages = [];
-      for (const campaign of campaigns) {
-        if (campaign.channel !== "web_inapp") continue;
-        if (campaign.pages !== null && url.searchParams.get("pages") !== "1") continue;
-        if (!await campaignMatches(campaign, user, userEvents, evaluatedAt)) continue;
-        const assigned = pickVariant(user.id, campaign.id, campaign.variants);
-        if (!assigned) continue;
-        const delivery = await store.transaction((transaction) => transaction.getOrCreateDelivery({
-          id: `del_${randomUUID()}`,
-          campaignId: campaign.id,
-          variantId: assigned.id,
-          userId: user.id,
-          state: "queued",
-          queuedAt: evaluatedAt,
-          sentAt: null,
-          deliveredAt: null,
-          shownAt: null,
-          openedAt: null,
-          clickedAt: null,
-          dismissedAt: null,
-          bouncedAt: null,
-          complainedAt: null,
-          unsubscribedAt: null,
-          convertedAt: null,
-        }));
-        if (!["queued", "shown"].includes(delivery.state)) continue;
-        const variant = campaign.variants.find((candidate) => candidate.id === delivery.variantId);
-        if (!variant) continue;
-        messages.push({
-          deliveryId: delivery.id,
-          campaignId: campaign.id,
-          variantId: variant.id,
-          ...(url.searchParams.get("pages") === "1" ? { pages: campaign.pages } : {}),
-          content: publicMessageContent(JSON.parse(variant.content_json), media, projectId),
-        });
-      }
-      return json({ messages: sortByPresentation(messages) });
+      const query = new URL(request.url).searchParams;
+      const input = { userId: query.get("userId"), entryId: query.get("entryId"), requestId: query.get("requestId"), path: query.get("path") };
+      if (!validateSchema(installationSchemas.InAppDecisionInput, input, installationSchemas)) return json({ error: "Invalid decision correlation or path" }, 400);
+      return inappResponse(() => inapp.decide(input as { userId: string; entryId: string; requestId: string; path: string }));
     },
 
     async recordDeliveryEvent(request, { params }) {
       if (!requireKey(request, publishableKey)) return json({ error: "Unauthorized" }, 401);
       const parsed = await body(request, SDK_BODY_BYTES);
       if (!parsed.ok) return bodyError(parsed.status);
-      const type = parsed.value.type;
-      if (!new Set(["shown", "clicked", "dismissed", "converted"]).has(String(type))) return json({ error: "Invalid type" }, 400);
-      const occurredAt = now();
-      const found = await store.transaction(async (transaction) => {
-        const delivery = await transaction.getDeliveryForUpdate(params.id);
-        if (!delivery || (await transaction.getCampaign(delivery.campaignId))?.channel !== "web_inapp") return false;
-        const firstExposure = delivery.shownAt === null;
-        applyDeliveryFeedback(delivery, type as DeliveryFeedback, occurredAt);
-        if (type === "shown" && firstExposure) {
-          const campaign = await transaction.getCampaign(delivery.campaignId);
-          const goal = campaign?.goalId ? await transaction.getGoal(campaign.goalId) : null;
-          if (goal?.targetEvent) {
-            const prior = await transaction.findFirstEventAtOrAfter(delivery.userId, goal.targetEvent, occurredAt);
-            if (prior) {
-              delivery.state = "converted";
-              delivery.convertedAt = prior.occurredAt;
-            }
-          }
-        }
-        await transaction.saveDelivery(delivery);
-        return true;
-      });
-      return found ? json({ ok: true }) : json({ error: "Delivery not found" }, 404);
+      if (!validateSchema(installationSchemas.InAppFeedbackInput, parsed.value, installationSchemas)) return json({ error: "Invalid feedback identity" }, 400);
+      return inappResponse(() => inapp.feedback(params.id, parsed.value.userId as string, parsed.value.type as DeliveryFeedback, parsed.value.feedbackId as string));
     },
 
     async getUsage(request) {
@@ -2110,6 +2100,13 @@ export class MemoryProductStore implements ProductStore {
   private readonly usersById = new Map<string, ProductUser>();
   private readonly goals = new Map<string, ProductGoal>();
   private readonly campaigns = new Map<string, ProductCampaign>();
+  private readonly inAppFeedback = new Map<string, InAppFeedbackRecord>();
+  private readonly inAppFeedbackUndo = new Set<string>();
+  async getInAppFeedback(id: string) { return structuredClone(this.inAppFeedback.get(id) ?? null); }
+  async insertInAppFeedback(record: InAppFeedbackRecord) {
+    if (this.inAppFeedback.has(record.id)) throw new Error("Feedback already exists");
+    this.inAppFeedbackUndo.add(record.id); this.inAppFeedback.set(record.id, structuredClone(record));
+  }
   private readonly deliveryUndo = new Map<string, ProductDelivery | undefined>();
   private readonly deliveries = new Map<string, ProductDelivery>();
   private readonly deliveryByCampaignUser = new Map<string, string>();
@@ -2169,6 +2166,7 @@ export class MemoryProductStore implements ProductStore {
     this.pushRecords.begin();
     this.userUndo.clear();
     this.deliveryUndo.clear();
+    this.inAppFeedbackUndo.clear();
     const eventCount = this.events.length;
     this.installationUndo.clear();
     this.installationReplayUndo.clear();
@@ -2176,6 +2174,7 @@ export class MemoryProductStore implements ProductStore {
       return await work(this);
     } catch (error) {
       this.events.splice(eventCount);
+      for (const id of this.inAppFeedbackUndo) this.inAppFeedback.delete(id);
       for (const [externalId, user] of this.userUndo) {
         const current = this.users.get(externalId);
         if (user) { this.users.set(externalId, user); this.usersById.set(user.id, user); }
@@ -2661,6 +2660,7 @@ export class MemoryProductStore implements ProductStore {
       if (delivery.shownAt !== null && delivery.shownAt >= start && delivery.shownAt < end) activeUserIds.add(delivery.userId);
       if (this.campaigns.has(delivery.campaignId) && delivery.state === "frequency_capped" && delivery.queuedAt >= start && delivery.queuedAt < end) frequencyCapped += 1;
     }
+    for (const record of this.inAppFeedback.values()) if (record.type === "shown" && record.acknowledgedAt >= start && record.acknowledgedAt < end) activeUserIds.add(record.userId);
     return {
       activeUsers: activeUserIds.size,
       frequencyCapped,

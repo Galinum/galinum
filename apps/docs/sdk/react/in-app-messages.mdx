@@ -15,34 +15,15 @@ targeting against the user's traits and event history, assigns an A/B variant
 
 ## One message per page view
 
-The SDK **prefetches** eligible messages when the user is identified and keeps
-them in memory. Each page view then picks from that cache synchronously, so no
-request sits on the render path.
+Each page entry requests fresh, non-cacheable authority after identity and current
+track facts settle. One elected renderer may commit one message. A null custom
+renderer skips its candidate without exposure. Failed or timed-out entries stay
+empty; a later navigation can try again. Warm content is never eligibility.
 
-- A user sees at most one message per page view, across every mounted
-  `<InAppMessages/>` in your app.
-- Messages appear at page load or right after a navigation. Nothing ever pops
-  into a screen the user is already reading.
-- Dismissing a message does not release the page view. Navigation is the only
-  unlock.
-- A message still on screen when the user navigates simply leaves. It sends no
-  dismissal, so the same message can appear again on a later page view.
-- Fetches happen at identify, on navigation (feeding later page views), and
-  after the user resolves a message. There is no polling timer.
-- Each fetch first waits for the `track()` requests already in flight (up to a
-  short fail-open timeout, 2 s), so event-based targeting normally sees the
-  events your app just fired. If a track request stalls past the timeout, the
-  fetch proceeds anyway: delivery is never blocked by tracking.
-- Actually rendering counts as the **impression** — when a message mounts, the
-  SDK reports `shown` for the delivery. Fetching alone never marks a message
-  shown, so a cached message the user never sees is not counted as an
-  impression.
-- A user gets each campaign at most once: after they dismiss, click, or
-  convert, the message doesn't come back.
-
-Page views are identified by the pathname. A hash-only or query-only change is
-the same page view; a full reload starts a new one. Tabs are independent, and
-nothing is stored between sessions.
+Dismissing or completing a message consumes the entry. Navigation removes an
+interrupted message without sending dismissal. Queries and hashes do not create
+new entries. Actual rendering reports shown; fetching alone creates no exposure.
+Durable feedback and local completion survive reloads, scoped to project and user.
 
 ## Targeting screens
 
@@ -170,3 +151,48 @@ with the hook:
 const { sendFeedback } = useGalinum();
 await sendFeedback(deliveryId, "converted");
 ```
+
+
+## Fresh entries and shared completion
+
+Every navigation creates an entry before its no-store decision request. The
+server echoes userId, entryId and requestId. The SDK rejects prior-entry,
+prior-identity and outdated-facts responses. A failed or ten-second-deadline entry
+settles empty; a later navigation can try again. Cached eligibility never displays.
+
+Web and native use the same project/user/campaign delivery and stable variant.
+Completion acknowledged before another client's later entry suppresses it there.
+There is no global display lease. Remote completion concurrent with an authorized
+entry can race its paint. Known local facts mutations invalidate uncommitted
+authority immediately, including a settled candidate awaiting its renderer.
+Already-painted messages are not globally retracted.
+
+Feedback is durable per captured project/feedbackId, with immutable user/delivery/type. Terminal feedback
+requires a durably admitted same-entry shown predecessor and waits for its
+validated acknowledgement. Missing or rejected predecessors produce failed
+admission; the built-in renderer stays available for retry. sendFeedback returns queued, acknowledged,
+rejected or failed admission. flushFeedback processes a bounded page; retrying
+the same delivery/type reads its status. A replay never creates a new billing
+exposure in another period; a distinct committed render has its own stable ID. Browser storage failures are explicit.
+
+CTA destinations are typed: {label,destination:{kind:"website",url:"https://app.example.com/exports"}}.
+For app URLs, use kind:"app" and configure appSchemes on GalinumProvider.
+No mandatory website-origin allowlist is required.
+
+
+## In-app receipt upgrade
+
+Existing databases require the separate transactional
+packages/server/upgrades/inapp.sql after the installation and push upgrades.
+Back up and stop API workers, apply it with psql -X -v ON_ERROR_STOP=1 -f,
+then update SDK callers together with the server. Fresh schema initialization
+already includes the receipt table. Each actual shown operation has a stable
+feedbackId; retries preserve it, while distinct committed renders get new IDs.
+Receipt storage is indexed per operation, without a lifetime replay cap.
+
+
+Feedback acknowledgement requires a canonical HTTP 200 receipt with the captured
+user, delivery, type and feedback ID, and a valid integer first timestamp.
+Malformed or mismatched success bodies are retryable, never permanent success.
+Identify invalidates facts at invocation and settlement; uncommitted entry
+authority cannot outlive a known mutation.

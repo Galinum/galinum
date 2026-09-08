@@ -38,8 +38,8 @@ describe("pre-push review regressions", () => {
       launch: true,
     });
     expect(created.status).toBe(201);
-    expect((await (await call("/api/v1/messages?userId=free", "GET", undefined, publishable)).json()).messages).toHaveLength(1);
-    expect((await (await call("/api/v1/messages?userId=pro", "GET", undefined, publishable)).json()).messages).toEqual([]);
+    expect((await (await call("/api/v1/messages?entryId=test-entry&requestId=test-request&path=%2Fdashboard&userId=free", "GET", undefined, publishable)).json()).messages).toHaveLength(1);
+    expect((await (await call("/api/v1/messages?entryId=test-entry&requestId=test-request&path=%2Fdashboard&userId=pro", "GET", undefined, publishable)).json()).messages).toEqual([]);
 
     const segment = (await (await call("/api/v1/segments", "POST", {
       key: "free-users",
@@ -57,8 +57,8 @@ describe("pre-push review regressions", () => {
       expectedVersion: 1,
     });
     expect(pinned.audience).toMatchObject({ kind: "segment", segmentVersion: 1 });
-    expect((await (await call("/api/v1/messages?userId=free", "GET", undefined, publishable)).json()).messages.map((message: { campaignId: string }) => message.campaignId)).toContain(pinned.id);
-    expect((await (await call("/api/v1/messages?userId=pro", "GET", undefined, publishable)).json()).messages.map((message: { campaignId: string }) => message.campaignId)).not.toContain(pinned.id);
+    expect((await (await call("/api/v1/messages?entryId=test-entry&requestId=test-request&path=%2Fdashboard&userId=free", "GET", undefined, publishable)).json()).messages.map((message: { campaignId: string }) => message.campaignId)).toContain(pinned.id);
+    expect((await (await call("/api/v1/messages?entryId=test-entry&requestId=test-request&path=%2Fdashboard&userId=pro", "GET", undefined, publishable)).json()).messages.map((message: { campaignId: string }) => message.campaignId)).not.toContain(pinned.id);
     const segmentCampaign = (audience: unknown) => call("/api/v1/campaigns", "POST", {
       name: "Segment validation",
       message: { presentation: "toast", title: "Segment" },
@@ -76,8 +76,8 @@ describe("pre-push review regressions", () => {
       launch: true,
     })).json()).campaign;
     expect(legacy.audience).toMatchObject({ kind: "expression", legacy: false });
-    expect((await (await call("/api/v1/messages?userId=pro", "GET", undefined, publishable)).json()).messages.map((message: { campaignId: string }) => message.campaignId)).toContain(legacy.id);
-    expect((await (await call("/api/v1/messages?userId=free", "GET", undefined, publishable)).json()).messages.map((message: { campaignId: string }) => message.campaignId)).not.toContain(legacy.id);
+    expect((await (await call("/api/v1/messages?entryId=test-entry&requestId=test-request&path=%2Fdashboard&userId=pro", "GET", undefined, publishable)).json()).messages.map((message: { campaignId: string }) => message.campaignId)).toContain(legacy.id);
+    expect((await (await call("/api/v1/messages?entryId=test-entry&requestId=test-request&path=%2Fdashboard&userId=free", "GET", undefined, publishable)).json()).messages.map((message: { campaignId: string }) => message.campaignId)).not.toContain(legacy.id);
   });
 
   it("keeps ended and expired lifecycle states terminal", async () => {
@@ -171,16 +171,16 @@ describe("pre-push review regressions", () => {
     });
     expect(response.status).toBe(201);
     const campaign = (await response.json()).campaign;
-    const deliveries = new Map<string, string>();
+    const deliveries = new Map<string, { deliveryId: string; userId: string }>();
     for (let index = 0; index < 20 && deliveries.size < 2; index += 1) {
       const userId = `user_${index}`;
       await call("/api/v1/identify", "POST", { userId }, publishable);
-      const message = (await (await call(`/api/v1/messages?userId=${userId}`, "GET", undefined, publishable)).json()).messages[0];
-      deliveries.set(message.variantId, message.deliveryId);
+      const message = (await (await call(`/api/v1/messages?entryId=test-entry&requestId=test-request&path=%2Fdashboard&userId=${userId}`, "GET", undefined, publishable)).json()).messages[0];
+      deliveries.set(message.variantId, { deliveryId: message.deliveryId, userId });
     }
     expect(deliveries.size).toBe(2);
-    for (const deliveryId of deliveries.values()) {
-      await call(`/api/v1/deliveries/${deliveryId}/event`, "POST", { type: "shown" }, publishable);
+    for (const { deliveryId, userId } of deliveries.values()) {
+      await call(`/api/v1/deliveries/${deliveryId}/event`, "POST", { userId, type: "shown", feedbackId: userId + ":shown" }, publishable);
     }
     const detail = (await (await call(`/api/v1/campaigns/${campaign.id}`)).json()).campaign;
     expect(detail.stats.shown).toBe(2);
@@ -209,7 +209,7 @@ describe("pre-push review regressions", () => {
     await call("/api/v1/campaigns", "POST", { name: "Toast", message: { presentation: "toast", title: "Toast" }, launch: true });
     await call("/api/v1/campaigns", "POST", { name: "Modal", message: { presentation: "modal", title: "Modal" }, launch: true });
     await call("/api/v1/identify", "POST", { userId: "ordered" }, publishable);
-    const messages = (await (await call("/api/v1/messages?userId=ordered", "GET", undefined, publishable)).json()).messages;
+    const messages = (await (await call("/api/v1/messages?entryId=test-entry&requestId=test-request&path=%2Fdashboard&userId=ordered", "GET", undefined, publishable)).json()).messages;
     expect(messages.map((message: { content: { presentation: string } }) => message.content.presentation)).toEqual(["modal", "toast"]);
   });
 
@@ -219,7 +219,7 @@ describe("pre-push review regressions", () => {
     for (let index = 0; index < 100; index += 1) {
       await full.call("/api/v1/campaigns", "POST", { name: `Full ${index}`, message: { presentation: "toast", title: String(index) }, launch: true });
     }
-    const fullResponse = await full.call("/api/v1/messages?userId=full", "GET", undefined, full.publishable);
+    const fullResponse = await full.call("/api/v1/messages?entryId=test-entry&requestId=test-request&path=%2Fdashboard&userId=full", "GET", undefined, full.publishable);
     expect(fullResponse.status).toBe(200);
     expect((await fullResponse.json()).messages).toHaveLength(100);
 
@@ -228,7 +228,7 @@ describe("pre-push review regressions", () => {
     for (let index = 0; index < 101; index += 1) {
       await overflow.call("/api/v1/campaigns", "POST", { name: `Overflow ${index}`, message: { presentation: "toast", title: String(index) }, launch: true });
     }
-    expect((await overflow.call("/api/v1/messages?userId=overflow", "GET", undefined, overflow.publishable)).status).toBe(503);
+    expect((await overflow.call("/api/v1/messages?entryId=test-entry&requestId=test-request&path=%2Fdashboard&userId=overflow", "GET", undefined, overflow.publishable)).status).toBe(503);
   });
 
   it("keeps resolved feedback monotonic", async () => {
@@ -236,15 +236,17 @@ describe("pre-push review regressions", () => {
     const campaign = (await (await call("/api/v1/campaigns", "POST", { name: "Feedback", message: { presentation: "toast", title: "Feedback" }, launch: true })).json()).campaign;
     await call("/api/v1/identify", "POST", { userId: "converted" }, publishable);
     await call("/api/v1/identify", "POST", { userId: "dismissed" }, publishable);
-    const converted = (await (await call("/api/v1/messages?userId=converted", "GET", undefined, publishable)).json()).messages[0];
-    const dismissed = (await (await call("/api/v1/messages?userId=dismissed", "GET", undefined, publishable)).json()).messages[0];
-    await call(`/api/v1/deliveries/${converted.deliveryId}/event`, "POST", { type: "converted" }, publishable);
-    await call(`/api/v1/deliveries/${converted.deliveryId}/event`, "POST", { type: "shown" }, publishable);
-    await call(`/api/v1/deliveries/${dismissed.deliveryId}/event`, "POST", { type: "dismissed" }, publishable);
-    await call(`/api/v1/deliveries/${dismissed.deliveryId}/event`, "POST", { type: "shown" }, publishable);
+    const converted = (await (await call("/api/v1/messages?entryId=test-entry&requestId=test-request&path=%2Fdashboard&userId=converted", "GET", undefined, publishable)).json()).messages[0];
+    const dismissed = (await (await call("/api/v1/messages?entryId=test-entry&requestId=test-request&path=%2Fdashboard&userId=dismissed", "GET", undefined, publishable)).json()).messages[0];
+    await call(`/api/v1/deliveries/${converted.deliveryId}/event`, "POST", { userId: "converted", type: "shown", feedbackId: "converted" + ":shown" }, publishable);
+    await call(`/api/v1/deliveries/${converted.deliveryId}/event`, "POST", { userId: "converted", type: "converted", feedbackId: "converted" + ":converted" }, publishable);
+    await call(`/api/v1/deliveries/${converted.deliveryId}/event`, "POST", { userId: "converted", type: "shown", feedbackId: "converted" + ":shown" }, publishable);
+    await call(`/api/v1/deliveries/${dismissed.deliveryId}/event`, "POST", { userId: "dismissed", type: "shown", feedbackId: "dismissed" + ":shown" }, publishable);
+    await call(`/api/v1/deliveries/${dismissed.deliveryId}/event`, "POST", { userId: "dismissed", type: "dismissed", feedbackId: "dismissed" + ":dismissed" }, publishable);
+    await call(`/api/v1/deliveries/${dismissed.deliveryId}/event`, "POST", { userId: "dismissed", type: "shown", feedbackId: "dismissed" + ":shown" }, publishable);
     const rows = (await (await call(`/api/v1/campaigns/${campaign.id}/deliveries`)).json()).deliveries;
     expect(new Set(rows.map((row: { state: string }) => row.state))).toEqual(new Set(["converted", "dismissed"]));
-    expect((await (await call("/api/v1/messages?userId=converted", "GET", undefined, publishable)).json()).messages).toEqual([]);
+    expect((await (await call("/api/v1/messages?entryId=test-entry&requestId=test-request&path=%2Fdashboard&userId=converted", "GET", undefined, publishable)).json()).messages).toEqual([]);
   });
 
   it("filters effective status, caps results, and returns newest campaigns first", async () => {
@@ -337,7 +339,7 @@ describe("pre-push review regressions", () => {
     expect(first.variants[0].content.media.url).toBe(product.media.publicUrl(object.path));
     expect(second.variants[0].content.media.url).toBe(product.media.publicUrl(object.path));
     await call("/api/v1/identify", "POST", { userId: "media-user" }, publishable);
-    const messages = (await (await call("/api/v1/messages?userId=media-user", "GET", undefined, publishable)).json()).messages;
+    const messages = (await (await call("/api/v1/messages?entryId=test-entry&requestId=test-request&path=%2Fdashboard&userId=media-user", "GET", undefined, publishable)).json()).messages;
     expect(messages[0].content.media.url).toBe(product.media.publicUrl(object.path));
     expect((await call(`/api/v1/campaigns/${first.id}`, "PATCH", { message: { presentation: "toast", title: "No media" } })).status).toBe(200);
     expect(await product.media.get(object.key)).not.toBeNull();
@@ -488,8 +490,8 @@ describe("pre-push review regressions", () => {
     await call("/api/v1/identify", "POST", { userId: "shown-only" }, publishable);
     await call("/api/v1/campaigns", "POST", { name: "Shown", message: { presentation: "toast", title: "Shown" }, launch: true });
     tick(40 * 86_400_000);
-    const message = (await (await call("/api/v1/messages?userId=shown-only", "GET", undefined, publishable)).json()).messages[0];
-    await call(`/api/v1/deliveries/${message.deliveryId}/event`, "POST", { type: "shown" }, publishable);
+    const message = (await (await call("/api/v1/messages?entryId=test-entry&requestId=test-request&path=%2Fdashboard&userId=shown-only", "GET", undefined, publishable)).json()).messages[0];
+    await call(`/api/v1/deliveries/${message.deliveryId}/event`, "POST", { userId: "shown-only", type: "shown", feedbackId: "shown-only" + ":shown" }, publishable);
     expect((await (await call("/api/v1/usage")).json()).activeUsers).toBe(1);
   });
 

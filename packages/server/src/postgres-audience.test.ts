@@ -160,9 +160,9 @@ integration("Postgres audience operations", () => {
         audienceVersionId: pinned.audience.audienceVersionId,
         segmentVersion: 1,
       });
-      const freeMessages = (await (await call(publishable, "/api/v1/messages?userId=free")).json()).messages;
+      const freeMessages = (await (await call(publishable, "/api/v1/messages?entryId=test-entry&requestId=test-request&path=%2Fdashboard&userId=free")).json()).messages;
       expect(new Set(freeMessages.map((message: { campaignId: string }) => message.campaignId))).toEqual(new Set([inline.id, pinned.id]));
-      expect((await (await call(publishable, "/api/v1/messages?userId=pro")).json()).messages).toEqual([]);
+      expect((await (await call(publishable, "/api/v1/messages?entryId=test-entry&requestId=test-request&path=%2Fdashboard&userId=pro")).json()).messages).toEqual([]);
 
       const legacyId = `cmp_${randomUUID()}`;
       const legacyVariantId = `var_${randomUUID()}`;
@@ -184,8 +184,8 @@ integration("Postgres audience operations", () => {
         targeting: { traits: { plan: "pro" } },
         audience: { kind: "expression", audienceVersionId: null, legacy: true },
       });
-      expect((await (await call(publishable, "/api/v1/messages?userId=pro")).json()).messages.map((message: { campaignId: string }) => message.campaignId)).toContain(legacyId);
-      expect((await (await call(publishable, "/api/v1/messages?userId=free")).json()).messages.map((message: { campaignId: string }) => message.campaignId)).not.toContain(legacyId);
+      expect((await (await call(publishable, "/api/v1/messages?entryId=test-entry&requestId=test-request&path=%2Fdashboard&userId=pro")).json()).messages.map((message: { campaignId: string }) => message.campaignId)).toContain(legacyId);
+      expect((await (await call(publishable, "/api/v1/messages?entryId=test-entry&requestId=test-request&path=%2Fdashboard&userId=free")).json()).messages.map((message: { campaignId: string }) => message.campaignId)).not.toContain(legacyId);
     } finally {
       await product?.close();
       await cleanProjects(connectionString, [projectId]);

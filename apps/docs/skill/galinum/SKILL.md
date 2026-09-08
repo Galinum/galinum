@@ -431,7 +431,7 @@ wrap-up (`kind: "conclusion"`) with the stats that drove the decision.
 
 ## Copy rules — every mode
 
-A web in-app message is `{ title, body, cta: { label, url }, presentation }`.
+A web in-app message is `{ title, body, cta: { label, destination: { kind, url } }, presentation }`.
 Title ≤ 120 chars and body ≤ 600. CTA URLs may use `https://`, `http://`,
 `mailto:`, or an in-app path like `/billing`.
 

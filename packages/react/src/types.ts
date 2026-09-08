@@ -23,7 +23,7 @@ export type MessagePresentation = "toast" | "modal";
 export type MessageContent = {
   title?: string;
   body?: string;
-  cta?: { label: string; url?: string };
+  cta?: { label: string; destination?: { kind: "website" | "app"; url: string } };
   media?: MessageMedia;
   // Delivered messages always carry this; older stored campaigns resolve to
   // modal with media and toast without it.
@@ -44,4 +44,5 @@ export type InAppMessage = {
 export type GalinumConfig = {
   publishableKey: string;
   apiBase: string;
+  appSchemes?: string[];
 };

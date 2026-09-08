@@ -79,7 +79,7 @@
       "post": {
         "operationId": "trackEvent",
         "summary": "Track an event",
-        "description": "Records a behavioral event for a user — the substrate Galinum's agents analyze for campaign targeting. Tracking implicitly upserts the user, so it is safe to call for users not yet identified. When the event name matches the targetEvent of a goal linked to a campaign (via goalId), exposed deliveries resolve to converted automatically. Exposure is shownAt for web in-app and deliveredAt for email.",
+        "description": "Records a behavioral event for a user \u2014 the substrate Galinum's agents analyze for campaign targeting. Tracking implicitly upserts the user, so it is safe to call for users not yet identified. When the event name matches the targetEvent of a goal linked to a campaign (via goalId), exposed deliveries resolve to converted automatically. Exposure is shownAt for web in-app and deliveredAt for email.",
         "tags": [
           "Users"
         ],
@@ -154,7 +154,7 @@
       "get": {
         "operationId": "getMessages",
         "summary": "Get eligible in-app messages",
-        "description": "Returns up to 100 in-app messages the user is currently eligible for. Galinum evaluates every window-eligible running campaign's targeting against the user's traits and event history, assigns an A/B variant (stable per user, weighted), and creates a delivery record in the queued state. Fetching does NOT count as an impression: report `shown` delivery feedback when the message actually renders (the React SDK does this automatically). A user gets each campaign at most once; resolved deliveries (clicked, dismissed, converted) don't come back. Pass `pages=1` to receive page-targeted campaigns and each message's `pages` patterns; the client is then responsible for matching them against the current path. If more than 100 campaigns need evaluation, the server returns 503 instead of partially serving them.",
+        "description": "Fresh non-cacheable entry decision. Correlation is echoed. Eligibility and completion serialize transactionally. No cache grants display authority.",
         "tags": [
           "Messages"
         ],
@@ -165,23 +165,39 @@
             "required": true,
             "schema": {
               "type": "string",
+              "minLength": 1,
               "maxLength": 256
-            },
-            "description": "Your product's id for this user.",
-            "example": "user_123"
+            }
           },
           {
-            "name": "pages",
+            "name": "entryId",
             "in": "query",
-            "required": false,
+            "required": true,
             "schema": {
               "type": "string",
-              "enum": [
-                "1"
-              ]
-            },
-            "description": "Declares that this client matches page patterns itself. Without it, page-targeted campaigns are withheld (fail closed) and no message carries `pages`.",
-            "example": "1"
+              "minLength": 1,
+              "maxLength": 256
+            }
+          },
+          {
+            "name": "requestId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            }
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^/",
+              "maxLength": 2048
+            }
           }
         ],
         "responses": {
@@ -192,7 +208,11 @@
                 "schema": {
                   "type": "object",
                   "required": [
-                    "messages"
+                    "messages",
+                    "userId",
+                    "entryId",
+                    "requestId",
+                    "evaluatedAt"
                   ],
                   "properties": {
                     "messages": {
@@ -201,8 +221,37 @@
                       "items": {
                         "$ref": "#/components/schemas/InAppMessage"
                       }
+                    },
+                    "userId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256
+                    },
+                    "entryId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256
+                    },
+                    "requestId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256
+                    },
+                    "evaluatedAt": {
+                      "type": "number"
                     }
                   }
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "description": "Eligibility and acknowledgements are not cacheable.",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "no-store"
+                  ]
                 }
               }
             }
@@ -240,7 +289,7 @@
       "post": {
         "operationId": "recordDeliveryEvent",
         "summary": "Report delivery feedback",
-        "description": "Records what the user did with a delivered message. `shown` marks the impression when the message actually renders, without resolving the delivery; `clicked`, `dismissed`, and `converted` resolve it — the message stops being returned for that user — and feed Galinum's per-variant measurement. converted also resolves automatically when a tracked event matches the targetEvent of the goal linked to the campaign (via goalId).",
+        "description": "Records what the user did with a delivered message. `shown` marks the impression when the message actually renders, without resolving the delivery; `clicked`, `dismissed`, and `converted` resolve it \u2014 the message stops being returned for that user \u2014 and feed Galinum's per-variant measurement. converted also resolves automatically when a tracked event matches the targetEvent of the goal linked to the campaign (via goalId).",
         "tags": [
           "Messages"
         ],
@@ -262,29 +311,32 @@
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "required": [
-                  "type"
-                ],
-                "properties": {
-                  "type": {
-                    "type": "string",
-                    "enum": [
-                      "shown",
-                      "clicked",
-                      "dismissed",
-                      "converted"
-                    ],
-                    "description": "shown = the message actually rendered (the impression; sent automatically by the React SDK — custom consumers must send it when they display the message, or it never counts as shown); clicked = engaged with the CTA; dismissed = closed the message; converted = completed the campaign's goal."
-                  }
-                }
+                "$ref": "#/components/schemas/InAppFeedbackInput"
               }
             }
           }
         },
         "responses": {
           "200": {
-            "$ref": "#/components/responses/Ok"
+            "description": "Durable first acknowledgement of the scoped delivery/type tuple.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InAppFeedbackReceipt"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "description": "Eligibility and acknowledgements are not cacheable.",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "no-store"
+                  ]
+                }
+              }
+            }
           },
           "400": {
             "$ref": "#/components/responses/BadRequest"
@@ -313,6 +365,16 @@
           },
           "500": {
             "$ref": "#/components/responses/ServerError"
+          },
+          "409": {
+            "description": "Captured identity conflict or missing shown acknowledgement.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         },
         "x-mcp": {
@@ -330,7 +392,7 @@
             "secretKey": []
           }
         ],
-        "description": "Uploads an image to attach to a campaign message. Send `multipart/form-data` with a single `file` field: PNG, JPEG, WebP, or GIF (animation is preserved), up to 4 MB and 4096×4096 pixels. File contents are verified — SVG and files whose bytes don't match their declared type are rejected. Returns an absolute HTTP(S) URL on the server's configured public origin; reference it as `media.url` when creating or editing a campaign. The image never changes the message's presentation — set `message.presentation` for that. Objects are immutable and retained; upload a new file to change an image.",
+        "description": "Uploads an image to attach to a campaign message. Send `multipart/form-data` with a single `file` field: PNG, JPEG, WebP, or GIF (animation is preserved), up to 4 MB and 4096\u00d74096 pixels. File contents are verified \u2014 SVG and files whose bytes don't match their declared type are rejected. Returns an absolute HTTP(S) URL on the server's configured public origin; reference it as `media.url` when creating or editing a campaign. The image never changes the message's presentation \u2014 set `message.presentation` for that. Objects are immutable and retained; upload a new file to change an image.",
         "tags": [
           "Campaigns"
         ],
@@ -418,7 +480,7 @@
             "$ref": "#/components/responses/RateLimited"
           },
           "502": {
-            "description": "Storage error — the image could not be stored; try again.",
+            "description": "Storage error \u2014 the image could not be stored; try again.",
             "content": {
               "application/json": {
                 "schema": {
@@ -541,7 +603,7 @@
                       "null"
                     ],
                     "minLength": 1,
-                    "description": "Link the campaign to a goal in this project (400 if the goal doesn't exist here). Tracked events matching the linked goal's targetEvent automatically resolve the campaign's deliveries to converted once shown. Omit or pass null for no goal — direct communications never need one."
+                    "description": "Link the campaign to a goal in this project (400 if the goal doesn't exist here). Tracked events matching the linked goal's targetEvent automatically resolve the campaign's deliveries to converted once shown. Omit or pass null for no goal \u2014 direct communications never need one."
                   },
                   "launch": {
                     "type": "boolean",
@@ -913,7 +975,7 @@
             "secretKey": []
           }
         ],
-        "description": "Edits any subset of name, targeting, message content, variants, and the delivery window. `message` only works on single-variant campaigns; `variants` entries with an `id` update that variant, entries without one create a new variant (variants are never deleted — retire one with `weight: 0`; a campaign keeps at most 10 variants, exactly one control, and at least one positive weight). Extending `deliverUntil` into the future resumes an expired campaign (a paused one additionally needs the `launch` status action).",
+        "description": "Edits any subset of name, targeting, message content, variants, and the delivery window. `message` only works on single-variant campaigns; `variants` entries with an `id` update that variant, entries without one create a new variant (variants are never deleted \u2014 retire one with `weight: 0`; a campaign keeps at most 10 variants, exactly one control, and at least one positive weight). Extending `deliverUntil` into the future resumes an expired campaign (a paused one additionally needs the `launch` status action).",
         "tags": [
           "Campaigns"
         ],
@@ -975,7 +1037,7 @@
                       "null"
                     ],
                     "minLength": 1,
-                    "description": "Link the campaign to a goal in this project; null unlinks. Linking takes effect for target events tracked from then on — it never rewrites past deliveries."
+                    "description": "Link the campaign to a goal in this project; null unlinks. Linking takes effect for target events tracked from then on \u2014 it never rewrites past deliveries."
                   },
                   "message": {
                     "oneOf": [
@@ -1089,7 +1151,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "404": {
-            "description": "Campaign not found — or audience.kind segment referenced a segment/version that does not exist in this project.",
+            "description": "Campaign not found \u2014 or audience.kind segment referenced a segment/version that does not exist in this project.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1151,7 +1213,7 @@
             "secretKey": []
           }
         ],
-        "description": "Transitions a campaign's status. `launch` starts a draft or paused campaign, `pause` suspends delivery, `end` stops it permanently — ended campaigns cannot be restarted. On an expired campaign (past its `deliverUntil`) only `end` is allowed; extend `deliverUntil` to resume delivery instead.",
+        "description": "Transitions a campaign's status. `launch` starts a draft or paused campaign, `pause` suspends delivery, `end` stops it permanently \u2014 ended campaigns cannot be restarted. On an expired campaign (past its `deliverUntil`) only `end` is allowed; extend `deliverUntil` to resume delivery instead.",
         "tags": [
           "Campaigns"
         ],
@@ -1789,7 +1851,7 @@
             "hostedAgentKey": []
           }
         ],
-        "description": "Returns one end-user by Galinum id (`eu_…`) or by your own external user id.",
+        "description": "Returns one end-user by Galinum id (`eu_\u2026`) or by your own external user id.",
         "tags": [
           "Users"
         ],
@@ -2142,7 +2204,7 @@
               "type": "string",
               "maxLength": 256
             },
-            "description": "Galinum end-user id (`eu_…`)."
+            "description": "Galinum end-user id (`eu_\u2026`)."
           },
           {
             "name": "externalUserId",
@@ -2268,7 +2330,7 @@
             "secretKey": []
           }
         ],
-        "description": "Creates a business goal for the optimized-communication loop: a target event to move, binding guardrails, and an approval mode. Goals are optional — direct communications don't need one.",
+        "description": "Creates a business goal for the optimized-communication loop: a target event to move, binding guardrails, and an approval mode. Goals are optional \u2014 direct communications don't need one.",
         "tags": [
           "Goals"
         ],
@@ -2619,7 +2681,7 @@
             "hostedAgentKey": []
           }
         ],
-        "description": "Records one agent decision — its input, output, and rationale — so the dashboard's agent feed shows what ran and why. Set `goalId` when the run serves a goal; omit it for direct communications.",
+        "description": "Records one agent decision \u2014 its input, output, and rationale \u2014 so the dashboard's agent feed shows what ran and why. Set `goalId` when the run serves a goal; omit it for direct communications.",
         "tags": [
           "Agent runs"
         ],
@@ -2769,7 +2831,7 @@
             "hostedAgentKey": []
           }
         ],
-        "description": "Browses the project's agent-run history, newest first — the agent's own memory of what it already did.",
+        "description": "Browses the project's agent-run history, newest first \u2014 the agent's own memory of what it already did.",
         "tags": [
           "Agent runs"
         ],
@@ -2920,7 +2982,7 @@
           }
         ],
         "summary": "Discover audience capabilities",
-        "description": "Returns the project's audience-authoring vocabulary in one bounded, context-efficient response: the supported expression versions, node kinds, operators per type, window units, and validation limits, plus what has actually been observed in this project — trait keys with per-type user counts, event names with user counts and recency, and top-level event property keys with observed types. Use this before authoring an expression instead of paginating raw users/events. Output is exact distinct vocabulary (not sampled); when a list is truncated by its bound the response says so via `traitsTruncated` / `eventsTruncated` / `propertiesTruncated` — absence from a truncated list is NOT evidence the field doesn't exist. Low-cardinality string traits also include bounded representative values.",
+        "description": "Returns the project's audience-authoring vocabulary in one bounded, context-efficient response: the supported expression versions, node kinds, operators per type, window units, and validation limits, plus what has actually been observed in this project \u2014 trait keys with per-type user counts, event names with user counts and recency, and top-level event property keys with observed types. Use this before authoring an expression instead of paginating raw users/events. Output is exact distinct vocabulary (not sampled); when a list is truncated by its bound the response says so via `traitsTruncated` / `eventsTruncated` / `propertiesTruncated` \u2014 absence from a truncated list is NOT evidence the field doesn't exist. Low-cardinality string traits also include bounded representative values.",
         "responses": {
           "200": {
             "description": "The project's audience capabilities.",
@@ -2964,7 +3026,7 @@
                               },
                               "types": {
                                 "type": "object",
-                                "description": "Observed JSON type → user count (e.g. `{ \"string\": 812 }`). Multiple keys reveal a type conflict in the data."
+                                "description": "Observed JSON type \u2192 user count (e.g. `{ \"string\": 812 }`). Multiple keys reveal a type conflict in the data."
                               },
                               "users": {
                                 "type": "integer"
@@ -3046,7 +3108,7 @@
             }
           },
           "429": {
-            "description": "Rate limited — respect Retry-After.",
+            "description": "Rate limited \u2014 respect Retry-After.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3114,7 +3176,7 @@
                   },
                   "segment": {
                     "type": "string",
-                    "description": "Saved segment to evaluate, by id (seg_…) or machine key. Provide exactly one of `expression` or `segment`."
+                    "description": "Saved segment to evaluate, by id (seg_\u2026) or machine key. Provide exactly one of `expression` or `segment`."
                   },
                   "version": {
                     "type": "integer",
@@ -3122,7 +3184,7 @@
                     "description": "Segment version to evaluate; omitted = current."
                   }
                 },
-                "description": "Provide exactly one of `expression` (inline) or `segment` (+ optional `version`) — both run through the identical validator and evaluator.",
+                "description": "Provide exactly one of `expression` (inline) or `segment` (+ optional `version`) \u2014 both run through the identical validator and evaluator.",
                 "oneOf": [
                   {
                     "required": [
@@ -3174,7 +3236,7 @@
                     },
                     "expressionHash": {
                       "type": "string",
-                      "description": "sha256 of the canonical serialization — equal hashes mean identical semantics."
+                      "description": "sha256 of the canonical serialization \u2014 equal hashes mean identical semantics."
                     },
                     "summary": {
                       "type": "string",
@@ -3226,7 +3288,7 @@
                           },
                           "events": {
                             "type": "object",
-                            "description": "Referenced event name → the user's occurrence count as evaluated, bounded by the published maxEvaluatedEventOccurrences limit (a value at the bound means ‘at least this many’)."
+                            "description": "Referenced event name \u2192 the user's occurrence count as evaluated, bounded by the published maxEvaluatedEventOccurrences limit (a value at the bound means \u2018at least this many\u2019)."
                           }
                         }
                       },
@@ -3253,7 +3315,7 @@
             }
           },
           "400": {
-            "description": "Invalid request or invalid expression — the body includes `diagnostics` with stable codes and JSON Pointer paths.",
+            "description": "Invalid request or invalid expression \u2014 the body includes `diagnostics` with stable codes and JSON Pointer paths.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3294,7 +3356,7 @@
             }
           },
           "429": {
-            "description": "Rate limited — respect Retry-After.",
+            "description": "Rate limited \u2014 respect Retry-After.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3352,7 +3414,7 @@
           }
         ],
         "summary": "Explain an audience for one user",
-        "description": "Evaluates an audience expression for ONE project user and returns a condition-level evidence trace mirroring the expression tree — the debugging surface for \"why did this user match?\" and \"why did this user not match?\". Each trace node reports its JSON Pointer path, matched state, and the compact evidence behind the decision: observed value and type for field conditions, occurrence counts and window boundaries for event conditions, and per-child outcomes for groups. Uses the same evaluator as check and message eligibility, so the three always agree for the same user, expression, and evaluatedAt.",
+        "description": "Evaluates an audience expression for ONE project user and returns a condition-level evidence trace mirroring the expression tree \u2014 the debugging surface for \"why did this user match?\" and \"why did this user not match?\". Each trace node reports its JSON Pointer path, matched state, and the compact evidence behind the decision: observed value and type for field conditions, occurrence counts and window boundaries for event conditions, and per-child outcomes for groups. Uses the same evaluator as check and message eligibility, so the three always agree for the same user, expression, and evaluatedAt.",
         "requestBody": {
           "required": true,
           "content": {
@@ -3365,11 +3427,11 @@
                   },
                   "userId": {
                     "type": "string",
-                    "description": "The Galinum user id (eu_…) or your own external user id."
+                    "description": "The Galinum user id (eu_\u2026) or your own external user id."
                   },
                   "segment": {
                     "type": "string",
-                    "description": "Saved segment to evaluate, by id (seg_…) or machine key. Provide exactly one of `expression` or `segment`."
+                    "description": "Saved segment to evaluate, by id (seg_\u2026) or machine key. Provide exactly one of `expression` or `segment`."
                   },
                   "version": {
                     "type": "integer",
@@ -3377,7 +3439,7 @@
                     "description": "Segment version to evaluate; omitted = current."
                   }
                 },
-                "description": "Provide exactly one of `expression` (inline) or `segment` (+ optional `version`) — both run through the identical validator and evaluator.",
+                "description": "Provide exactly one of `expression` (inline) or `segment` (+ optional `version`) \u2014 both run through the identical validator and evaluator.",
                 "oneOf": [
                   {
                     "required": [
@@ -3446,7 +3508,7 @@
                     },
                     "trace": {
                       "type": "object",
-                      "description": "Trace node mirroring the expression tree. Every node carries `path` (JSON Pointer into the expression), `kind`, and `matched`. Field nodes add `field`, `op`, `observed` (compact evidence — long strings truncated, objects reported by type), `observedType`, and a `note` for absence/type mismatches. Event nodes add `event`, `occurrences`, `required` count, and `windowCutoff`. Group nodes carry `children`; `not` carries `child`.",
+                      "description": "Trace node mirroring the expression tree. Every node carries `path` (JSON Pointer into the expression), `kind`, and `matched`. Field nodes add `field`, `op`, `observed` (compact evidence \u2014 long strings truncated, objects reported by type), `observedType`, and a `note` for absence/type mismatches. Event nodes add `event`, `occurrences`, `required` count, and `windowCutoff`. Group nodes carry `children`; `not` carries `child`.",
                       "properties": {
                         "path": {
                           "type": "string"
@@ -3556,7 +3618,7 @@
             }
           },
           "429": {
-            "description": "Rate limited — respect Retry-After.",
+            "description": "Rate limited \u2014 respect Retry-After.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3670,7 +3732,7 @@
         },
         "responses": {
           "200": {
-            "description": "Idempotent replay — the segment this idempotencyKey originally created.",
+            "description": "Idempotent replay \u2014 the segment this idempotencyKey originally created.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3747,7 +3809,7 @@
             }
           },
           "429": {
-            "description": "Rate limited — respect Retry-After.",
+            "description": "Rate limited \u2014 respect Retry-After.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3790,7 +3852,7 @@
           }
         ],
         "summary": "List segments",
-        "description": "Compact list (up to 100, newest first): metadata, status, current version, and derived summary — the full expression is fetched intentionally via the detail or version reads.",
+        "description": "Compact list (up to 100, newest first): metadata, status, current version, and derived summary \u2014 the full expression is fetched intentionally via the detail or version reads.",
         "parameters": [
           {
             "name": "status",
@@ -3848,7 +3910,7 @@
             }
           },
           "429": {
-            "description": "Rate limited — respect Retry-After.",
+            "description": "Rate limited \u2014 respect Retry-After.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3902,7 +3964,7 @@
             "schema": {
               "type": "string"
             },
-            "description": "Segment id (seg_…) or machine key."
+            "description": "Segment id (seg_\u2026) or machine key."
           }
         ],
         "responses": {
@@ -3945,7 +4007,7 @@
             }
           },
           "429": {
-            "description": "Rate limited — respect Retry-After.",
+            "description": "Rate limited \u2014 respect Retry-After.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3988,7 +4050,7 @@
           }
         ],
         "summary": "Update a segment",
-        "description": "Metadata edits (`name`, `description`) change no version. Replacing `expression` creates a NEW immutable version atomically and advances `currentVersion`; it requires `expectedVersion` (the version you last read) — a stale value returns 409 with the segment's `currentVersion` so you can re-read, re-check, and retry deliberately. Campaigns already pinning older versions are never changed. Archived segments accept metadata edits but refuse revision.",
+        "description": "Metadata edits (`name`, `description`) change no version. Replacing `expression` creates a NEW immutable version atomically and advances `currentVersion`; it requires `expectedVersion` (the version you last read) \u2014 a stale value returns 409 with the segment's `currentVersion` so you can re-read, re-check, and retry deliberately. Campaigns already pinning older versions are never changed. Archived segments accept metadata edits but refuse revision.",
         "parameters": [
           {
             "name": "id",
@@ -3997,7 +4059,7 @@
             "schema": {
               "type": "string"
             },
-            "description": "Segment id (seg_…) or machine key."
+            "description": "Segment id (seg_\u2026) or machine key."
           }
         ],
         "requestBody": {
@@ -4122,7 +4184,7 @@
             }
           },
           "429": {
-            "description": "Rate limited — respect Retry-After.",
+            "description": "Rate limited \u2014 respect Retry-After.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4176,7 +4238,7 @@
             "schema": {
               "type": "string"
             },
-            "description": "Segment id (seg_…) or machine key."
+            "description": "Segment id (seg_\u2026) or machine key."
           }
         ],
         "responses": {
@@ -4229,7 +4291,7 @@
             }
           },
           "429": {
-            "description": "Rate limited — respect Retry-After.",
+            "description": "Rate limited \u2014 respect Retry-After.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4283,7 +4345,7 @@
             "schema": {
               "type": "string"
             },
-            "description": "Segment id (seg_…) or machine key."
+            "description": "Segment id (seg_\u2026) or machine key."
           }
         ],
         "responses": {
@@ -4333,7 +4395,7 @@
             }
           },
           "429": {
-            "description": "Rate limited — respect Retry-After.",
+            "description": "Rate limited \u2014 respect Retry-After.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4378,7 +4440,7 @@
           }
         ],
         "summary": "Read a segment version",
-        "description": "One immutable version with its exact canonical expression — valid forever, including for archived segments.",
+        "description": "One immutable version with its exact canonical expression \u2014 valid forever, including for archived segments.",
         "parameters": [
           {
             "name": "id",
@@ -4387,7 +4449,7 @@
             "schema": {
               "type": "string"
             },
-            "description": "Segment id (seg_…) or machine key."
+            "description": "Segment id (seg_\u2026) or machine key."
           },
           {
             "name": "version",
@@ -4455,7 +4517,7 @@
             }
           },
           "429": {
-            "description": "Rate limited — respect Retry-After.",
+            "description": "Rate limited \u2014 respect Retry-After.",
             "content": {
               "application/json": {
                 "schema": {
@@ -8154,12 +8216,12 @@
       "publishableKey": {
         "type": "http",
         "scheme": "bearer",
-        "description": "Your project's publishable key (`pk_pub_…`). Safe to expose in the browser — it identifies the project and is rate-limited, not secret."
+        "description": "Your project's publishable key (`pk_pub_\u2026`). Safe to expose in the browser \u2014 it identifies the project and is rate-limited, not secret."
       },
       "secretKey": {
         "type": "http",
         "scheme": "bearer",
-        "description": "Your project's secret key (`pk_…`, without the `pub` segment). Server-side only — never ship it to a browser. Get it from Settings → Projects in the dashboard."
+        "description": "Your project's secret key (`pk_\u2026`, without the `pub` segment). Server-side only \u2014 never ship it to a browser. Get it from Settings \u2192 Projects in the dashboard."
       },
       "hostedAgentKey": {
         "type": "http",
@@ -8177,7 +8239,7 @@
       "Traits": {
         "type": "object",
         "additionalProperties": true,
-        "description": "User traits (max 4 KB serialized), shallow-merged into the existing profile. `$`-prefixed keys are reserved for auto-collected context (`$browser`, `$os`, `$timezone`, `$country`, …).",
+        "description": "User traits (max 4 KB serialized), shallow-merged into the existing profile. `$`-prefixed keys are reserved for auto-collected context (`$browser`, `$os`, `$timezone`, `$country`, \u2026).",
         "example": {
           "plan": "free",
           "signupSource": "landing"
@@ -8189,7 +8251,8 @@
           "deliveryId",
           "campaignId",
           "variantId",
-          "content"
+          "content",
+          "pages"
         ],
         "properties": {
           "deliveryId": {
@@ -8213,7 +8276,7 @@
             "items": {
               "type": "string"
             },
-            "description": "Path patterns this message may render on, or null for every page. Present only when the request declared `pages=1`.",
+            "description": "Stored path patterns, or null for every path. The server already matched the requested path in this fresh decision.",
             "example": [
               "/settings/*"
             ]
@@ -8225,7 +8288,7 @@
             "properties": {
               "title": {
                 "type": "string",
-                "example": "Welcome to Galinum 👋"
+                "example": "Welcome to Galinum \ud83d\udc4b"
               },
               "body": {
                 "type": "string",
@@ -8238,9 +8301,27 @@
                     "type": "string",
                     "example": "Learn more"
                   },
-                  "url": {
-                    "type": "string",
-                    "example": "https://galinum.com"
+                  "destination": {
+                    "type": "object",
+                    "required": [
+                      "kind",
+                      "url"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "website",
+                          "app"
+                        ]
+                      },
+                      "url": {
+                        "type": "string",
+                        "description": "HTTPS website URL, or an app URL whose scheme is configured in the client.",
+                        "example": "https://app.example.com/exports"
+                      }
+                    }
                   }
                 },
                 "required": [
@@ -8285,7 +8366,7 @@
           "title": {
             "type": "string",
             "maxLength": 120,
-            "example": "CSV export is here 📊"
+            "example": "CSV export is here \ud83d\udcca"
           },
           "body": {
             "type": "string",
@@ -8302,10 +8383,27 @@
                 "type": "string",
                 "example": "Try it"
               },
-              "url": {
-                "type": "string",
-                "description": "Must be https://, http://, mailto:, or a path like /billing.",
-                "example": "/exports"
+              "destination": {
+                "type": "object",
+                "required": [
+                  "kind",
+                  "url"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "website",
+                      "app"
+                    ]
+                  },
+                  "url": {
+                    "type": "string",
+                    "description": "HTTPS website URL, or an app URL whose scheme is configured in the client.",
+                    "example": "https://app.example.com/exports"
+                  }
+                }
               }
             }
           },
@@ -8372,7 +8470,7 @@
       },
       "StoredWebInAppMessageContent": {
         "type": "object",
-        "description": "The variant's stored message content. Same shape as the write schema, except `presentation` is absent on campaigns authored before it existed — reads return stored content verbatim. Delivery resolves one for those (media → `modal`, no media → `toast`).",
+        "description": "The variant's stored message content. Same shape as the write schema, except `presentation` is absent on campaigns authored before it existed \u2014 reads return stored content verbatim. Delivery resolves one for those (media \u2192 `modal`, no media \u2192 `toast`).",
         "properties": {
           "presentation": {
             "type": "string",
@@ -8386,7 +8484,7 @@
           "title": {
             "type": "string",
             "maxLength": 120,
-            "example": "CSV export is here 📊"
+            "example": "CSV export is here \ud83d\udcca"
           },
           "body": {
             "type": "string",
@@ -8403,10 +8501,27 @@
                 "type": "string",
                 "example": "Try it"
               },
-              "url": {
-                "type": "string",
-                "description": "Must be https://, http://, mailto:, or a path like /billing.",
-                "example": "/exports"
+              "destination": {
+                "type": "object",
+                "required": [
+                  "kind",
+                  "url"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "website",
+                      "app"
+                    ]
+                  },
+                  "url": {
+                    "type": "string",
+                    "description": "HTTPS website URL, or an app URL whose scheme is configured in the client.",
+                    "example": "https://app.example.com/exports"
+                  }
+                }
               }
             }
           },
@@ -9245,7 +9360,7 @@
               "failed",
               "converted"
             ],
-            "description": "The latest resolution. The *At timestamps accumulate independently — a delivery can have both clickedAt and convertedAt. `frequency_capped` is terminal, has no sentAt, and does not accrue MAU."
+            "description": "The latest resolution. The *At timestamps accumulate independently \u2014 a delivery can have both clickedAt and convertedAt. `frequency_capped` is terminal, has no sentAt, and does not accrue MAU."
           },
           "queuedAt": {
             "type": "integer",
@@ -9374,7 +9489,7 @@
           "name": {
             "type": "string",
             "maxLength": 40,
-            "description": "Defaults to A, B, C… by position.",
+            "description": "Defaults to A, B, C\u2026 by position.",
             "example": "A"
           },
           "message": {
@@ -9579,10 +9694,10 @@
                 ]
               },
               "value": {
-                "description": "Required for every operator except exists/not_exists (which reject it). Typed per operator: eq/neq take a string/number/boolean; in/not_in a non-empty array (≤ 50) of all strings or all numbers; contains/starts_with/ends_with a string; gt/gte/lt/lte a number; before/after an ISO-8601 date-time with explicit offset; within_last/not_within_last an AudienceWindow."
+                "description": "Required for every operator except exists/not_exists (which reject it). Typed per operator: eq/neq take a string/number/boolean; in/not_in a non-empty array (\u2264 50) of all strings or all numbers; contains/starts_with/ends_with a string; gt/gte/lt/lte a number; before/after an ISO-8601 date-time with explicit offset; within_last/not_within_last an AudienceWindow."
               }
             },
-            "description": "Compares a user trait or lifecycle field. Comparisons are strict — no type coercion; a value comparison on an absent or type-incompatible field does not match (use exists/not_exists for absence). Lifecycle fields accept only datetime and existence operators."
+            "description": "Compares a user trait or lifecycle field. Comparisons are strict \u2014 no type coercion; a value comparison on an absent or type-incompatible field does not match (use exists/not_exists for absence). Lifecycle fields accept only datetime and existence operators."
           },
           {
             "type": "object",
@@ -9642,7 +9757,7 @@
             "description": "Evaluates occurrences of one event, optionally within a relative window and filtered by event-property conditions."
           }
         ],
-        "description": "One audience expression node, discriminated by `kind`. Overall limits: nesting depth ≤ 8, total nodes ≤ 64. Unknown kinds, unknown operators, unknown keys, and empty groups are rejected with structured diagnostics."
+        "description": "One audience expression node, discriminated by `kind`. Overall limits: nesting depth \u2264 8, total nodes \u2264 64. Unknown kinds, unknown operators, unknown keys, and empty groups are rejected with structured diagnostics."
       },
       "AudienceExpression": {
         "type": "object",
@@ -9740,7 +9855,7 @@
                 "const": "all"
               }
             },
-            "description": "Everyone — every identified user."
+            "description": "Everyone \u2014 every identified user."
           },
           {
             "type": "object",
@@ -9763,7 +9878,7 @@
                   "string",
                   "null"
                 ],
-                "description": "The pinned immutable audience version (aud_…). Null only for campaigns still stored with the deprecated legacy targeting shape."
+                "description": "The pinned immutable audience version (aud_\u2026). Null only for campaigns still stored with the deprecated legacy targeting shape."
               },
               "schemaVersion": {
                 "type": "integer"
@@ -9810,7 +9925,7 @@
                 ]
               }
             },
-            "description": "The stored audience cannot be read (fails validation). The campaign delivers to NOBODY until the audience is replaced — invalid audiences fail closed, never widen to everyone."
+            "description": "The stored audience cannot be read (fails validation). The campaign delivers to NOBODY until the audience is replaced \u2014 invalid audiences fail closed, never widen to everyone."
           },
           {
             "type": "object",
@@ -9845,7 +9960,7 @@
               },
               "segmentVersion": {
                 "type": "integer",
-                "description": "The exact pinned version — later segment revisions never change it."
+                "description": "The exact pinned version \u2014 later segment revisions never change it."
               },
               "schemaVersion": {
                 "type": "integer"
@@ -9906,7 +10021,7 @@
               "string",
               "null"
             ],
-            "description": "The audience's intent — not a duplicate rendering of its rules."
+            "description": "The audience's intent \u2014 not a duplicate rendering of its rules."
           },
           "status": {
             "type": "string",
@@ -9921,7 +10036,7 @@
           },
           "currentAudienceVersionId": {
             "type": "string",
-            "description": "The immutable audience version (aud_…) behind the current version."
+            "description": "The immutable audience version (aud_\u2026) behind the current version."
           },
           "summary": {
             "type": [
@@ -10573,7 +10688,7 @@
               },
               "segment": {
                 "type": "string",
-                "description": "Segment id (seg_…) or machine key."
+                "description": "Segment id (seg_\u2026) or machine key."
               },
               "version": {
                 "type": "integer",
@@ -10581,10 +10696,10 @@
                 "description": "Pin a specific immutable version; omitted = the segment's current version, resolved atomically at write time."
               }
             },
-            "description": "Pin a saved segment's audience version. Archived segments are refused (409). A `reason` is rejected here — the pinned version carries its own revision reason."
+            "description": "Pin a saved segment's audience version. Archived segments are refused (409). A `reason` is rejected here \u2014 the pinned version carries its own revision reason."
           }
         ],
-        "description": "Canonical audience union. `null` or `{ \"kind\": \"all\" }` targets everyone. `{ \"kind\": \"expression\", \"expression\": { … }, \"reason\": \"…\" }` authors an inline audience stored as an immutable audience version. `{ \"kind\": \"segment\", \"segment\": \"id-or-key\", \"version\": n? }` pins a saved segment version (omitted version = current, resolved atomically; archived segments are refused). Check expressions first with POST /api/v1/audiences/check. Mutually exclusive with the deprecated `targeting` field."
+        "description": "Canonical audience union. `null` or `{ \"kind\": \"all\" }` targets everyone. `{ \"kind\": \"expression\", \"expression\": { \u2026 }, \"reason\": \"\u2026\" }` authors an inline audience stored as an immutable audience version. `{ \"kind\": \"segment\", \"segment\": \"id-or-key\", \"version\": n? }` pins a saved segment version (omitted version = current, resolved atomically; archived segments are refused). Check expressions first with POST /api/v1/audiences/check. Mutually exclusive with the deprecated `targeting` field."
       },
       "GithubSourceError": {
         "type": "object",
@@ -10939,7 +11054,9 @@
                                         "subject",
                                         "previewText",
                                         "cta.label",
-                                        "cta.url"
+                                        "cta.url",
+                                        "cta.destination.kind",
+                                        "cta.destination.url"
                                       ]
                                     },
                                     "before": {
@@ -11011,7 +11128,9 @@
                                             "subject",
                                             "previewText",
                                             "cta.label",
-                                            "cta.url"
+                                            "cta.url",
+                                            "cta.destination.kind",
+                                            "cta.destination.url"
                                           ]
                                         },
                                         "before": {
@@ -11534,7 +11653,9 @@
                                         "subject",
                                         "previewText",
                                         "cta.label",
-                                        "cta.url"
+                                        "cta.url",
+                                        "cta.destination.kind",
+                                        "cta.destination.url"
                                       ]
                                     },
                                     "before": {
@@ -11642,7 +11763,9 @@
                                         "subject",
                                         "previewText",
                                         "cta.label",
-                                        "cta.url"
+                                        "cta.url",
+                                        "cta.destination.kind",
+                                        "cta.destination.url"
                                       ]
                                     },
                                     "before": {
@@ -13901,6 +14024,107 @@
             "additionalProperties": false
           }
         ]
+      },
+      "InAppDecisionInput": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "entryId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "path": {
+            "type": "string",
+            "pattern": "^/",
+            "maxLength": 2048
+          }
+        },
+        "required": [
+          "userId",
+          "entryId",
+          "requestId",
+          "path"
+        ],
+        "additionalProperties": false
+      },
+      "InAppFeedbackInput": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "shown",
+              "clicked",
+              "dismissed",
+              "converted"
+            ]
+          },
+          "feedbackId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "description": "Stable per actual feedback operation. Retry unchanged; distinct committed renders use distinct IDs."
+          }
+        },
+        "required": [
+          "userId",
+          "type",
+          "feedbackId"
+        ],
+        "additionalProperties": false
+      },
+      "InAppFeedbackReceipt": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "deliveryId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "shown",
+              "clicked",
+              "dismissed",
+              "converted"
+            ]
+          },
+          "receiptId": {
+            "type": "string"
+          },
+          "acknowledgedAt": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "userId",
+          "deliveryId",
+          "type",
+          "receiptId",
+          "acknowledgedAt"
+        ],
+        "additionalProperties": false
       }
     },
     "responses": {
@@ -13966,7 +14190,7 @@
         }
       },
       "RateLimited": {
-        "description": "Rate limit exceeded, counted per project (SDK endpoints: 120 requests/minute or 2,000/hour per endpoint; management endpoints: 60/minute or 1,000/hour per resource group — all campaign operations share one budget, as do goal operations and user reads). Retry after the `Retry-After` header.",
+        "description": "Rate limit exceeded, counted per project (SDK endpoints: 120 requests/minute or 2,000/hour per endpoint; management endpoints: 60/minute or 1,000/hour per resource group \u2014 all campaign operations share one budget, as do goal operations and user reads). Retry after the `Retry-After` header.",
         "headers": {
           "Retry-After": {
             "schema": {
@@ -14013,7 +14237,7 @@
         "mode": "readonly"
       }
     },
-    "instructions": "Galinum is self-driving product communications. You use it to create, target,\nlaunch, and measure product messages for one project. The project secret you\nauthenticated with scopes every call to that project.\n\n## Classify the request before you write\n\nDecide which of three modes the user asked for, then use the smallest one:\n\n- **Direct** — one message, engagement stats only. \"Announce the CSV export\",\n  \"tell free users about the promo\", \"draft a message about the pricing change\".\n- **Outcome-measured** — one message plus a goal you measure. \"Send the promo\n  and track upgrades\", \"tell me whether people start using it\".\n- **Optimized** — variants and goal-driven optimization. \"A/B test this\n  message\", \"optimize onboarding\", \"work toward the activation goal\".\n\nDirect is the default. Never add a goal, variants, a delivery window, an\nevaluation, or optimization that the user did not ask for. A product having\ngoals does not make an ordinary announcement outcome-measured. Use one message\nfor direct communication. Set a delivery window only from timing the user gave\nyou, or after you resolve the missing dates with them.\n\n## Respect launch authority\n\nIf the user said draft, propose, or prepare, stop at draft. Never launch.\n\nLaunch only when the user gave explicit launch, send, or announce authority.\nIf launch authority is ambiguous, stop at draft and ask the user.\n\n## Check what already exists before you write\n\nBefore you create, launch, or update a campaign:\n\n1. Read recent agent runs, so you can see what another agent already did.\n2. Query running campaigns and scheduled campaigns as two separate calls.\n3. Read every page through `pageCount` for both status queries.\n4. Treat the deduplicated union as a complete point-in-time snapshot only\n   after both paginated searches are exhausted.\n5. Repeat both queries immediately before the write.\n\nThis snapshot never protects you against a concurrent campaign write. Do not\nclaim that it does. Avoid overlapping audiences and delivery periods.\n\n## Log decisions, and never double-write\n\nLog material decisions, proposals, and launches as agent runs. Reuse the same\nidempotency key when you retry, so one decision produces one run record.\n\nNever retry an uncertain campaign creation. Read campaigns back and confirm\nwhat exists first. For any other uncertain write, read the current state before\nyou act again.",
+    "instructions": "Galinum is self-driving product communications. You use it to create, target,\nlaunch, and measure product messages for one project. The project secret you\nauthenticated with scopes every call to that project.\n\n## Classify the request before you write\n\nDecide which of three modes the user asked for, then use the smallest one:\n\n- **Direct** \u2014 one message, engagement stats only. \"Announce the CSV export\",\n  \"tell free users about the promo\", \"draft a message about the pricing change\".\n- **Outcome-measured** \u2014 one message plus a goal you measure. \"Send the promo\n  and track upgrades\", \"tell me whether people start using it\".\n- **Optimized** \u2014 variants and goal-driven optimization. \"A/B test this\n  message\", \"optimize onboarding\", \"work toward the activation goal\".\n\nDirect is the default. Never add a goal, variants, a delivery window, an\nevaluation, or optimization that the user did not ask for. A product having\ngoals does not make an ordinary announcement outcome-measured. Use one message\nfor direct communication. Set a delivery window only from timing the user gave\nyou, or after you resolve the missing dates with them.\n\n## Respect launch authority\n\nIf the user said draft, propose, or prepare, stop at draft. Never launch.\n\nLaunch only when the user gave explicit launch, send, or announce authority.\nIf launch authority is ambiguous, stop at draft and ask the user.\n\n## Check what already exists before you write\n\nBefore you create, launch, or update a campaign:\n\n1. Read recent agent runs, so you can see what another agent already did.\n2. Query running campaigns and scheduled campaigns as two separate calls.\n3. Read every page through `pageCount` for both status queries.\n4. Treat the deduplicated union as a complete point-in-time snapshot only\n   after both paginated searches are exhausted.\n5. Repeat both queries immediately before the write.\n\nThis snapshot never protects you against a concurrent campaign write. Do not\nclaim that it does. Avoid overlapping audiences and delivery periods.\n\n## Log decisions, and never double-write\n\nLog material decisions, proposals, and launches as agent runs. Reuse the same\nidempotency key when you retry, so one decision produces one run record.\n\nNever retry an uncertain campaign creation. Read campaigns back and confirm\nwhat exists first. For any other uncertain write, read the current state before\nyou act again.",
     "readonlyInstructions": "This endpoint exposes read-only tools only. Campaign, goal, and segment writes are not available here. Connect to the full endpoint when the user asks you to create, update, or launch something."
   },
   "x-installation-body-bytes": 262144

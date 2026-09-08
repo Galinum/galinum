@@ -151,7 +151,7 @@ describe("management contract responses", () => {
     for (let index = 0; index < 5; index += 1) {
       api.at(CLOCK + index);
       await api.call("/api/v1/identify", "POST", { userId: `user_${index}` }, true);
-      await api.call(`/api/v1/messages?userId=user_${index}`, "GET", undefined, true);
+      await api.call(`/api/v1/messages?entryId=test-entry&requestId=test-request&path=%2Fdashboard&userId=user_${index}`, "GET", undefined, true);
     }
     api.at(CLOCK);
 
@@ -201,7 +201,7 @@ describe("management contract responses", () => {
     for (let index = 0; index < 12; index += 1) {
       api.at(CLOCK + index);
       await api.call("/api/v1/identify", "POST", { userId: `user_${index}` }, true);
-      await api.call(`/api/v1/messages?userId=user_${index}`, "GET", undefined, true);
+      await api.call(`/api/v1/messages?entryId=test-entry&requestId=test-request&path=%2Fdashboard&userId=user_${index}`, "GET", undefined, true);
     }
     api.at(CLOCK);
 
@@ -264,7 +264,7 @@ describe("management contract responses", () => {
     api.at(CLOCK - 60 * DAY);
     await campaignNamed(api, "Welcome", true);
     await api.call("/api/v1/identify", "POST", { userId: "user_1" }, true);
-    await api.call("/api/v1/messages?userId=user_1", "GET", undefined, true);
+    await api.call("/api/v1/messages?entryId=test-entry&requestId=test-request&path=%2Fdashboard&userId=user_1", "GET", undefined, true);
     api.at(CLOCK);
     const later = await api.call("/api/v1/metrics?range=7d");
     expect(later.body.totals.impressions).toBe(0);
@@ -275,9 +275,10 @@ describe("management contract responses", () => {
     const api = client();
     await campaignNamed(api, "Welcome", true);
     await api.call("/api/v1/identify", "POST", { userId: "user_1" }, true);
-    const messages = await api.call("/api/v1/messages?userId=user_1", "GET", undefined, true);
+    const messages = await api.call("/api/v1/messages?entryId=test-entry&requestId=test-request&path=%2Fdashboard&userId=user_1", "GET", undefined, true);
     const deliveryId = messages.body.messages[0].deliveryId;
-    await api.call(`/api/v1/deliveries/${deliveryId}/event`, "POST", { type: "clicked" }, true);
+    await api.call(`/api/v1/deliveries/${deliveryId}/event`, "POST", { userId: "user_1", type: "shown", feedbackId: "user_1" + ":shown" }, true);
+    await api.call(`/api/v1/deliveries/${deliveryId}/event`, "POST", { userId: "user_1", type: "clicked", feedbackId: "user_1" + ":clicked" }, true);
 
     const metrics = await api.call("/api/v1/metrics?range=7d");
     expect(metrics.body.totals).toMatchObject({ impressions: 1, clicks: 1, conversions: 0 });
@@ -337,7 +338,7 @@ describe("management contract responses", () => {
     const api = client();
     const campaign = await campaignNamed(api, "Welcome", true);
     await api.call("/api/v1/identify", "POST", { userId: "user_1" }, true);
-    const messages = await api.call("/api/v1/messages?userId=user_1", "GET", undefined, true);
+    const messages = await api.call("/api/v1/messages?entryId=test-entry&requestId=test-request&path=%2Fdashboard&userId=user_1", "GET", undefined, true);
     const deliveryId = messages.body.messages[0].deliveryId;
 
     const response = await api.call("/api/v1/users/user_1/deliveries");

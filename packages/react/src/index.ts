@@ -21,3 +21,5 @@ export type {
   MessagePresentation,
   Traits,
 } from "./types.js";
+
+export type { FeedbackReceipt } from "./feedback.js";

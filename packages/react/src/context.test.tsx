@@ -253,46 +253,22 @@ describe("waitForTracks", () => {
     expect(isDone()).toBe(true);
   });
 
-  it("fails open after the timeout when a track stalls", async () => {
+  it("rejects a timed-out facts wait and retains the outstanding track for later entries", async () => {
     const result = await identifiedHook();
-    stubDeferredTracks(); // never settled — a stalled request
-
-    act(() => {
-      void result.current.track("stalled_event");
-    });
-
+    const tracks = stubDeferredTracks();
+    act(() => { void result.current.track("stalled_event"); });
     vi.useFakeTimers();
     try {
-      const isDone = settled(result.current.waitForTracks(2000));
-      await vi.advanceTimersByTimeAsync(1999);
-      expect(isDone()).toBe(false);
-      await vi.advanceTimersByTimeAsync(1);
-      expect(isDone()).toBe(true);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("evicts a timed-out track so later waiters don't wait on it again", async () => {
-    const result = await identifiedHook();
-    stubDeferredTracks(); // never settled — a stalled request
-
-    act(() => {
-      void result.current.track("stalled_event");
-    });
-
-    vi.useFakeTimers();
-    try {
-      const first = settled(result.current.waitForTracks(2000));
+      const first = result.current.waitForTracks(2000).then(() => null, (error) => error);
       await vi.advanceTimersByTimeAsync(2000);
-      expect(first()).toBe(true);
-    } finally {
-      vi.useRealTimers();
-    }
-
-    // The stalled track was abandoned by the first timeout; a later waiter
-    // must resolve immediately instead of re-waiting the full window.
-    await expect(result.current.waitForTracks(2000)).resolves.toBeUndefined();
+      expect((await first).message).toContain("deadline");
+      let done = false;
+      const second = result.current.waitForTracks(2000).then(() => { done = true; });
+      await vi.advanceTimersByTimeAsync(100);
+      expect(done).toBe(false);
+      tracks[0]!.resolve();
+      await second; expect(done).toBe(true);
+    } finally { vi.useRealTimers(); }
   });
 
   it("does not wait for tracks started after the call (snapshot semantics)", async () => {

@@ -297,3 +297,16 @@ CREATE INDEX push_records_slot ON push_records (project_id, kind, slot_id, id CO
 CREATE INDEX push_records_work_due ON push_records (project_id, available_at, id COLLATE "C") WHERE kind = 'work' AND available_at IS NOT NULL;
 CREATE INDEX push_records_work_campaign_due ON push_records (project_id, campaign_id, available_at, id COLLATE "C") WHERE kind = 'work' AND available_at IS NOT NULL;
 CREATE INDEX push_records_uncertain ON push_records (project_id, recipient_id, id COLLATE "C") WHERE kind = 'queue' AND is_uncertain = true;
+
+CREATE TABLE inapp_feedback (
+  project_id text NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  id text NOT NULL,
+  delivery_id text NOT NULL REFERENCES deliveries(id) ON DELETE CASCADE,
+  user_id text NOT NULL REFERENCES end_users(id) ON DELETE CASCADE,
+  external_id text NOT NULL,
+  type text NOT NULL CHECK (type IN ('shown','clicked','dismissed','converted')),
+  acknowledged_at bigint NOT NULL,
+  PRIMARY KEY (project_id, id)
+);
+CREATE INDEX inapp_feedback_exposure ON inapp_feedback (project_id, acknowledged_at, user_id) WHERE type = 'shown';
+CREATE INDEX inapp_feedback_delivery ON inapp_feedback (project_id, delivery_id, id);

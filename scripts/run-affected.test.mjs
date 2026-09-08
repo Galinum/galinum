@@ -10,7 +10,7 @@ function dashboardLane(selected) {
 describe("affected package selection", () => {
   it("selects push, its server host and dependent native HTTP checks", () => { assert.deepEqual(selectAffected(["packages/push/src/engine.ts"]), ["push", "server", "native"]); });
   it("selects all contract consumers for a generated mobile change", () => {
-    assert.deepEqual(selectAffected(["packages/contracts/src/index.ts"]), ["contracts", "core", "dashboard", "push", "server", "native"]);
+    assert.deepEqual(selectAffected(["packages/contracts/src/index.ts"]), ["contracts", "core", "dashboard", "react", "react-example", "push", "server", "native"]);
   });
   it("runs docs for an unknown base", () => {
     assert.deepEqual(selectAffected(null), ["contracts", "core", "dashboard", "docs", "react", "react-example", "push", "server", "native"]);
@@ -42,7 +42,7 @@ describe("affected package selection", () => {
   });
 
   it("runs docs and server for the OpenAPI contract", () => {
-    assert.deepEqual(selectAffected(["apps/docs/openapi.json"]), ["contracts", "core", "dashboard", "docs", "push", "server", "native"]);
+    assert.deepEqual(selectAffected(["apps/docs/openapi.json"]), ["contracts", "core", "dashboard", "docs", "react", "react-example", "push", "server", "native"]);
   });
 
   it("runs server and native HTTP tests for a server change", () => {
@@ -51,13 +51,14 @@ describe("affected package selection", () => {
 
   it("runs react and its example for a React SDK change", () => {
     assert.deepEqual(selectAffected(["packages/react/src/client.ts"]), ["react", "react-example"]);
-    assert.deepEqual(prerequisiteCommands(selectedLanes(["react"])[0], ["react", "react-example"]), []);
+    assert.deepEqual(prerequisiteCommands(selectedLanes(["react"])[0], ["react", "react-example"]), [["pnpm", "--filter", "@galinum/contracts", "build"]]);
   });
 
   it("builds React before checking an example-only change", () => {
     const selected = selectAffected(["examples/react-nextjs/app/page.tsx"]);
     assert.deepEqual(selected, ["react-example"]);
     assert.deepEqual(prerequisiteCommands(selectedLanes(selected)[0], selected), [
+      ["pnpm", "--filter", "@galinum/contracts", "build"],
       ["pnpm", "--filter", "@galinum/react", "build"],
     ]);
   });

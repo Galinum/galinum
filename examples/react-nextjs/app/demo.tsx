@@ -5,9 +5,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, type FormEvent, type ReactNode } from "react";
 
-// The provider lives in the root layout, above the router outlet: a provider
-// inside a page would remount on every navigation and drop the identified
-// user (and with it the prefetched message cache).
 export function GalinumRoot({
   publishableKey,
   apiBase,
@@ -20,7 +17,6 @@ export function GalinumRoot({
   return (
     <GalinumProvider publishableKey={publishableKey} apiBase={apiBase}>
       {children}
-      {/* Messages are prefetched and shown one per page view. */}
       <InAppMessages />
     </GalinumProvider>
   );

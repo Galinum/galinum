@@ -1,3 +1,4 @@
+import { ackBody, ackResponse } from "./receipts.test.fixture.js";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useState, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -21,7 +22,7 @@ function stubApi(messages: InAppMessage[]): RecordedCall[] {
         url: String(url),
         body: init?.body ? (JSON.parse(init.body as string) as Record<string, unknown>) : null,
       });
-      const body = String(url).includes("/messages") ? { messages } : { ok: true };
+      const body = String(url).includes("/messages") ? { ...Object.fromEntries(new URL(String(url)).searchParams), messages } : ackBody(url, init);
       return new Response(JSON.stringify(body), { status: 200 });
     }),
   );
@@ -69,6 +70,7 @@ function shownCalls(calls: RecordedCall[], deliveryId: string): RecordedCall[] {
 beforeEach(() => {
   history.pushState({}, "", "/dashboard");
   __resetSchedulerForTests();
+  localStorage.clear();
 });
 
 afterEach(() => {
@@ -78,6 +80,20 @@ afterEach(() => {
 });
 
 describe("InAppMessages", () => {
+  it("reset synchronously closes a captured feedback callback before effects run", async () => {
+    const calls = stubApi([message({ title: "Owned" })]);
+    let reset!: () => void;
+    let action!: () => Promise<import("./feedback.js").FeedbackReceipt>;
+    function Probe() { reset = useGalinum().reset; return null; }
+    renderWidget(<><Probe /><InAppMessages render={(_message, actions) => { action = actions.onDismiss; return <div>Owned</div>; }} /></>, "user_1");
+    await screen.findByText("Owned");
+    await waitFor(() => expect(shownCalls(calls, "del_1")).toHaveLength(1));
+    let result!: ReturnType<typeof action>;
+    act(() => { reset(); result = action(); });
+    expect((await result).status).toBe("failed");
+    expect(calls.some((call) => call.body?.type === "dismissed")).toBe(false);
+  });
+
   it("renders nothing and does not fetch without an identified user", async () => {
     const calls = stubApi([message({ title: "Hello" })]);
     renderWidget(<InAppMessages />);
@@ -89,22 +105,22 @@ describe("InAppMessages", () => {
 
   it("renders the default card with title, body, and CTA", async () => {
     stubApi([
-      message({ title: "Hello", body: "World", cta: { label: "Go", url: "https://example.com" } }),
+      message({ title: "Hello", body: "World", cta: { label: "Go", destination: { kind: "website", url: "https://example.com" } } }),
     ]);
     renderWidget(<InAppMessages />, "user_1");
 
     expect(await screen.findByText("Hello")).toBeDefined();
     expect(screen.getByText("World")).toBeDefined();
     const cta = screen.getByText("Go") as HTMLAnchorElement;
-    expect(cta.getAttribute("href")).toBe("https://example.com/");
+    expect(cta.getAttribute("href")).toBe("https://example.com");
   });
 
-  it("declares the pages capability on every fetch", async () => {
+  it("captures entry and request correlation on every fetch", async () => {
     const calls = stubApi([]);
     renderWidget(<InAppMessages />, "user_1");
 
     await waitFor(() => expect(fetches(calls)).toBe(1));
-    expect(calls.find((c) => c.url.includes("/api/v1/messages"))?.url).toContain("pages=1");
+    expect(calls.find((c) => c.url.includes("/api/v1/messages"))?.url).toContain("entryId=");
   });
 
   it("reports dismissal and removes the card", async () => {
@@ -117,14 +133,14 @@ describe("InAppMessages", () => {
       const feedback = calls.find(
         (c) => c.url.includes("/api/v1/deliveries/del_1/event") && c.body?.type === "dismissed",
       );
-      expect(feedback?.body).toEqual({ type: "dismissed" });
+      expect(feedback?.body).toMatchObject({ userId: "user_1", type: "dismissed" });
     });
     expect(screen.queryByText("Hello")).toBeNull();
   });
 
   it("reports clicks on the CTA", async () => {
     const calls = stubApi([
-      message({ title: "Hello", cta: { label: "Go", url: "https://example.com" } }),
+      message({ title: "Hello", cta: { label: "Go", destination: { kind: "website", url: "https://example.com" } } }),
     ]);
     renderWidget(<InAppMessages />, "user_1");
 
@@ -134,16 +150,20 @@ describe("InAppMessages", () => {
       const feedback = calls.find(
         (c) => c.url.includes("/api/v1/deliveries/del_1/event") && c.body?.type === "clicked",
       );
-      expect(feedback?.body).toEqual({ type: "clicked" });
+      expect(feedback?.body).toMatchObject({ userId: "user_1", type: "clicked" });
     });
   });
 
-  it("blocks javascript: CTA URLs", async () => {
-    stubApi([message({ title: "Evil", cta: { label: "Click me", url: "javascript:alert(1)" } })]);
+  it("skips a candidate whose required destination is unsupported without an impression", async () => {
+    const calls = stubApi([
+      message({ title: "Unsupported", cta: { label: "Open app", destination: { kind: "app", url: "unconfigured://screen" } } }, "unsupported"),
+      message({ title: "Supported" }, "supported"),
+    ]);
     renderWidget(<InAppMessages />, "user_1");
+    expect(await screen.findByText("Supported")).toBeDefined();
+    expect(screen.queryByText("Unsupported")).toBeNull();
+    expect(shownCalls(calls, "unsupported")).toHaveLength(0);
 
-    const cta = await screen.findByText("Click me");
-    expect(cta.getAttribute("href")).toBe("#");
   });
 
   it("uses a custom renderer instead of the default card", async () => {
@@ -179,14 +199,14 @@ describe("InAppMessages", () => {
       let resolveFetch!: (messages: InAppMessage[]) => void;
       vi.stubGlobal(
         "fetch",
-        vi.fn((url: RequestInfo | URL) => {
+        vi.fn((url: RequestInfo | URL, init?: RequestInit) => {
           if (String(url).includes("/messages")) {
             return new Promise<Response>((resolve) => {
               resolveFetch = (messages) =>
-                resolve(new Response(JSON.stringify({ messages }), { status: 200 }));
+                resolve(new Response(JSON.stringify({ ...Object.fromEntries(new URL(String(url)).searchParams), messages }), { status: 200 }));
             });
           }
-          return Promise.resolve(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+          return Promise.resolve(new Response(JSON.stringify(ackBody(url, init)), { status: 200 }));
         }),
       );
       renderWidget(<InAppMessages />, "user_1");
@@ -212,19 +232,18 @@ describe("InAppMessages", () => {
       expect(screen.queryByText("Second")).toBeNull();
     });
 
-    it("navigation unlocks the next message from the cache with no fetch in the way", async () => {
-      // Every fetch after the first hangs forever: if the navigation render
-      // depended on a request, nothing could appear.
+    it("navigation refuses cached content while the fresh decision is pending", async () => {
       let call = 0;
       vi.stubGlobal(
         "fetch",
-        vi.fn((url: RequestInfo | URL) => {
+        vi.fn((url: RequestInfo | URL, init?: RequestInit) => {
           if (String(url).includes("/messages")) {
             call += 1;
             if (call > 1) return new Promise<Response>(() => {});
             return Promise.resolve(
               new Response(
                 JSON.stringify({
+                  ...Object.fromEntries(new URL(String(url)).searchParams),
                   messages: [
                     message({ title: "First" }, "del_1"),
                     message({ title: "Second" }, "del_2"),
@@ -234,7 +253,7 @@ describe("InAppMessages", () => {
               ),
             );
           }
-          return Promise.resolve(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+          return Promise.resolve(new Response(JSON.stringify(ackBody(url, init)), { status: 200 }));
         }),
       );
       renderWidget(<InAppMessages />, "user_1");
@@ -242,7 +261,7 @@ describe("InAppMessages", () => {
       fireEvent.click(await screen.findByLabelText("Dismiss"));
       await navigateTo("/settings");
 
-      expect(screen.getByText("Second")).toBeDefined();
+      expect(screen.queryByText("Second")).toBeNull();
     });
 
     it("a visible message leaves the screen on navigation without dismissal feedback", async () => {
@@ -260,7 +279,7 @@ describe("InAppMessages", () => {
     });
 
     it("an interrupted message stays eligible on a later matching page view", async () => {
-      stubApi([message({ title: "Only" }, "del_1", ["/dashboard", "/billing"])]);
+      const calls = stubApi([message({ title: "Only" }, "del_1", ["/dashboard", "/billing"])]);
       renderWidget(<InAppMessages />, "user_1");
 
       await screen.findByText("Only");
@@ -269,14 +288,16 @@ describe("InAppMessages", () => {
 
       await navigateTo("/billing");
       expect(screen.getByText("Only")).toBeDefined();
+      await waitFor(() => expect(shownCalls(calls, "del_1")).toHaveLength(2));
+      expect(shownCalls(calls, "del_1")[0]?.body?.feedbackId).not.toBe(shownCalls(calls, "del_1")[1]?.body?.feedbackId);
     });
 
-    it("refreshes in the background on navigation without changing the current page view", async () => {
+    it("uses the fresh navigation response instead of the prior page candidate", async () => {
       let call = 0;
       const calls: RecordedCall[] = [];
       vi.stubGlobal(
         "fetch",
-        vi.fn(async (url: RequestInfo | URL) => {
+        vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
           calls.push({ url: String(url), body: null });
           if (String(url).includes("/messages")) {
             call += 1;
@@ -284,20 +305,18 @@ describe("InAppMessages", () => {
               call === 1
                 ? [message({ title: "First" }, "del_1")]
                 : [message({ title: "Newer" }, "del_9"), message({ title: "First" }, "del_1")];
-            return new Response(JSON.stringify({ messages }), { status: 200 });
+            return new Response(JSON.stringify({ ...Object.fromEntries(new URL(String(url)).searchParams), messages }), { status: 200 });
           }
-          return new Response(JSON.stringify({ ok: true }), { status: 200 });
+          return new Response(JSON.stringify(ackBody(url, init)), { status: 200 });
         }),
       );
       renderWidget(<InAppMessages />, "user_1");
 
       await screen.findByText("First");
       await navigateTo("/settings");
-      // The navigation decision already used the cache; the refresh it kicked
-      // off must not swap what this page view is showing.
       await waitFor(() => expect(call).toBeGreaterThanOrEqual(2));
-      expect(screen.getByText("First")).toBeDefined();
-      expect(screen.queryByText("Newer")).toBeNull();
+      expect(screen.queryByText("First")).toBeNull();
+      expect(screen.getByText("Newer")).toBeDefined();
     });
 
     it("hash-only and query-only changes do not start a new page view", async () => {
@@ -385,7 +404,7 @@ describe("InAppMessages", () => {
       expect(fetches(calls)).toBe(1);
     });
 
-    it("hand rendering to the surviving instance when the renderer unmounts", async () => {
+    it("does not repaint a consumed entry when the renderer unmounts", async () => {
       stubApi([message({ title: "First" })]);
 
       function Pair() {
@@ -402,7 +421,7 @@ describe("InAppMessages", () => {
 
       await waitFor(() => expect(screen.getAllByText("First").length).toBe(1));
       fireEvent.click(screen.getByText("drop"));
-      await waitFor(() => expect(screen.getAllByText("First").length).toBe(1));
+      await waitFor(() => expect(screen.queryByText("First")).toBeNull());
     });
 
     it("restores the host's history methods only after the last instance unmounts", async () => {
@@ -517,11 +536,11 @@ describe("InAppMessages", () => {
           if (String(url).includes("/api/v1/track")) {
             return new Promise<Response>((resolve) => {
               trackDeferreds.push(() =>
-                resolve(new Response(JSON.stringify({ ok: true }), { status: 200 })),
+                resolve(new Response(JSON.stringify(ackBody(url, init)), { status: 200 })),
               );
             });
           }
-          const body = String(url).includes("/messages") ? { messages } : { ok: true };
+          const body = String(url).includes("/messages") ? { ...Object.fromEntries(new URL(String(url)).searchParams), messages } : ackBody(url, init);
           return Promise.resolve(new Response(JSON.stringify(body), { status: 200 }));
         }),
       );
@@ -567,7 +586,7 @@ describe("InAppMessages", () => {
       expect(await screen.findByText("Hello")).toBeDefined();
     });
 
-    it("fails open: a stalled track delays the fetch only until the timeout", async () => {
+    it("settles empty when track facts exceed the entry wait", async () => {
       vi.useFakeTimers();
       try {
         const { calls, trackDeferreds } = stubApiWithDeferredTrack([]);
@@ -605,7 +624,7 @@ describe("InAppMessages", () => {
         expect(fetches(calls)).toBe(0);
 
         await act(() => vi.advanceTimersByTimeAsync(2));
-        expect(fetches(calls)).toBe(1);
+        expect(fetches(calls)).toBe(0);
       } finally {
         vi.useRealTimers();
       }
@@ -621,7 +640,7 @@ describe("InAppMessages", () => {
           title: "Big news",
           body: "Details",
           media: MEDIA,
-          cta: { label: "See it", url: "https://example.com" },
+          cta: { label: "See it", destination: { kind: "website", url: "https://example.com" } },
         }),
       ]);
       renderWidget(<InAppMessages />, "user_1");
@@ -666,7 +685,7 @@ describe("InAppMessages", () => {
         const feedback = calls.find(
           (c) => c.url.includes("/api/v1/deliveries/del_1/event") && c.body?.type === "dismissed",
         );
-        expect(feedback?.body).toEqual({ type: "dismissed" });
+        expect(feedback?.body).toMatchObject({ userId: "user_1", type: "dismissed" });
       });
       expect(screen.queryByRole("dialog")).toBeNull();
     });
@@ -676,7 +695,7 @@ describe("InAppMessages", () => {
         message({
           title: "Big news",
           media: MEDIA,
-          cta: { label: "See it", url: "https://example.com" },
+          cta: { label: "See it", destination: { kind: "website", url: "https://example.com" } },
         }),
       ]);
       renderWidget(<InAppMessages />, "user_1");
@@ -686,7 +705,7 @@ describe("InAppMessages", () => {
         const feedback = calls.find(
           (c) => c.url.includes("/api/v1/deliveries/del_1/event") && c.body?.type === "clicked",
         );
-        expect(feedback?.body).toEqual({ type: "clicked" });
+        expect(feedback?.body).toMatchObject({ userId: "user_1", type: "clicked" });
       });
       expect(screen.queryByRole("dialog")).toBeNull();
       const dismissed = calls.filter(
@@ -794,15 +813,15 @@ describe("InAppMessages", () => {
             ? (JSON.parse(init.body as string) as Record<string, unknown>)
             : null;
           if (String(url).includes("/messages")) {
-            return new Response(JSON.stringify({ messages: [message({ title: "Hello" })] }), {
+            return new Response(JSON.stringify({ ...Object.fromEntries(new URL(String(url)).searchParams), messages: [message({ title: "Hello" })] }), {
               status: 200,
             });
           }
           if (body?.type === "shown") {
             state.attempts += 1;
-            return new Response(JSON.stringify({}), { status: status(state.attempts) });
+            return ackResponse(url, init, status(state.attempts));
           }
-          return new Response(JSON.stringify({ ok: true }), { status: 200 });
+          return new Response(JSON.stringify(ackBody(url, init)), { status: 200 });
         }),
       );
       return state;
@@ -870,7 +889,7 @@ describe("InAppMessages", () => {
     }
 
     it("renders the light palette on a host that declares no scheme", async () => {
-      stubApi([message({ title: "Hello", cta: { label: "Go", url: "https://example.com" } })]);
+      stubApi([message({ title: "Hello", cta: { label: "Go", destination: { kind: "website", url: "https://example.com" } } })]);
       renderWidget(<InAppMessages />, "user_1");
 
       const toast = await screen.findByRole("dialog", { name: "Hello" });
@@ -881,7 +900,7 @@ describe("InAppMessages", () => {
 
     it("renders the dark palette when the host declares color-scheme: dark", async () => {
       setHostScheme("dark");
-      stubApi([message({ title: "Hello", cta: { label: "Go", url: "https://example.com" } })]);
+      stubApi([message({ title: "Hello", cta: { label: "Go", destination: { kind: "website", url: "https://example.com" } } })]);
       renderWidget(<InAppMessages />, "user_1");
 
       const toast = await screen.findByRole("dialog", { name: "Hello" });

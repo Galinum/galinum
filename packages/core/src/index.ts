@@ -18,3 +18,4 @@ export { eligibleInstallation, selectInstallations, type InstallationSelection }
 export type { InstallationRecord, InstallationReplay, InstallationAccess, InstallationSession, InstallationStore } from "./installation-store.js";
 
 export { retireInstallationToken } from "./installation-store.js";
+export { createInAppService, InAppError, type InAppHost, type InAppPersistence, type InAppFeedbackRecord, type InAppTransaction, type InAppDecisionInput } from "./inapp.js";

@@ -33,7 +33,7 @@ export function schemaType(schema, schemas) {
 export function generateMobile(contract) {
   const bodyBytes = contract["x-installation-body-bytes"];
   if (!Number.isSafeInteger(bodyBytes) || bodyBytes <= 0) throw new Error("Installation body byte limit is required");
-  const schemas = Object.fromEntries(Object.entries(contract.components.schemas).filter(([name]) => name.startsWith("Installation") || name.startsWith("Push")));
+  const schemas = Object.fromEntries(Object.entries(contract.components.schemas).filter(([name]) => name.startsWith("Installation") || name.startsWith("Push") || ["InAppDecisionInput", "InAppFeedbackInput", "InAppFeedbackReceipt"].includes(name)));
   const fixtures = Object.entries(schemas).filter(([, schema]) => schema.example !== undefined).map(([name, schema]) => `export const ${name}Example: ${name} = ${JSON.stringify(schema.example, null, 2)};`).join("\n");
   return `export { validateSchema, type WireSchema } from "./validate.js";\n\nexport const INSTALLATION_BODY_BYTES = ${bodyBytes};\n\n` + fixtures + "\n\n" + Object.entries(schemas).map(([name, schema]) => `export type ${name} = ${schemaType(schema, schemas)};`).join("\n") + `\n\nexport const installationSchemas = ${JSON.stringify(schemas, null, 2)} as const;\n`;
 }

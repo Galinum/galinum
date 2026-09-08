@@ -182,7 +182,9 @@ export interface PushRecordsTable {
   replacement_key: string | null; credential_id: string | null;
 }
 
+export interface InAppFeedbackTable { project_id: string; id: string; delivery_id: string; user_id: string; external_id: string; type: string; acknowledged_at: Int8 }
 export interface ProductDB {
+  inapp_feedback: InAppFeedbackTable;
   push_records: PushRecordsTable;
   installations: Installations;
   installation_requests: InstallationRequests;

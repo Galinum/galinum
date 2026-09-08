@@ -39,7 +39,7 @@ describe("self-host dashboard mount", () => {
       campaignId: campaign.id,
       rationale: "Activation is low.",
     })).status).toBe(201);
-    const messages = await (await call("/api/v1/messages?userId=user_1", "GET", undefined, true)).json();
+    const messages = await (await call("/api/v1/messages?entryId=test&requestId=test&path=%2Fdashboard&userId=user_1", "GET", undefined, true)).json();
     expect(messages.messages).toHaveLength(1);
 
     const management = createManagementClient(async (request) => {

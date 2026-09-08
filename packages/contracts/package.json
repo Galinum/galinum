@@ -21,6 +21,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./entry": {
+      "types": "./dist/entry.d.ts",
+      "import": "./dist/entry.js"
     }
   },
   "scripts": {

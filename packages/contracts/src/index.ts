@@ -50,6 +50,9 @@ export type PushRecipientView = { "id": string; "campaignId": string; "userId": 
 export type PushSlotView = { "id": string; "recipientId": string; "campaignId": string; "userId": string; "installationId": string; "targetId": string | null; "generation": number; "revision": number; "sequence": number; "submissionsUsed": number; "expiresAt": number; "uncertain": boolean; "authRefreshRevision": number | null; "state": PushSlotState; "test": boolean; "submissionNotBefore": number; "repair": PushSlotRepair };
 export type PushTestInput = { "installationId": string; "requestId": string };
 export type PushSlotRepair = (null) | ({ "kind": "credential"; "credentialRevision": number }) | ({ "kind": "payload"; "credentialRevision": number; "campaignFingerprint": string });
+export type InAppDecisionInput = { "userId": string; "entryId": string; "requestId": string; "path": string };
+export type InAppFeedbackInput = { "userId": string; "type": "shown" | "clicked" | "dismissed" | "converted"; "feedbackId": string };
+export type InAppFeedbackReceipt = { "userId": string; "deliveryId": string; "type": "shown" | "clicked" | "dismissed" | "converted"; "receiptId": string; "acknowledgedAt": number };
 
 export const installationSchemas = {
   "InstallationCapabilities": {
@@ -2227,5 +2230,106 @@ export const installationSchemas = {
         "additionalProperties": false
       }
     ]
+  },
+  "InAppDecisionInput": {
+    "type": "object",
+    "properties": {
+      "userId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256
+      },
+      "entryId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256
+      },
+      "requestId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256
+      },
+      "path": {
+        "type": "string",
+        "pattern": "^/",
+        "maxLength": 2048
+      }
+    },
+    "required": [
+      "userId",
+      "entryId",
+      "requestId",
+      "path"
+    ],
+    "additionalProperties": false
+  },
+  "InAppFeedbackInput": {
+    "type": "object",
+    "properties": {
+      "userId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256
+      },
+      "type": {
+        "type": "string",
+        "enum": [
+          "shown",
+          "clicked",
+          "dismissed",
+          "converted"
+        ]
+      },
+      "feedbackId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256,
+        "description": "Stable per actual feedback operation. Retry unchanged; distinct committed renders use distinct IDs."
+      }
+    },
+    "required": [
+      "userId",
+      "type",
+      "feedbackId"
+    ],
+    "additionalProperties": false
+  },
+  "InAppFeedbackReceipt": {
+    "type": "object",
+    "properties": {
+      "userId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256
+      },
+      "deliveryId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256
+      },
+      "type": {
+        "type": "string",
+        "enum": [
+          "shown",
+          "clicked",
+          "dismissed",
+          "converted"
+        ]
+      },
+      "receiptId": {
+        "type": "string"
+      },
+      "acknowledgedAt": {
+        "type": "number"
+      }
+    },
+    "required": [
+      "userId",
+      "deliveryId",
+      "type",
+      "receiptId",
+      "acknowledgedAt"
+    ],
+    "additionalProperties": false
   }
 } as const;

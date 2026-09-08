@@ -157,6 +157,10 @@ importers:
         version: link:../core
 
   packages/react:
+    dependencies:
+      '@galinum/contracts':
+        specifier: workspace:*
+        version: link:../contracts
     devDependencies:
       '@testing-library/dom':
         specifier: 10.4.1

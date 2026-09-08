@@ -48,13 +48,14 @@
     "test": "pnpm --filter @galinum/server... build && node --test scripts/*.test.mjs && pnpm --filter @galinum/core test && pnpm --filter @galinum/dashboard test && pnpm --filter @galinum/react test && pnpm --filter @galinum/push test && pnpm --filter @galinum/server test",
     "build": "pnpm --filter @galinum/contracts build && pnpm --filter @galinum/core build && pnpm --filter @galinum/push build && pnpm --filter @galinum/server build && pnpm --filter @galinum/dashboard build && pnpm --filter @galinum/react build && pnpm --filter @galinum/example-react-nextjs build",
     "release": "node scripts/release-packages.mjs",
-    "verify": "pnpm verify:workspace && pnpm verify:mobile-contracts && pnpm verify:server-operations && pnpm verify:product-schema && pnpm verify:installation-upgrade && pnpm verify:push-upgrade && pnpm verify:dashboard && pnpm test && pnpm check && pnpm build && pnpm verify:dashboard-built && pnpm verify:release && pnpm check:native",
+    "verify": "pnpm verify:workspace && pnpm verify:mobile-contracts && pnpm verify:server-operations && pnpm verify:product-schema && pnpm verify:installation-upgrade && pnpm verify:push-upgrade && pnpm verify:inapp-upgrade && pnpm verify:dashboard && pnpm test && pnpm check && pnpm build && pnpm verify:dashboard-built && pnpm verify:release && pnpm check:native",
     "verify:mobile-contracts": "node scripts/generate-mobile-contracts.mjs --check",
     "check:contracts": "pnpm verify:mobile-contracts && pnpm --filter @galinum/contracts build",
     "verify:installation-upgrade": "node scripts/generate-installation-upgrade.mjs --check",
     "verify:push-upgrade": "node scripts/generate-push-upgrade.mjs --check",
     "check:push": "pnpm --filter @galinum/push typecheck",
-    "check:native": "pnpm --filter @galinum/server... build && pnpm --filter @galinum/react-native typecheck && pnpm --filter @galinum/react-native test && pnpm --filter @galinum/react-native build && pnpm --filter @galinum/react-native check:package && pnpm --filter @galinum/example-react-native-expo typecheck && pnpm --filter @galinum/example-react-native-expo build"
+    "check:native": "pnpm --filter @galinum/server... build && pnpm --filter @galinum/react-native typecheck && pnpm --filter @galinum/react-native test && pnpm --filter @galinum/react-native build && pnpm --filter @galinum/react-native check:package && pnpm --filter @galinum/example-react-native-expo typecheck && pnpm --filter @galinum/example-react-native-expo build",
+    "verify:inapp-upgrade": "node scripts/generate-inapp-upgrade.mjs --check"
   },
   "devDependencies": {
     "@types/node": "20.19.41",

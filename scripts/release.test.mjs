@@ -61,12 +61,12 @@ describe("release registry", () => {
     assert.deepEqual(reactPackage.peerDependencies, { react: ">=18", "react-dom": ">=18" });
     assert.equal(reactPackage.engines.node, ">=20");
     assert.ok(reactPackage.files.includes("LICENSE"));
-    assert.deepEqual(packedManifestFailures(reactPackage, {
+    assert.deepEqual(packedManifestFailures(materializeReleaseManifest(reactPackage, new Map([["@galinum/contracts", reactPackage.version]])), {
       name: "@galinum/react",
       version: reactPackage.version,
       license: "Apache-2.0",
       releaseNames: ["@galinum/contracts", "@galinum/core", "@galinum/dashboard", "@galinum/react", "@galinum/server", "@galinum/push", "@galinum/react-native"],
-      requires: [],
+      requires: ["@galinum/contracts"],
     }), []);
   });
 
@@ -168,7 +168,8 @@ describe("build order", () => {
     const releaseNames = ["@galinum/contracts", "@galinum/core", "@galinum/dashboard", "@galinum/react", "@galinum/server", "@galinum/push", "@galinum/react-native"];
     const edges = intraReleaseEdges(registry.packages.map((entry) => JSON.parse(readFileSync(resolve(root, entry.path, "package.json"), "utf8"))), releaseNames);
     assert.deepEqual(edges.get("@galinum/server"), ["@galinum/contracts", "@galinum/core", "@galinum/push"]);
-    assert.deepEqual(edges.get("@galinum/react"), []);
+    assert.deepEqual(edges.get("@galinum/react"), ["@galinum/contracts"]);
+    assert.ok(orderReleasePackages(edges).indexOf("@galinum/contracts") < orderReleasePackages(edges).indexOf("@galinum/react"));
     const ordered = orderReleasePackages(edges);
     assert.ok(ordered.indexOf("@galinum/contracts") < ordered.indexOf("@galinum/core"));
     assert.ok(ordered.indexOf("@galinum/core") < ordered.indexOf("@galinum/server"));

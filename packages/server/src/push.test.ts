@@ -522,18 +522,18 @@ for (const postgres of [false, true]) {
       expect(result.users).toMatchObject({ targeted: 1, accepted: 1, engaged: 0, converted: 0 });
       expect(result.devices).toMatchObject({ targeted: 2, accepted: 2, receiptObserved: 0, receiptUnknown: 2 });
       expect(f.sent[0].content.title).toBe("Ada"); expect(f.accepted).toHaveLength(2);
-      expect((await f.call(`/api/v1/messages?userId=A`, "GET", undefined, true)).body.messages).toEqual([]);
+      expect((await f.call(`/api/v1/messages?entryId=test-entry&requestId=test-request&path=%2Fdashboard&userId=A`, "GET", undefined, true)).body.messages).toEqual([]);
       const inspected = await f.inspect(c.id); expect(inspected).toEqual(result);
       expect(JSON.stringify(inspected)).not.toContain("token_a"); expect(JSON.stringify(inspected)).not.toContain("tokenScope");
       const creds = await f.call("/api/v1/push/credentials"); expect(JSON.stringify(creds.body)).not.toContain("PRIVATE"); expect(JSON.stringify(creds.body)).not.toContain("encrypted");
       await f.dispatch(c.id); expect(f.sent).toHaveLength(2); expect(f.accepted).toHaveLength(2);
-      expect((await f.call(`/api/v1/deliveries/${result.targets[0].deliveryId}/event`, "POST", { type: "converted" }, true)).status).toBe(404);
+      expect((await f.call(`/api/v1/deliveries/${result.targets[0].deliveryId}/event`, "POST", { userId: "A", type: "converted", feedbackId: "A" + ":converted" }, true)).status).toBe(404);
     });
     it("keeps push campaigns out of the web scheduler capacity limit", async () => {
       const f = await fixture(postgres); await f.install();
       for (let index = 0; index < 101; index++) await f.campaign();
       expect((await f.call("/api/v1/campaigns", "POST", { name: "Web", launch: true, message: { presentation: "toast", title: "Web welcome" } })).status).toBe(201);
-      const messages = await f.call("/api/v1/messages?userId=A", "GET", undefined, true);
+      const messages = await f.call("/api/v1/messages?entryId=test-entry&requestId=test-request&path=%2Fdashboard&userId=A", "GET", undefined, true);
       expect(messages.status).toBe(200); expect(messages.body.messages).toHaveLength(1);
       expect(messages.body.messages[0].content.title).toBe("Web welcome");
       expect((await f.product.push.runDue()).processed).toBe(100);

@@ -72,8 +72,8 @@ integration("Postgres single-project path", () => {
       }))).status).toBe(200);
 
       const messageRequests = await Promise.all([
-        app(new Request("http://local/api/v1/messages?userId=user_1", { headers: publishable })),
-        app(new Request("http://local/api/v1/messages?userId=user_1", { headers: publishable })),
+        app(new Request("http://local/api/v1/messages?entryId=test-entry&requestId=test-request&path=%2Fdashboard&userId=user_1", { headers: publishable })),
+        app(new Request("http://local/api/v1/messages?entryId=test-entry&requestId=test-request&path=%2Fdashboard&userId=user_1", { headers: publishable })),
       ]);
       const messageSets = await Promise.all(messageRequests.map((response) => response.json()));
       expect(messageSets[0].messages).toHaveLength(1);
@@ -83,7 +83,7 @@ integration("Postgres single-project path", () => {
       expect((await app(new Request(`http://local/api/v1/deliveries/${messageSets[0].messages[0].deliveryId}/event`, {
         method: "POST",
         headers: publishable,
-        body: JSON.stringify({ type: "shown" }),
+        body: JSON.stringify({ userId: "user_1", type: "shown", feedbackId: "user_1" + ":shown" }),
       }))).status).toBe(200);
 
       expect((await app(new Request("http://local/api/v1/track", {
@@ -97,7 +97,7 @@ integration("Postgres single-project path", () => {
         headers: publishable,
         body: JSON.stringify({ userId: "user_2" }),
       }))).status).toBe(200);
-      const backfillResponse = await app(new Request("http://local/api/v1/messages?userId=user_2", { headers: publishable }));
+      const backfillResponse = await app(new Request("http://local/api/v1/messages?entryId=test-entry&requestId=test-request&path=%2Fdashboard&userId=user_2", { headers: publishable }));
       const backfillMessage = (await backfillResponse.json()).messages[0];
       expect((await app(new Request("http://local/api/v1/track", {
         method: "POST",
@@ -107,7 +107,7 @@ integration("Postgres single-project path", () => {
       expect((await app(new Request(`http://local/api/v1/deliveries/${backfillMessage.deliveryId}/event`, {
         method: "POST",
         headers: publishable,
-        body: JSON.stringify({ type: "shown" }),
+        body: JSON.stringify({ userId: "user_2", type: "shown", feedbackId: "user_2" + ":shown" }),
       }))).status).toBe(200);
 
       await product.close();
@@ -157,8 +157,8 @@ integration("Postgres single-project path", () => {
           launch: true,
         })).json()).campaign;
         await call(app, publishable, "/api/v1/identify", "POST", { userId: `user_${suffix}`, traits: { project: suffix } });
-        const messages = (await (await call(app, publishable, `/api/v1/messages?userId=user_${suffix}`)).json()).messages;
-        await call(app, publishable, `/api/v1/deliveries/${messages[0].deliveryId}/event`, "POST", { type: "shown" });
+        const messages = (await (await call(app, publishable, `/api/v1/messages?entryId=test-entry&requestId=test-request&path=%2Fdashboard&userId=user_${suffix}`)).json()).messages;
+        await call(app, publishable, `/api/v1/deliveries/${messages[0].deliveryId}/event`, "POST", { userId: `user_${suffix}`, type: "shown", feedbackId: `user_${suffix}` + ":shown" });
         clock += 1;
         await call(app, publishable, "/api/v1/track", "POST", { userId: `user_${suffix}`, event: "activated", props: { project: suffix } });
         const runResponse = await call(app, secret, "/api/v1/agent-runs", "POST", {
@@ -239,7 +239,7 @@ integration("Postgres single-project path", () => {
       })).json()).campaign;
       for (const userId of ["older", "newer"]) {
         await call(publishableKey, "/api/v1/identify", "POST", { userId });
-        await call(publishableKey, `/api/v1/messages?userId=${userId}`);
+        await call(publishableKey, `/api/v1/messages?entryId=test-entry&requestId=test-request&path=%2Fdashboard&userId=${userId}`);
         clock += 1;
       }
       const deliveries = (await (await call(secretKey, `/api/v1/campaigns/${campaign.id}/deliveries`)).json()).deliveries;
@@ -372,7 +372,7 @@ integration("Postgres single-project path", () => {
         headers: publishable,
         body: JSON.stringify({ userId: "user" }),
       }));
-      const messages = (await (await app(new Request("http://local/api/v1/messages?userId=user", { headers: publishable }))).json()).messages;
+      const messages = (await (await app(new Request("http://local/api/v1/messages?entryId=test-entry&requestId=test-request&path=%2Fdashboard&userId=user", { headers: publishable }))).json()).messages;
       expect(messages[0].content.media.url).toBe(`https://new.example${object.path}`);
     } finally {
       await product?.close();
@@ -404,7 +404,7 @@ integration("Postgres single-project path", () => {
       for (const [userId, plan] of [["alpha", "free"], ["beta", "pro"], ["gamma", "free"]] as const) {
         clock += 1;
         await call(publishableKey, "/api/v1/identify", "POST", { userId, traits: { plan } });
-        await call(publishableKey, `/api/v1/messages?userId=${userId}`);
+        await call(publishableKey, `/api/v1/messages?entryId=test-entry&requestId=test-request&path=%2Fdashboard&userId=${userId}`);
       }
       await call(publishableKey, "/api/v1/track", "POST", { userId: "alpha", event: "exported" });
       await call(publishableKey, "/api/v1/track", "POST", { userId: "beta", event: "ignored" });
@@ -529,7 +529,7 @@ integration("Postgres single-project path", () => {
         const campaign = (await (await call(secretKey, "/api/v1/campaigns", "POST", {
           name: `Campaign ${index}`, message: { presentation: "toast", title: String(index) }, goalId: index % 2 === 0 ? matching.id : other.id, launch: true,
         })).json()).campaign;
-        const messages = (await (await call(publishableKey, "/api/v1/messages?userId=history")).json()).messages;
+        const messages = (await (await call(publishableKey, "/api/v1/messages?entryId=test-entry&requestId=test-request&path=%2Fdashboard&userId=history")).json()).messages;
         deliveries.push(messages.find((message: { campaignId: string }) => message.campaignId === campaign.id).deliveryId);
       }
       const pool = new Pool({ connectionString });

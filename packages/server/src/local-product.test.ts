@@ -31,7 +31,7 @@ describe("local single-project path", () => {
       body: JSON.stringify({ userId: "user_1", traits: { plan: "free" } }),
     }))).status).toBe(200);
 
-    const messagesResponse = await app(new Request("http://local/api/v1/messages?userId=user_1", { headers: publishable }));
+    const messagesResponse = await app(new Request("http://local/api/v1/messages?entryId=test-entry&requestId=test-request&path=%2Fdashboard&userId=user_1", { headers: publishable }));
     const messages = (await messagesResponse.json()).messages;
     expect(messages).toHaveLength(1);
     expect(messages[0].content).toMatchObject({ title: "Welcome", presentation: "toast" });
@@ -39,7 +39,7 @@ describe("local single-project path", () => {
     expect((await app(new Request(`http://local/api/v1/deliveries/${messages[0].deliveryId}/event`, {
       method: "POST",
       headers: publishable,
-      body: JSON.stringify({ type: "shown" }),
+      body: JSON.stringify({ userId: "user_1", type: "shown", feedbackId: "user_1" + ":shown" }),
     }))).status).toBe(200);
 
     expect((await app(new Request("http://local/api/v1/track", {
@@ -123,11 +123,11 @@ describe("local single-project path", () => {
     expect((await (await request("/api/v1/users?q=ada%40example.com")).json()).total).toBe(1);
     expect((await (await request(`/api/v1/users/${listedUsers.users[0].id}`)).json()).user.externalUserId).toBe("user_1");
 
-    const unsupported = (await (await request("/api/v1/messages?userId=user_1", "GET", undefined, publishable)).json()).messages;
-    expect(unsupported).toEqual([]);
-    const messages = (await (await request("/api/v1/messages?userId=user_1&pages=1", "GET", undefined, publishable)).json()).messages;
+    const unsupported = (await (await request("/api/v1/messages?entryId=test-entry&requestId=test-request&path=%2Fdashboard&userId=user_1", "GET", undefined, publishable)).json()).messages;
+    expect(unsupported).toHaveLength(1);
+    const messages = (await (await request("/api/v1/messages?entryId=test-entry&requestId=test-request&path=%2Fdashboard&userId=user_1&pages=1", "GET", undefined, publishable)).json()).messages;
     expect(messages[0].content.title).toBe("Updated");
-    expect((await request(`/api/v1/deliveries/${messages[0].deliveryId}/event`, "POST", { type: "shown" }, publishable)).status).toBe(200);
+    expect((await request(`/api/v1/deliveries/${messages[0].deliveryId}/event`, "POST", { userId: "user_1", type: "shown", feedbackId: "user_1" + ":shown" }, publishable)).status).toBe(200);
     clock += 1;
     expect((await request("/api/v1/track", "POST", { userId: "user_1", event: "activated", props: { source: "test" } }, publishable)).status).toBe(200);
 

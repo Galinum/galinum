@@ -208,7 +208,7 @@ export type CampaignMessageContent = {
   subject?: string;
   previewText?: string;
   body?: string;
-  cta?: { label: string; url?: string };
+  cta?: { label: string; url?: string; destination?: { kind: "website" | "app"; url: string } };
   media?: CampaignMessageMedia;
 };
 

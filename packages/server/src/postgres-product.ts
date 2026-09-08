@@ -1,3 +1,4 @@
+import type { InAppFeedbackRecord } from "@galinum/core";
 import { pushProjection, validatePushQuery, type PushQuery, type PushTotals, type PushRecords, type RecordKind, type PushSettings } from "@galinum/push";
 import { INSTALLATION_REPLAY_LIMIT, type InstallationRecord, type InstallationReplay } from "./installations.js";
 import { randomUUID } from "node:crypto";
@@ -400,6 +401,13 @@ class PostgresProductSession implements ProductStoreSession {
     let query = this.database.selectFrom("end_users").selectAll().where("project_id", "=", this.projectId);
     if (afterId !== null) query = query.where(sql<boolean>`id collate "C" > ${afterId}`);
     return (await query.orderBy(sql`id collate "C"`).limit(limit).execute()).map(userFromRow);
+  }
+  async getInAppFeedback(id: string): Promise<InAppFeedbackRecord | null> {
+    const row = await this.database.selectFrom("inapp_feedback").selectAll().where("project_id", "=", this.projectId).where("id", "=", id).executeTakeFirst();
+    return row ? { id: row.id, deliveryId: row.delivery_id, userId: row.user_id, externalId: row.external_id, type: row.type as InAppFeedbackRecord["type"], acknowledgedAt: integer(row.acknowledged_at) } : null;
+  }
+  async insertInAppFeedback(record: InAppFeedbackRecord) {
+    await this.database.insertInto("inapp_feedback").values({ project_id: this.projectId, id: record.id, delivery_id: record.deliveryId, user_id: record.userId, external_id: record.externalId, type: record.type, acknowledged_at: record.acknowledgedAt }).execute();
   }
   async getPushRecord<K extends RecordKind>(kind: K, id: string): Promise<PushRecords[K] | null> {
     const row = await this.database.selectFrom("push_records").select("body_json").where("project_id", "=", this.projectId).where("kind", "=", kind).where("id", "=", id).executeTakeFirst();
@@ -1514,6 +1522,8 @@ class PostgresProductSession implements ProductStoreSession {
         select d.end_user_id from deliveries d
         join campaigns c on c.id = d.campaign_id
         where c.project_id = ${this.projectId} and d.shown_at >= ${start} and d.shown_at < ${end}
+        union
+        select user_id from inapp_feedback where project_id = ${this.projectId} and type = 'shown' and acknowledged_at >= ${start} and acknowledged_at < ${end}
       ) active_users
     `.execute(this.database);
     const capped = await this.database

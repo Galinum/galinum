@@ -24,7 +24,7 @@ describe("bounded memory store queries", () => {
       const userId = `user_${String(index).padStart(3, "0")}`;
       const kind = index % 2 === 0 ? "even" : "odd";
       await call("/api/v1/identify", "POST", { userId, traits: { kind } }, publishable);
-      await call(`/api/v1/messages?userId=${userId}`, "GET", undefined, publishable);
+      await call(`/api/v1/messages?entryId=test-entry&requestId=test-request&path=%2Fdashboard&userId=${userId}`, "GET", undefined, publishable);
       await call("/api/v1/track", "POST", { userId, event: kind }, publishable);
       await call("/api/v1/agent-runs", "POST", { kind });
     }

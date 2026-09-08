@@ -1,5 +1,7 @@
 "use client";
 
+import { destinationUrl } from "@galinum/contracts/entry";
+
 import {
   useCallback,
   useEffect,
@@ -14,6 +16,9 @@ import { createPortal } from "react-dom";
 import { useGalinum } from "./context.js";
 import {
   attach,
+  configScope,
+  canComplete,
+  canRender,
   detach,
   getServerSnapshot,
   getSnapshot,
@@ -26,40 +31,24 @@ import {
   subscribe,
   visibleKey,
 } from "./scheduler.js";
-import type { InAppMessage, MessagePresentation } from "./types.js";
+import type { FeedbackReceipt } from "./feedback.js";
+import type { InAppMessage, MessagePresentation, DeliveryFeedback } from "./types.js";
 
 export type InAppMessagesProps = {
-  // Palette of the default renderer. "auto" follows the host page.
   theme?: MessageTheme;
-  // Custom renderer for the scheduled message. Return null to render nothing
-  // (no impression); the next matching message takes its place.
   render?: (message: InAppMessage, actions: MessageActions) => ReactNode;
 };
 
 export type MessageTheme = "light" | "dark" | "auto";
 
 export type MessageActions = {
-  onClick: () => void;
-  onDismiss: () => void;
-  onConvert: () => void;
+  onClick: () => Promise<FeedbackReceipt>;
+  onDismiss: () => Promise<FeedbackReceipt>;
+  onConvert: () => Promise<FeedbackReceipt>;
 };
 
-// A transient impression failure retries on this cadence while the message
-// stays mounted.
 const IMPRESSION_RETRY_INTERVAL = 30000;
 
-// Renders at most one message per page view. Eligible messages are prefetched
-// at identify and cached in memory with their page patterns, so each page view
-// decides synchronously — no request sits on the navigation render path and no
-// message pops in mid-screen.
-//
-// Fetching alone does NOT count as an impression: the SDK reports `shown`
-// through the delivery feedback API when a message actually mounts.
-// A cached message that never renders stays queued and is never billed.
-//
-// Every mounted instance shares one scheduler, so a host app with several
-// widgets still shows a single communication. Navigation is the only unlock:
-// dismissing a message does not release the page view.
 export function InAppMessages({ theme = "auto", render }: InAppMessagesProps) {
   const {
     config,
@@ -67,47 +56,27 @@ export function InAppMessages({ theme = "auto", render }: InAppMessagesProps) {
     sendFeedback,
     waitForTracks,
     waitForIdentify,
+    hasPendingIdentity,
     factsVersion,
     identifyVersion,
   } = useGalinum();
   const styles = THEME_STYLES[useResolvedTheme(theme)];
   const scheduled = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
-  const instanceId = useInstanceId();
+  const instanceId = useInstanceId(configScope(config));
   // Bumped on a timer so a still-mounted message re-attempts a failed
   // impression report (see reportShown) without re-mounting.
   const [retryKey, setRetryKey] = useState(0);
-  // Impressions already reported by this widget instance. Reporting is
-  // idempotent server-side (`shown` only promotes a queued delivery), so a
-  // remount after navigation may re-send it harmlessly; this set only
-  // prevents duplicate requests within the instance.
-  // A delivery is marked reported when the server accepts the request, and
-  // also on a permanent rejection (retrying a 400/404 forever would only spam
-  // the API). After a transient failure (network hiccup, 429, 5xx) the
-  // still-mounted message retries on the next tick, so the impression isn't
-  // silently lost.
-  const reportedShown = useRef<Set<string>>(new Set());
-  const inFlightShown = useRef<Set<string>>(new Set());
   const reportShown = useCallback(
     (deliveryId: string) => {
-      markRendered(deliveryId);
-      if (reportedShown.current.has(deliveryId) || inFlightShown.current.has(deliveryId)) return;
-      inFlightShown.current.add(deliveryId);
-      void sendFeedback(deliveryId, "shown")
-        .then((outcome) => {
-          if (outcome !== "transient") reportedShown.current.add(deliveryId);
-        })
-        .finally(() => inFlightShown.current.delete(deliveryId));
+      if (markRendered(deliveryId, scheduled.entryId, instanceId ?? undefined)) void sendFeedback(deliveryId, "shown", scheduled.entryId);
     },
-    [sendFeedback],
+    [sendFeedback, scheduled.entryId, instanceId],
   );
 
-  // Fetch points, all deduped by the scheduler and bounded by its timeout:
-  // at identify (the only fetch that may decide the current page view),
-  // on navigation (feeds future page views), and after a resolved message.
   const reload = useCallback(() => {
     if (!userId) return Promise.resolve();
-    return refresh({ config, userId, waitForTracks, factsVersion });
-  }, [config, userId, waitForTracks, factsVersion]);
+    return refresh({ config, userId, waitForIdentity: waitForIdentify, hasPendingIdentity, waitForTracks, factsVersion });
+  }, [config, userId, waitForTracks, waitForIdentify, hasPendingIdentity, factsVersion]);
 
   useEffect(() => {
     if (!userId) {
@@ -118,13 +87,9 @@ export function InAppMessages({ theme = "auto", render }: InAppMessagesProps) {
     // server-side yet, and with no polling an empty first response would
     // leave this page view blank. identifyVersion re-runs this when the same
     // user is re-identified with new traits.
-    let active = true;
-    void waitForIdentify().then(() => {
-      if (active) void reload();
-    });
+    void reload();
     const stopWatching = onNavigation(() => void reload());
     return () => {
-      active = false;
       stopWatching();
     };
   }, [userId, identifyVersion, reload, waitForIdentify]);
@@ -138,7 +103,7 @@ export function InAppMessages({ theme = "auto", render }: InAppMessagesProps) {
   // The scheduler's identity must match the provider's: during an A→B switch
   // React renders before the reset effect runs, and A's message must never
   // appear in B's session.
-  const sameIdentity = scheduled.identity === userId;
+  const sameIdentity = scheduled.identity === userId && scheduled.scope === configScope(config);
   const mountKey = visibleKey(scheduled);
 
   // Exactly one instance renders: the first one still mounted.
@@ -146,28 +111,23 @@ export function InAppMessages({ theme = "auto", render }: InAppMessagesProps) {
     !userId ||
     !message ||
     !sameIdentity ||
+    !canRender(message.deliveryId, scheduled.entryId) ||
     instanceId === null ||
     scheduled.rendererId !== instanceId
   ) {
     return null;
   }
 
+  const complete = async (type: DeliveryFeedback): Promise<FeedbackReceipt> => {
+    if (!canComplete(message.deliveryId, scheduled.entryId)) return Promise.resolve({ status: "failed", userId, deliveryId: message.deliveryId, type, feedbackId: scheduled.entryId + ":" + message.deliveryId + ":" + type });
+    const result = await sendFeedback(message.deliveryId, type, scheduled.entryId);
+    if (result.status !== "failed" && canComplete(message.deliveryId, scheduled.entryId)) resolveDelivery(message.deliveryId);
+    return result;
+  };
   const actions: MessageActions = {
-    onClick: () => {
-      void sendFeedback(message.deliveryId, "clicked");
-      resolveDelivery(message.deliveryId);
-      void reload();
-    },
-    onDismiss: () => {
-      void sendFeedback(message.deliveryId, "dismissed");
-      resolveDelivery(message.deliveryId);
-      void reload();
-    },
-    onConvert: () => {
-      void sendFeedback(message.deliveryId, "converted");
-      resolveDelivery(message.deliveryId);
-      void reload();
-    },
+    onClick: () => complete("clicked"),
+    onDismiss: () => complete("dismissed"),
+    onConvert: () => complete("converted"),
   };
 
   if (render) {
@@ -176,10 +136,14 @@ export function InAppMessages({ theme = "auto", render }: InAppMessagesProps) {
         key={mountKey}
         node={render(message, actions)}
         onShown={() => reportShown(message.deliveryId)}
-        onSkip={() => skip(message.deliveryId)}
+        onSkip={() => skip(message.deliveryId, scheduled.entryId)}
         retryKey={retryKey}
       />
     );
+  }
+
+  if (message.content.cta?.destination && !destinationUrl(message.content.cta.destination, config.appSchemes)) {
+    return <CustomRendered key={mountKey} node={null} onShown={() => {}} onSkip={() => skip(message.deliveryId, scheduled.entryId)} retryKey={retryKey} />;
   }
 
   if (isModal(message)) {
@@ -191,9 +155,6 @@ export function InAppMessages({ theme = "auto", render }: InAppMessagesProps) {
         styles={styles}
         onShown={() => reportShown(message.deliveryId)}
         retryKey={retryKey}
-        // CTA click reports `clicked`, then closes locally without sending
-        // `dismissed` — the delivery is already resolved.
-        onClose={() => resolveDelivery(message.deliveryId)}
       />
     );
   }
@@ -213,13 +174,13 @@ export function InAppMessages({ theme = "auto", render }: InAppMessagesProps) {
 }
 
 // Registers this widget with the shared scheduler for its whole lifetime.
-function useInstanceId(): number | null {
+function useInstanceId(scope: string): number | null {
   const [id, setId] = useState<number | null>(null);
   useEffect(() => {
-    const registered = attach();
+    const registered = attach(scope);
     setId(registered);
     return () => detach(registered);
-  }, []);
+  }, [scope]);
   return id;
 }
 
@@ -273,12 +234,6 @@ function prefersDarkScheme(): boolean {
   return matchColorScheme()?.matches ?? false;
 }
 
-// Custom-renderer wrapper: the impression is reported only when the renderer
-// actually produced content. Returning null/undefined/false means "render
-// nothing for this message" — no impression, and the scheduler advances to
-// the next matching candidate on this same page view. `retryKey` re-runs the
-// effect on the retry tick so a transiently failed report is retried while
-// mounted (reportShown itself dedupes accepted/in-flight reports).
 function CustomRendered({
   node,
   onShown,
@@ -332,7 +287,8 @@ function DefaultToast({
   retryKey: number;
 }) {
   const { title, body, cta, media } = message.content;
-  const href = cta ? safeUrl(cta.url) : null;
+  const { config } = useGalinum();
+  const href = cta?.destination ? destinationUrl(cta.destination, config.appSchemes) : null;
   const imageUrl = media ? safeImageUrl(media.url) : null;
   const [imageFailed, setImageFailed] = useState(false);
   const showImage = imageUrl !== null && !imageFailed;
@@ -360,7 +316,7 @@ function DefaultToast({
       ) : null}
       {title ? <strong style={{ display: "block", marginBottom: 4 }}>{title}</strong> : null}
       {body ? <p style={{ margin: "0 0 12px" }}>{body}</p> : null}
-      {cta ? (
+      {cta && (!cta.destination || href) ? (
         <a
           href={href ?? "#"}
           onClick={actions.onClick}
@@ -383,17 +339,16 @@ function AnnouncementModal({
   styles,
   onShown,
   retryKey,
-  onClose,
 }: {
   message: InAppMessage;
   actions: MessageActions;
   styles: ThemeStyles;
   onShown: () => void;
   retryKey: number;
-  onClose: () => void;
 }) {
   const { title, body, cta, media } = message.content;
-  const href = cta ? safeUrl(cta.url) : null;
+  const { config } = useGalinum();
+  const href = cta?.destination ? destinationUrl(cta.destination, config.appSchemes) : null;
   const imageUrl = media ? safeImageUrl(media.url) : null;
   const [imageFailed, setImageFailed] = useState(false);
   // Reduced motion: mount fully visible with transitions disabled entirely.
@@ -514,13 +469,10 @@ function AnnouncementModal({
         <div style={{ ...MODAL_BODY_STYLE, paddingTop: showImage ? 20 : 44 }}>
           {title ? <strong style={MODAL_TITLE_STYLE}>{title}</strong> : null}
           {body ? <p style={styles.modalText}>{body}</p> : null}
-          {cta ? (
+          {cta && (!cta.destination || href) ? (
             <a
               href={href ?? "#"}
-              onClick={() => {
-                actions.onClick();
-                onClose();
-              }}
+              onClick={actions.onClick}
               style={styles.modalCta}
               target={href ? "_blank" : undefined}
               rel="noreferrer"
