@@ -8,7 +8,7 @@ const requirements: ActivationRequirements = { changes: [], requirements: ["a", 
 const evidence = (id: string): ActivationEvidence => ({ id, provider: "fixture", label: "Production", revision: id, url: "https://example.test/deployment", reportedAt: 1 });
 const coverage = (state: ActivationCoverage["state"], id: string): ActivationCoverage[] => requirements.requirements.map((requirement) => ({ requirementId: requirement.id, mappingId: mapping.id, state, evidence: evidence(id) }));
 const reduce = (previous: ActivationMonitor | null, state: ActivationCoverage["state"], id: string, started = true, mappings = [mapping]) =>
-  reduceShippingMonitor({ previous, requirements, mappings, coverage: coverage(state, id), started, now: 100 });
+  reduceShippingMonitor({ campaignId: "campaign", previous, requirements, mappings, coverage: coverage(state, id), started, now: 100 });
 
 describe("shipping presence and warning reduction", () => {
   it("remembers prepared presence without warning until a launch exists", () => {
@@ -39,4 +39,22 @@ describe("shipping presence and warning reduction", () => {
     expect(reduce(null, "absent", "one").warnings).toEqual([]);
     expect(reduce(null, "reverted", "one").warnings).toHaveLength(1);
   });
+  it("scopes an incident to its campaign and keeps the same campaign's replay identity stable", () => {
+    const present = reduce(null, "present", "one").monitor;
+    const base = { previous: present, requirements, mappings: [mapping], coverage: coverage("absent", "two"), started: true, now: 100 };
+    const firstInput = { ...base, campaignId: "campaign-a" };
+    const secondInput = { ...base, campaignId: "campaign-b" };
+    const first = reduceShippingMonitor(firstInput);
+    const second = reduceShippingMonitor(secondInput);
+    expect(first.warnings[0].id).not.toBe(second.warnings[0].id);
+    expect(reduceShippingMonitor({ ...firstInput, now: 200 }).warnings[0].id).toBe(first.warnings[0].id);
+    expect(reduceShippingMonitor({ ...firstInput, previous: first.monitor, now: 200 }).warnings).toEqual([]);
+    expect(second.warnings[0].requirementIds).toEqual(first.warnings[0].requirementIds);
+  });
+
+  it("requires a campaign identity before reducing warnings", () => {
+    expect(() => reduceShippingMonitor({ campaignId: "", previous: null, requirements, mappings: [mapping], coverage: coverage("reverted", "one"), started: true, now: 100 }))
+      .toThrow("Campaign identity is required");
+  });
+
 });

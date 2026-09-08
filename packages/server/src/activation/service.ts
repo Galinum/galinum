@@ -117,7 +117,7 @@ export async function recordLaunch(session: ActivationSession, campaignId: strin
   const current = await context(session, campaignId, mappings);
   if (current.campaign.startedAt === null || current.state?.launch || current.campaign.approval === "unavailable") return;
   const coverage = projectCoverage(current.campaign.requirements, mappings, false);
-  const { monitor } = reduceShippingMonitor({ previous: current.state?.monitor ?? null, requirements: current.campaign.requirements,
+  const { monitor } = reduceShippingMonitor({ campaignId, previous: current.state?.monitor ?? null, requirements: current.campaign.requirements,
     mappings, coverage, started: false, now });
   monitor.phase = "launched";
   const receipt = { mode, startedAt: current.campaign.startedAt, contentHash: current.campaign.contentHash,
@@ -332,7 +332,7 @@ export function createActivationService(repository: ActivationRepository, option
               continue;
             }
           }
-          const reduced = reduceShippingMonitor({ previous: state.monitor, requirements: current.campaign.requirements,
+          const reduced = reduceShippingMonitor({ campaignId: current.campaign.id, previous: state.monitor, requirements: current.campaign.requirements,
             mappings, coverage: projectCoverage(current.campaign.requirements, mappings, current.campaign.startedAt === null), started: current.campaign.startedAt !== null, now: clock() });
           state = { ...state, monitor: reduced.monitor };
           for (const warning of reduced.warnings) {

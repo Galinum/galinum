@@ -4,7 +4,8 @@ import { Pool } from "pg";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { ProductDB, ShippingWarning } from "@galinum/core";
 import { createPostgresActivationData, PublicSqlActivationData } from "./postgres.js";
-import type { ActivationMapping, ActivationSettings, ActivationState, StockPreparation, StockSource } from "./store.js";
+import { reduceShippingMonitor } from "./monitor.js";
+import type { ActivationMapping, ActivationRequirements, ActivationSettings, ActivationState, StockPreparation, StockSource } from "./store.js";
 
 type TestDB = ProductDB & { projects: { id: string; name: string; created_at: number } };
 function publicTables(executor: Kysely<TestDB> | Transaction<TestDB>): Kysely<ProductDB> {
@@ -163,6 +164,40 @@ describe.runIf(process.env.RUN_DB_INTEGRATION === "1")("public SQL activation pe
     expect(await a.warnings(campaignA)).toEqual([original]);
     await expect(b.insertWarning(campaignB, original)).rejects.toThrow("another campaign or project");
     expect(await b.warnings(campaignB)).toEqual([]);
+  });
+
+  it("persists identical warning incidents for two campaigns in one project and keeps replay idempotent", async () => {
+    const otherCampaign = `${campaignA}-shared-change`;
+    await database.insertInto("campaigns").values({ id: otherCampaign, project_id: projectA, name: "Same product change", created_at: timestamp }).execute();
+    const sharedMapping = mapping(randomUUID(), ["source"]);
+    const requirements: ActivationRequirements = {
+      changes: [{ id: "change", sourceId: "source", kind: "commit", sha: evidence.revision }],
+      requirements: [{ id: "change", sourceId: "source", label: "Shared change", mappingIds: [sharedMapping.id] }],
+      sources: [{ id: "source", state: "ready" }], digest: "shared-requirements",
+    };
+    const reduce = (campaignId: string, now: number) => {
+      const base = { campaignId, previous: null, requirements, mappings: [sharedMapping], started: true, now: timestamp,
+        coverage: [{ requirementId: "change", mappingId: sharedMapping.id, state: "present" as const, evidence }] };
+      const present = reduceShippingMonitor(base);
+      return reduceShippingMonitor({ ...base, previous: present.monitor, now,
+        coverage: [{ ...base.coverage[0], state: "absent", evidence: { ...evidence, id: "rollback", revision: "b".repeat(40), reportedAt: timestamp + 1 } }] });
+    };
+    const first = reduce(campaignA, timestamp + 1).warnings[0];
+    const second = reduce(otherCampaign, timestamp + 1).warnings[0];
+    await database.transaction().execute(async transaction => {
+      const data = createPostgresActivationData(publicTables(transaction), projectA);
+      await data.insertWarning(campaignA, first);
+      await data.insertWarning(otherCampaign, second);
+    });
+    expect(first.id).not.toBe(second.id);
+    expect(await a.warnings(campaignA)).toEqual([first]);
+    expect(await a.warnings(otherCampaign)).toEqual([second]);
+    const replayFirst = reduce(campaignA, timestamp + 1000).warnings[0];
+    const replaySecond = reduce(otherCampaign, timestamp + 1000).warnings[0];
+    expect(replayFirst.id).toBe(first.id); expect(replaySecond.id).toBe(second.id);
+    await a.insertWarning(campaignA, replayFirst); await a.insertWarning(otherCampaign, replaySecond);
+    expect(await a.warnings(campaignA)).toEqual([first]);
+    expect(await a.warnings(otherCampaign)).toEqual([second]);
   });
 
   it("retains an older warning id and requirements when its incident key already exists", async () => {

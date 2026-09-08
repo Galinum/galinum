@@ -7,6 +7,7 @@ export function presenceKey(mapping: ActivationMapping, requirementId: string): 
 }
 
 export function reduceShippingMonitor(input: {
+  campaignId: string;
   previous: ActivationMonitor | null;
   requirements: ActivationRequirements;
   mappings: ActivationMapping[];
@@ -14,6 +15,7 @@ export function reduceShippingMonitor(input: {
   started: boolean;
   now: number;
 }): { monitor: ActivationMonitor; warnings: ShippingWarning[] } {
+  if (!input.campaignId) throw new Error("Campaign identity is required for shipping monitoring");
   const monitor: ActivationMonitor = { phase: input.started ? "launched" : "prepared", requirements: structuredClone(input.requirements),
     present: structuredClone(input.previous?.present ?? {}), missing: [...(input.previous?.missing ?? [])] };
   const missing = new Set(monitor.missing);
@@ -33,7 +35,7 @@ export function reduceShippingMonitor(input: {
     const evidence = items[0].evidence!;
     const reason = items.some((item) => item.state === "reverted") ? "revert" : "rollback";
     const presence = requirementIds.map((id) => monitor.present[presenceKey(mapping, id)] ?? null);
-    return { id: `shipwarn_${activationDigest({ mappingId, requirementIds, evidence, presence, reason })}`, reason, createdAt: input.now,
+    return { id: `shipwarn_${activationDigest({ campaignId: input.campaignId, mappingId, requirementIds, evidence, presence, reason })}`, reason, createdAt: input.now,
       mappingId, mappingLabel: `${mapping.owner}/${mapping.name} · ${mapping.environment}`, requirementIds, evidence };
   });
   monitor.missing = [...missing].sort();
