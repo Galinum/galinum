@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
+import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const script = fileURLToPath(new URL("./verify-activation-runtime.mjs", import.meta.url));
 function run(args, url) {
@@ -14,6 +17,27 @@ function run(args, url) {
 }
 
 describe("activation runtime verifier inputs", () => {
+  it("resolves dependencies from the physical installed package", () => {
+    const directory = mkdtempSync(join(tmpdir(), "galinum-package-resolution-"));
+    try {
+      const physical = join(directory, "store/node_modules/@galinum/server");
+      mkdirSync(join(physical, "dist"), { recursive: true });
+      mkdirSync(join(directory, "store/node_modules/pg"), { recursive: true });
+      mkdirSync(join(directory, "node_modules/@galinum"), { recursive: true });
+      writeFileSync(join(physical, "package.json"), JSON.stringify({ name: "@galinum/server", type: "module", version: "fixture",
+        exports: { ".": { import: "./dist/app.js" }, "./runtime": { import: "./dist/runtime.js" } }, bin: { "galinum-server": "./dist/cli.js" } }));
+      writeFileSync(join(physical, "dist/runtime.js"), "export function createLocalProduct() {}\nexport function createPostgresProduct() {}\n");
+      writeFileSync(join(physical, "dist/app.js"), "export function createApp() {}\n");
+      writeFileSync(join(physical, "dist/node-adapter.js"), "export function nodeAdapter() {}\n");
+      writeFileSync(join(physical, "schema.sql"), "");
+      writeFileSync(join(directory, "store/node_modules/pg/index.js"), 'exports.Client = class { constructor() { throw new Error("Package dependency resolved"); } };\n');
+      const alias = join(directory, "node_modules/@galinum/server");
+      symlinkSync(physical, alias, "dir");
+      const result = run(["--package", alias]);
+      assert.equal(result.status, 1);
+      assert.equal(JSON.parse(result.stdout).error, "Package dependency resolved");
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
   it("rejects unsafe database URLs before reading a package or connecting", () => {
     for (const url of ["postgresql://example.test/postgres", "postgresql://127.0.0.1/customer", "postgresql://localhost/postgres?host=example.test", "postgresql://[::1]/postgres#fragment"]) {
       const result = run(["--package", "missing-runtime-package-fixture"], url);

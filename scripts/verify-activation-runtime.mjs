@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { generateKeyPairSync, randomUUID } from "node:crypto";
-import { readFile, stat, writeFile, mkdir } from "node:fs/promises";
+import { readFile, realpath, stat, writeFile, mkdir } from "node:fs/promises";
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import { dirname, isAbsolute, resolve, sep } from "node:path";
@@ -169,6 +169,7 @@ async function database(pg, maintenance, schema, register, proof) {
 async function main() {
   const config = options(process.argv.slice(2));
   const maintenance = config.memoryOnly ? null : maintenanceUrl(process.env.GALINUM_RUNTIME_DATABASE_URL ?? "postgresql://127.0.0.1/postgres");
+  config.package = await realpath(config.package);
   const manifestPath = resolve(config.package, "package.json");
   const manifest = JSON.parse(await boundedFile(manifestPath, 65536));
   assert.equal(manifest.name, "@galinum/server");
