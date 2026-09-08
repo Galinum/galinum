@@ -48,3 +48,20 @@ idempotency key when you retry, so one decision produces one run record.
 Never retry an uncertain campaign creation. Read campaigns back and confirm
 what exists first. For any other uncertain write, read the current state before
 you act again.
+
+## Deployment activation controls
+
+Galinum Cloud exposes launch-policy and campaign-activation reads and mode
+writes. Read the current revision before a mode write. Change modes only within
+the user's authority: enabling automatic mode can activate existing approved
+drafts, including after source edits. Draft-only instructions do not authorize
+that change. Null campaign override inherits the project default, initially
+automatic. All required changes need current deployment coverage and approval.
+
+These tools never approve communications or configure deployment scope. A human
+manager must select and confirm the repository, environment, sources, and scope
+in the dashboard. Hosted credentials have GET visibility only. Use manual mode
+for feature flags, gradual rollouts, and unclear mappings. Unknown evidence is
+waiting, never proof of deployment or rollback. Rollback/revert warnings appear
+on campaigns and in dashboard activity; they do not automatically pause delivery
+or send email.

@@ -33,8 +33,8 @@ per agent.
 
 | Endpoint | Tools |
 | --- | --- |
-| `https://mcp.galinum.com/mcp` | All 28 management tools |
-| `https://galinum.com/mcp/readonly` | The 18 read-only tools |
+| `https://mcp.galinum.com/mcp` | All 32 management tools |
+| `https://galinum.com/mcp/readonly` | The 20 read-only tools |
 
 The full endpoint supports OAuth and project-secret bearer authentication. The
 read-only endpoint keeps project-secret authentication only. The subdomain
@@ -121,6 +121,17 @@ to do next: a lifecycle conflict asks the agent to read the campaign back, a
 rate limit reports how long to wait, and an uncertain campaign creation tells
 the agent never to retry.
 
+## Inspect deployment activation
+
+Use `get_launch_policy` and `get_campaign_activation` to inspect the project
+default, campaign override, approval, mapping coverage, launch evidence, and
+warnings. The full endpoint also exposes `set_launch_policy` and
+`set_campaign_activation_mode` with revision preconditions. Enabling automatic
+mode can activate existing approved drafts. A null override inherits the project
+default. These Cloud-only tools never approve communications or configure
+human-confirmed deployment scope. See [GitHub integration](/github) for setup,
+manual fallback, and rollback behavior.
+
 ## Revise an unlaunched campaign
 
 Connect your agent to the full MCP endpoint and authenticate for the campaign's
@@ -137,7 +148,9 @@ report that instead of changing it.
 
 Your agent reads the campaign with `get_campaign` and applies the requested
 revision with `update_campaign`. Refresh the dashboard to review the saved
-content. Launch remains a separate action.
+content. Approval survives revisions. An approved automatic campaign can become
+eligible to launch when its current changes are deployed. To keep it unlaunched,
+select manual mode before requesting the revision.
 
 ## Images
 

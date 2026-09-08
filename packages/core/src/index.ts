@@ -1,6 +1,7 @@
 export * from "./audience/evaluate.js";
 export * from "./audience/expression.js";
 export * from "./audience/legacy.js";
+export * from "./campaign-activation.js";
 export * from "./campaign-effects.js";
 export * from "./channels.js";
 export * from "./db-types.js";

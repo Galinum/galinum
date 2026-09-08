@@ -1,6 +1,6 @@
 {
   "name": "@galinum/core",
-  "version": "0.17.0",
+  "version": "0.17.1-shipping.1",
   "description": "Galinum product rules and management contracts",
   "private": true,
   "license": "Apache-2.0",

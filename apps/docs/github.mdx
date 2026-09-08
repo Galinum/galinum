@@ -5,7 +5,8 @@ description: "Prepare communications from code changes, review drafts, and launc
 
 Connect a repository so Galinum can prepare communications from relevant code
 changes. Pushes to your selected branch cover both direct commits and merged
-pull requests. GitHub events never launch a campaign.
+pull requests. In Galinum Cloud, approved communications can launch when
+GitHub reports a successful production deployment within your confirmed scope.
 
 ## Connect a repository
 
@@ -15,7 +16,7 @@ pull requests. GitHub events never launch a campaign.
 4. Select a repository and its target branch, usually `main`.
 5. Add project instructions for the agent's audience, tone, and announcement priorities.
 
-The App reads repository contents and pull requests. It does not write code,
+The App reads repository contents, pull requests, and deployment evidence. It does not write code,
 comment on PRs, or block merges and deployments.
 
 Galinum starts from the branch's current state when you connect it. Later
@@ -41,7 +42,9 @@ without communication value produce no campaign. You do not need a PR label
 or checkbox.
 
 Open the campaign to inspect its current content and GitHub sources. Approval
-records your review. It does not publish or schedule the campaign.
+records your review. In automatic mode, approval can make the campaign eligible
+to launch immediately if its changes are still deployed. Deployment success
+never replaces approval.
 
 ## Revise with your own agent
 
@@ -54,11 +57,87 @@ Relevant GitHub changes can still update a customer-edited draft. The agent
 uses its current content and preserves unrelated edits. Approval survives
 these revisions. Refresh the preview to inspect the latest content.
 
-## Launch when the product is ready
+## Configure deployment tracking
 
-Select **Launch** when you want users to receive the current communication.
-You can review and approve a draft between a push and a separate production
-deployment. No release or deployment integration is required.
+In **Settings → GitHub**, select a repository, its exact production environment,
+and the sources that this deployment ships. Describe the deployment scope and
+explicitly confirm it. A human manager must make this configuration. An agent
+cannot infer the scope or confirm it for you. One repository does not necessarily
+represent one deployed application.
 
-After launch, this integration leaves the campaign unchanged. Later relevant
-changes can produce another unlaunched draft.
+Projects initially use **automatic** launch. You can change the project default
+or set an individual campaign to **automatic** or **manual**. Selecting the
+project default clears the override to `null`. Default changes affect every
+unlaunched campaign without an explicit override; explicit overrides stay unchanged.
+
+Saving deployment tracking also evaluates existing approved drafts. Eligible
+automatic drafts can launch without another approval or deployment. Select
+manual mode before setup for communications you want to launch yourself.
+
+## Automatic launch
+
+Automatic launch requires approval and current deployment coverage for every
+associated change across **all** required repository/environment mappings.
+A missing or unclear mapping prevents automatic launch. Drafting and grouping
+remain available when mapping is unclear.
+
+If deployment succeeds before approval, later approval makes the communication
+eligible while its changes remain deployed. Source revisions retain approval.
+Automatic launch uses the latest content and checks its current associated
+changes, rather than the changes present when you approved it.
+
+Project and source pause controls, withdrawn or unresolved sources, launch
+readiness, and delivery expiry still apply. A future `deliverFrom` permits
+activation but delays delivery until that window opens. An expired
+`deliverUntil` blocks activation.
+
+The campaign's activation panel shows the effective mode, approval, waiting
+reasons, coverage for each mapping, last check, launch evidence, and warnings.
+The [management API](/api/overview) exposes this state through
+`GET /api/v1/campaigns/{id}/activation` and the default through
+`GET /api/v1/launch-policy`. Revision-checked PATCH requests change these modes;
+they do not approve campaigns or configure deployment scope.
+
+## Launch manually
+
+Use **manual** mode for feature flags, gradual rollouts, and unclear deployment
+mappings. Select **Launch** when the intended audience has access. Manual launch
+uses the existing readiness and lifecycle checks without requiring GitHub
+deployment coverage. No deployment integration is required for manual launch.
+
+## Deployment evidence and retries
+
+Only successful deployments in the configured repository and exact environment
+can establish new coverage. Pending, failed, and unselected-environment deployments
+cannot. A newer failed or pending deployment does not erase previously deployed
+code. A later invalidating status on the selected deployment leaves evidence
+unknown; Galinum does not fall back to a superseded success.
+
+GitHub reports deployment status; it does not independently inspect your running
+application. Galinum checks direct commit ancestry and complete merged PR bundles,
+including merge, squash, and rebase results. All required changes must be covered.
+Git history alone does not prove that a feature is available to its audience.
+
+Evidence reads have bounded page, request, and byte limits. Missing history,
+ambiguous source identity, incomplete comparisons, stale provider responses, and
+provider failures leave evidence unresolved. They never count as successful
+coverage or proof of rollback. Periodic reconciliation retries pending work,
+including missed signals and temporary failures. Duplicate, delayed, out-of-order,
+and concurrent signals do not duplicate initial launch or restore stale evidence.
+Already started, paused, or ended campaigns never restart from replayed signals.
+
+## Rollbacks and reverts
+
+An explicit rollback that excludes required changes, or a deployed identifiable
+revert, invalidates coverage for an unlaunched communication. Detection uses
+Git/deployment evidence and canonical full-SHA revert declarations. A causal
+revert of a revert can restore coverage; unrelated reverts do not cancel each
+other. Ambiguous or incomplete history remains unknown. Galinum does not ask an
+agent to infer feature removal from arbitrary code edits.
+
+If the communication already launched, including a manual launch, deterministic
+coverage loss creates a warning on the communication and in the dashboard agent
+activity feed. Warnings identify the affected changes and deployment evidence.
+They do not automatically pause delivery, change its window, or send email.
+You decide whether to pause the communication. Later relevant source changes
+can still produce another unlaunched draft.

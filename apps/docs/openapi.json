@@ -5973,7 +5973,7 @@
         },
         "x-mcp": {
           "exposed": false,
-          "reason": "hosted-agent"
+          "reason": "not-exposed"
         }
       }
     },
@@ -6078,7 +6078,7 @@
         },
         "x-mcp": {
           "exposed": false,
-          "reason": "hosted-agent"
+          "reason": "not-exposed"
         },
         "requestBody": {
           "required": true,
@@ -6193,7 +6193,7 @@
         },
         "x-mcp": {
           "exposed": false,
-          "reason": "hosted-agent"
+          "reason": "not-exposed"
         },
         "requestBody": {
           "required": true,
@@ -6204,6 +6204,381 @@
               }
             }
           }
+        }
+      }
+    },
+    "/api/v1/launch-policy": {
+      "get": {
+        "operationId": "getLaunchPolicy",
+        "summary": "Read project launch policy",
+        "security": [
+          {
+            "secretKey": []
+          },
+          {
+            "hostedAgentKey": []
+          }
+        ],
+        "tags": [
+          "Launch activation"
+        ],
+        "description": "Galinum Cloud only; self-host returns 501. Customer project secrets and hosted-agent credentials can read this state. This read grants no approval or deployment configuration authority. The initial default is automatic. Default changes affect all unlaunched campaigns without explicit overrides; explicit campaign overrides remain unchanged.",
+        "responses": {
+          "200": {
+            "description": "Current LaunchPolicy.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LaunchPolicy"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          },
+          "501": {
+            "description": "Available only in Galinum Cloud.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "x-mcp": {
+          "exposed": true,
+          "tool": "get_launch_policy",
+          "mode": "readonly",
+          "annotations": {
+            "readOnlyHint": true,
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true
+          },
+          "guidance": "Galinum Cloud only. Read the inherited project mode and revision. Reading does not grant approval or deployment configuration authority."
+        }
+      },
+      "patch": {
+        "operationId": "setLaunchPolicy",
+        "summary": "Set project launch policy",
+        "security": [
+          {
+            "secretKey": []
+          }
+        ],
+        "tags": [
+          "Launch activation"
+        ],
+        "description": "Galinum Cloud only; self-host returns 501. Requires a customer project secret; hosted-agent credentials are forbidden. Supply the current revision as expectedRevision. Stale revisions return 409; read fresh state and reconsider before retrying. This write changes launch mode only, never approval or deployment scope. Approval remains a human manager-session action. Enabling automatic mode can make existing approved drafts eligible without another approval or deployment. The initial default is automatic. Default changes affect all unlaunched campaigns without explicit overrides; explicit campaign overrides remain unchanged.",
+        "responses": {
+          "200": {
+            "description": "Current LaunchPolicy.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LaunchPolicy"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "Hosted-agent credentials cannot change launch controls.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The expected revision is stale. Read current state before reconsidering the write.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          },
+          "501": {
+            "description": "Available only in Galinum Cloud.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "defaultMode",
+                  "expectedRevision"
+                ],
+                "properties": {
+                  "defaultMode": {
+                    "$ref": "#/components/schemas/LaunchMode"
+                  },
+                  "expectedRevision": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "x-mcp": {
+          "exposed": true,
+          "tool": "set_launch_policy",
+          "mode": "full",
+          "annotations": {
+            "readOnlyHint": false,
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true
+          },
+          "guidance": "Galinum Cloud only; customer project secret required. Change only within the user's authority. Automatic mode can activate existing approved drafts without another deployment or approval. Draft-only instructions do not authorize this change. Use the current expectedRevision; after conflicts or uncertain responses, read fresh state and reconsider. This control never approves communications or confirms deployment scope."
+        }
+      }
+    },
+    "/api/v1/campaigns/{id}/activation": {
+      "get": {
+        "operationId": "getCampaignActivation",
+        "summary": "Read campaign activation state",
+        "security": [
+          {
+            "secretKey": []
+          },
+          {
+            "hostedAgentKey": []
+          }
+        ],
+        "tags": [
+          "Launch activation"
+        ],
+        "description": "Galinum Cloud only; self-host returns 501. Customer project secrets and hosted-agent credentials can read this state. This read grants no approval or deployment configuration authority. A null mode override inherits the project default. Eligibility uses current deployment evidence, all required mappings, approval, source/project pause controls, readiness, and expiry. A future deliverFrom delays delivery, not initial activation. Replayed events never restart started, paused, or ended campaigns.",
+        "responses": {
+          "200": {
+            "description": "Current CampaignActivationView.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignActivationView"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "Campaign not found in this project.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          },
+          "501": {
+            "description": "Available only in Galinum Cloud.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            }
+          }
+        ],
+        "x-mcp": {
+          "exposed": true,
+          "tool": "get_campaign_activation",
+          "mode": "readonly",
+          "annotations": {
+            "readOnlyHint": true,
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true
+          },
+          "guidance": "Galinum Cloud only. Explain effective mode, approval, all required mapping coverage, waiting reasons, launch evidence, and rollback/revert warnings. Unknown evidence is not successful coverage or proof of rollback. Warnings do not automatically pause delivery or send email."
+        }
+      },
+      "patch": {
+        "operationId": "setCampaignActivationMode",
+        "summary": "Set campaign activation mode",
+        "security": [
+          {
+            "secretKey": []
+          }
+        ],
+        "tags": [
+          "Launch activation"
+        ],
+        "description": "Galinum Cloud only; self-host returns 501. Requires a customer project secret; hosted-agent credentials are forbidden. Supply the current revision as expectedRevision. Stale revisions return 409; read fresh state and reconsider before retrying. This write changes launch mode only, never approval or deployment scope. Approval remains a human manager-session action. Enabling automatic mode can make existing approved drafts eligible without another approval or deployment. A null mode override inherits the project default. Eligibility uses current deployment evidence, all required mappings, approval, source/project pause controls, readiness, and expiry. A future deliverFrom delays delivery, not initial activation. Replayed events never restart started, paused, or ended campaigns.",
+        "responses": {
+          "200": {
+            "description": "Current CampaignActivationView.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignActivationView"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "Hosted-agent credentials cannot change launch controls.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Campaign not found in this project.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The expected revision is stale. Read current state before reconsidering the write.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          },
+          "501": {
+            "description": "Available only in Galinum Cloud.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "mode",
+                  "expectedRevision"
+                ],
+                "properties": {
+                  "mode": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/components/schemas/LaunchMode"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "expectedRevision": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "x-mcp": {
+          "exposed": true,
+          "tool": "set_campaign_activation_mode",
+          "mode": "full",
+          "annotations": {
+            "readOnlyHint": false,
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true
+          },
+          "guidance": "Galinum Cloud only; customer project secret required. Change only within the user's authority. Null inherits the project default. Automatic mode can activate an approved draft, including after source edits, when all current requirements are deployed. Keep flags, gradual rollouts, and unclear mappings manual until the audience has access. Use the current expectedRevision; after conflicts or uncertain responses, read fresh state and reconsider. This control never approves communications or confirms deployment scope."
         }
       }
     }
@@ -9767,6 +10142,354 @@
           "ops"
         ],
         "additionalProperties": false
+      },
+      "LaunchMode": {
+        "type": "string",
+        "enum": [
+          "automatic",
+          "manual"
+        ]
+      },
+      "LaunchPolicy": {
+        "type": "object",
+        "required": [
+          "defaultMode",
+          "revision"
+        ],
+        "properties": {
+          "defaultMode": {
+            "$ref": "#/components/schemas/LaunchMode"
+          },
+          "revision": {
+            "type": "string"
+          }
+        },
+        "description": "Galinum Cloud project launch policy. Initially automatic. Changes apply to every unlaunched campaign without an explicit override."
+      },
+      "ActivationEvidence": {
+        "type": "object",
+        "required": [
+          "id",
+          "provider",
+          "label",
+          "url",
+          "revision",
+          "reportedAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "string"
+          },
+          "reportedAt": {
+            "type": "number"
+          }
+        }
+      },
+      "ActivationRequirement": {
+        "type": "object",
+        "required": [
+          "id",
+          "sourceId",
+          "label",
+          "mappingIds"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "sourceId": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "mappingIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "ActivationCoverage": {
+        "type": "object",
+        "required": [
+          "requirementId",
+          "mappingId",
+          "state",
+          "evidence"
+        ],
+        "properties": {
+          "requirementId": {
+            "type": "string"
+          },
+          "mappingId": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "present",
+              "absent",
+              "reverted",
+              "unknown",
+              "pending"
+            ]
+          },
+          "evidence": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ActivationEvidence"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      },
+      "ActivationBlockerCode": {
+        "type": "string",
+        "enum": [
+          "manual",
+          "approval",
+          "no_sources",
+          "mapping",
+          "source_pending",
+          "source_paused",
+          "source_unavailable",
+          "project_paused",
+          "withdrawn",
+          "deployment",
+          "evidence_unknown",
+          "reverted",
+          "expired",
+          "readiness"
+        ]
+      },
+      "ActivationBlocker": {
+        "type": "object",
+        "required": [
+          "code"
+        ],
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/ActivationBlockerCode"
+          },
+          "sourceId": {
+            "type": "string"
+          },
+          "requirementId": {
+            "type": "string"
+          },
+          "mappingId": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          }
+        }
+      },
+      "ActivationAssessment": {
+        "type": "object",
+        "required": [
+          "state",
+          "blockers"
+        ],
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "not_initial",
+              "waiting",
+              "eligible"
+            ]
+          },
+          "blockers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ActivationBlocker"
+            }
+          }
+        }
+      },
+      "ActivationReceipt": {
+        "type": "object",
+        "required": [
+          "mode",
+          "startedAt",
+          "contentHash",
+          "requirementsDigest",
+          "evidence"
+        ],
+        "properties": {
+          "mode": {
+            "$ref": "#/components/schemas/LaunchMode"
+          },
+          "startedAt": {
+            "type": "number"
+          },
+          "contentHash": {
+            "type": "string"
+          },
+          "requirementsDigest": {
+            "type": "string"
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ActivationEvidence"
+            }
+          }
+        }
+      },
+      "ShippingWarning": {
+        "type": "object",
+        "required": [
+          "id",
+          "reason",
+          "createdAt",
+          "mappingId",
+          "mappingLabel",
+          "requirementIds",
+          "evidence"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "rollback",
+              "revert"
+            ]
+          },
+          "createdAt": {
+            "type": "number"
+          },
+          "mappingId": {
+            "type": "string"
+          },
+          "mappingLabel": {
+            "type": "string"
+          },
+          "requirementIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "evidence": {
+            "$ref": "#/components/schemas/ActivationEvidence"
+          }
+        }
+      },
+      "CampaignActivationView": {
+        "type": "object",
+        "required": [
+          "campaignId",
+          "revision",
+          "defaultMode",
+          "override",
+          "effectiveMode",
+          "approval",
+          "assessment",
+          "requirements",
+          "coverage",
+          "lastCheckedAt",
+          "launch",
+          "warnings"
+        ],
+        "properties": {
+          "campaignId": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "string"
+          },
+          "defaultMode": {
+            "$ref": "#/components/schemas/LaunchMode"
+          },
+          "override": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LaunchMode"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "effectiveMode": {
+            "$ref": "#/components/schemas/LaunchMode"
+          },
+          "approval": {
+            "type": "string",
+            "enum": [
+              "approved",
+              "pending",
+              "unavailable"
+            ]
+          },
+          "assessment": {
+            "$ref": "#/components/schemas/ActivationAssessment"
+          },
+          "requirements": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ActivationRequirement"
+            }
+          },
+          "coverage": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ActivationCoverage"
+            }
+          },
+          "lastCheckedAt": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "launch": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ActivationReceipt"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ShippingWarning"
+            }
+          }
+        },
+        "description": "Galinum Cloud activation supervision, separate from common campaign fields. Null override inherits the project default. All required changes across every configured mapping need current present coverage. Approval survives source edits; eligibility checks the latest content and associated changes. Evidence timestamps are epoch milliseconds. Warnings retain deployment evidence without pausing delivery or sending email."
       }
     },
     "responses": {
@@ -9879,7 +10602,7 @@
         "mode": "readonly"
       }
     },
-    "instructions": "Galinum is self-driving product communications. You use it to create, target,\nlaunch, and measure product messages for one project. The project secret you\nauthenticated with scopes every call to that project.\n\n## Classify the request before you write\n\nDecide which of three modes the user asked for, then use the smallest one:\n\n- **Direct** — one message, engagement stats only. \"Announce the CSV export\",\n  \"tell free users about the promo\", \"draft a message about the pricing change\".\n- **Outcome-measured** — one message plus a goal you measure. \"Send the promo\n  and track upgrades\", \"tell me whether people start using it\".\n- **Optimized** — variants and goal-driven optimization. \"A/B test this\n  message\", \"optimize onboarding\", \"work toward the activation goal\".\n\nDirect is the default. Never add a goal, variants, a delivery window, an\nevaluation, or optimization that the user did not ask for. A product having\ngoals does not make an ordinary announcement outcome-measured. Use one message\nfor direct communication. Set a delivery window only from timing the user gave\nyou, or after you resolve the missing dates with them.\n\n## Respect launch authority\n\nIf the user said draft, propose, or prepare, stop at draft. Never launch.\n\nLaunch only when the user gave explicit launch, send, or announce authority.\nIf launch authority is ambiguous, stop at draft and ask the user.\n\n## Check what already exists before you write\n\nBefore you create, launch, or update a campaign:\n\n1. Read recent agent runs, so you can see what another agent already did.\n2. Query running campaigns and scheduled campaigns as two separate calls.\n3. Read every page through `pageCount` for both status queries.\n4. Treat the deduplicated union as a complete point-in-time snapshot only\n   after both paginated searches are exhausted.\n5. Repeat both queries immediately before the write.\n\nThis snapshot never protects you against a concurrent campaign write. Do not\nclaim that it does. Avoid overlapping audiences and delivery periods.\n\n## Log decisions, and never double-write\n\nLog material decisions, proposals, and launches as agent runs. Reuse the same\nidempotency key when you retry, so one decision produces one run record.\n\nNever retry an uncertain campaign creation. Read campaigns back and confirm\nwhat exists first. For any other uncertain write, read the current state before\nyou act again.",
+    "instructions": "Galinum is self-driving product communications. You use it to create, target,\nlaunch, and measure product messages for one project. The project secret you\nauthenticated with scopes every call to that project.\n\n## Classify the request before you write\n\nDecide which of three modes the user asked for, then use the smallest one:\n\n- **Direct** — one message, engagement stats only. \"Announce the CSV export\",\n  \"tell free users about the promo\", \"draft a message about the pricing change\".\n- **Outcome-measured** — one message plus a goal you measure. \"Send the promo\n  and track upgrades\", \"tell me whether people start using it\".\n- **Optimized** — variants and goal-driven optimization. \"A/B test this\n  message\", \"optimize onboarding\", \"work toward the activation goal\".\n\nDirect is the default. Never add a goal, variants, a delivery window, an\nevaluation, or optimization that the user did not ask for. A product having\ngoals does not make an ordinary announcement outcome-measured. Use one message\nfor direct communication. Set a delivery window only from timing the user gave\nyou, or after you resolve the missing dates with them.\n\n## Respect launch authority\n\nIf the user said draft, propose, or prepare, stop at draft. Never launch.\n\nLaunch only when the user gave explicit launch, send, or announce authority.\nIf launch authority is ambiguous, stop at draft and ask the user.\n\n## Check what already exists before you write\n\nBefore you create, launch, or update a campaign:\n\n1. Read recent agent runs, so you can see what another agent already did.\n2. Query running campaigns and scheduled campaigns as two separate calls.\n3. Read every page through `pageCount` for both status queries.\n4. Treat the deduplicated union as a complete point-in-time snapshot only\n   after both paginated searches are exhausted.\n5. Repeat both queries immediately before the write.\n\nThis snapshot never protects you against a concurrent campaign write. Do not\nclaim that it does. Avoid overlapping audiences and delivery periods.\n\n## Log decisions, and never double-write\n\nLog material decisions, proposals, and launches as agent runs. Reuse the same\nidempotency key when you retry, so one decision produces one run record.\n\nNever retry an uncertain campaign creation. Read campaigns back and confirm\nwhat exists first. For any other uncertain write, read the current state before\nyou act again.\n\n## Deployment activation controls\n\nGalinum Cloud exposes launch-policy and campaign-activation reads and mode\nwrites. Read the current revision before a mode write. Change modes only within\nthe user's authority: enabling automatic mode can activate existing approved\ndrafts, including after source edits. Draft-only instructions do not authorize\nthat change. Null campaign override inherits the project default, initially\nautomatic. All required changes need current deployment coverage and approval.\n\nThese tools never approve communications or configure deployment scope. A human\nmanager must select and confirm the repository, environment, sources, and scope\nin the dashboard. Hosted credentials have GET visibility only. Use manual mode\nfor feature flags, gradual rollouts, and unclear mappings. Unknown evidence is\nwaiting, never proof of deployment or rollback. Rollback/revert warnings appear\non campaigns and in dashboard activity; they do not automatically pause delivery\nor send email.",
     "readonlyInstructions": "This endpoint exposes read-only tools only. Campaign, goal, and segment writes are not available here. Connect to the full endpoint when the user asks you to create, update, or launch something."
   }
 }

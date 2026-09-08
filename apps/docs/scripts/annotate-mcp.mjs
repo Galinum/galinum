@@ -29,6 +29,14 @@ const VISIBILITY =
   "Before you create, launch, or update a campaign, read recent agent runs and query running and scheduled campaigns as two separate paginated searches. Read every page through pageCount for both statuses before treating their deduplicated union as a complete point-in-time snapshot. Repeat both searches immediately before the write. Never claim protection against concurrent campaign changes.";
 
 const GUIDANCE = {
+  get_launch_policy:
+    "Galinum Cloud only. Read the inherited project mode and revision. Reading does not grant approval or deployment configuration authority.",
+  get_campaign_activation:
+    "Galinum Cloud only. Explain effective mode, approval, all required mapping coverage, waiting reasons, launch evidence, and rollback/revert warnings. Unknown evidence is not successful coverage or proof of rollback. Warnings do not automatically pause delivery or send email.",
+  set_launch_policy:
+    "Galinum Cloud only; customer project secret required. Change only within the user's authority. Automatic mode can activate existing approved drafts without another deployment or approval. Draft-only instructions do not authorize this change. Use the current expectedRevision; after conflicts or uncertain responses, read fresh state and reconsider. This control never approves communications or confirms deployment scope.",
+  set_campaign_activation_mode:
+    "Galinum Cloud only; customer project secret required. Change only within the user's authority. Null inherits the project default. Automatic mode can activate an approved draft, including after source edits, when all current requirements are deployed. Keep flags, gradual rollouts, and unclear mappings manual until the audience has access. Use the current expectedRevision; after conflicts or uncertain responses, read fresh state and reconsider. This control never approves communications or confirms deployment scope.",
   create_campaign:
     "Classify the request as direct, outcome-measured, or optimized before you write anything, then use the smallest mode the user asked for. A direct communication is one message: do not add a goal, variants, a delivery window, an evaluation, or optimization unless the user asked for them. Treat ordinary announcements as direct even when the product has goals. Use a single message field for direct communication. Set a delivery window only from timing the user gave you, or after you resolve the missing dates with them. If the user said draft, propose, or prepare, stop at draft and never launch. Launch only when the user gave explicit launch, send, or announce authority. If launch authority is ambiguous, stop at draft and ask. Avoid overlapping audiences and delivery periods with other running or scheduled campaigns. " +
     VISIBILITY +

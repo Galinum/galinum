@@ -28,9 +28,10 @@ describe("management API implementation coverage", () => {
 
   it("classifies the managed hosted-agent control plane as cloud-only", () => {
     const cloud = OPERATIONS.filter((operation) => operation.availability === "galinum_cloud");
-    expect(cloud).toHaveLength(12);
+    expect(cloud).toHaveLength(16);
     expect(cloud.map((operation) => operation.operationId)).toEqual(expect.arrayContaining([
       "listDueGithubRefs", "claimGithubRef", "reconcileGithubRef",
+      "getLaunchPolicy", "setLaunchPolicy", "getCampaignActivation", "setCampaignActivationMode",
     ]));
     expect(cloud.map((operation) => operation.operationId)).toContain("reportAgentUsage");
     expect(cloud.map((operation) => operation.operationId)).toContain("claimCampaignEvaluation");
