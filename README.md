@@ -17,9 +17,11 @@ and owns its own billing, tenancy, and operations.
 | `packages/push` | Server-only APNs/FCM providers and shared push delivery engine |
 | `packages/core` | Product-only campaign, audience, targeting, delivery, and adapter contracts |
 | `packages/dashboard` | Reusable supervision pages and a framework-neutral host mount |
+| `packages/react-native` | Native installation, identity, event and consent client with Expo and bare adapters |
 | `packages/react` | React SDK for identifying users, tracking events, and rendering in-app messages |
 | `packages/server` | Contract-generated management API, local adapter, and product Postgres schema |
 | `examples/self-host` | Node 24 and Postgres 17 Compose example |
+| `examples/react-native-expo` | Disposable Expo client foundation example |
 | `examples/react-nextjs` | Next.js App Router example for the React SDK |
 | `scripts` | Workspace, contract, schema, release, and affected-package checks |
 

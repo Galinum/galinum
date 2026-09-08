@@ -1,0 +1,122 @@
+{
+  "name": "@galinum/react-native",
+  "version": "0.17.0",
+  "description": "Native Galinum installation, identity and event client",
+  "private": true,
+  "license": "Apache-2.0",
+  "homepage": "https://docs.galinum.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Galinum/galinum.git",
+    "directory": "packages/react-native"
+  },
+  "bugs": {
+    "url": "https://github.com/Galinum/galinum/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "react-native": "./dist/index.js",
+  "sideEffects": [
+    "./dist/bare.js"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./expo": {
+      "types": "./dist/expo.d.ts",
+      "default": "./dist/expo.js"
+    },
+    "./bare": {
+      "types": "./dist/bare.d.ts",
+      "default": "./dist/bare.js"
+    }
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "check:package": "node ../../scripts/verify-native-package.mjs"
+  },
+  "dependencies": {
+    "@galinum/contracts": "workspace:*",
+    "@noble/hashes": "2.4.0"
+  },
+  "peerDependencies": {
+    "react": ">=19.2.3 <20",
+    "react-native": ">=0.81 <0.88",
+    "expo-crypto": ">=57 <58",
+    "expo-notifications": ">=57 <58",
+    "expo-secure-store": ">=57 <58",
+    "@react-native-firebase/app": ">=26 <27",
+    "@react-native-firebase/messaging": ">=26 <27",
+    "react-native-keychain": ">=10 <11",
+    "react-native-get-random-values": ">=2 <3",
+    "react-native-permissions": ">=5.6 <6",
+    "react-native-mmkv": ">=4.3 <5",
+    "react-native-nitro-modules": ">=0.37 <0.38"
+  },
+  "peerDependenciesMeta": {
+    "expo-crypto": {
+      "optional": true
+    },
+    "expo-notifications": {
+      "optional": true
+    },
+    "expo-secure-store": {
+      "optional": true
+    },
+    "@react-native-firebase/app": {
+      "optional": true
+    },
+    "@react-native-firebase/messaging": {
+      "optional": true
+    },
+    "react-native-keychain": {
+      "optional": true
+    },
+    "react-native-get-random-values": {
+      "optional": true
+    },
+    "react-native-permissions": {
+      "optional": true
+    },
+    "react-native-mmkv": {
+      "optional": true
+    },
+    "react-native-nitro-modules": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "react": "19.2.3",
+    "react-native": "0.86.3",
+    "@types/react": "19.2.17",
+    "typescript": "5.9.3",
+    "vitest": "4.1.8",
+    "expo": "57.0.20",
+    "expo-crypto": "57.0.2",
+    "expo-notifications": "57.0.17",
+    "expo-secure-store": "57.0.3",
+    "@react-native-firebase/app": "26.4.0",
+    "@react-native-firebase/messaging": "26.4.0",
+    "react-native-keychain": "10.0.0",
+    "react-native-get-random-values": "2.0.0",
+    "react-native-permissions": "5.6.1",
+    "react-test-renderer": "19.2.3",
+    "@types/react-test-renderer": "19.1.0",
+    "react-dom": "19.2.3",
+    "react-native-mmkv": "4.3.2",
+    "react-native-nitro-modules": "0.37.1"
+  },
+  "engines": {
+    "node": ">=20.19.0"
+  }
+}

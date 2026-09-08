@@ -85,6 +85,13 @@ const packageLanes = [
       ["pnpm", "--filter", "@galinum/server", "build"],
     ],
   },
+  {
+    name: "native",
+    paths: ["packages/react-native/", "examples/react-native-expo/"],
+    requires: ["contracts", "core", "server"],
+    release: true,
+    commands: [["pnpm", "check:native"]],
+  },
 ];
 
 function argument(name) {
@@ -110,9 +117,12 @@ export function selectAffected(files) {
       .filter((lane) => lane.paths.some((path) => files.some((file) => file === path || file.startsWith(path))))
       .map((lane) => lane.name),
   );
-  return packageLanes
-    .filter((lane) => changed.has(lane.name) || (lane.requires ?? []).some((name) => changed.has(name)))
-    .map((lane) => lane.name);
+  let previousSize = -1;
+  while (previousSize !== changed.size) {
+    previousSize = changed.size;
+    for (const lane of packageLanes) if ((lane.requires ?? []).some((name) => changed.has(name))) changed.add(lane.name);
+  }
+  return packageLanes.filter((lane) => changed.has(lane.name)).map((lane) => lane.name);
 }
 
 export function prerequisiteCommands(lane, selected) {

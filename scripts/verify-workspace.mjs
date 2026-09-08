@@ -31,6 +31,7 @@ const workspacePackages = [
   { path: "packages/core", name: "@galinum/core", release: true, node: "24.x" },
   { path: "packages/dashboard", name: "@galinum/dashboard", release: true, node: "24.x", packedLicense: "LICENSES" },
   { path: "packages/react", name: "@galinum/react", release: true, node: ">=20", packedLicense: "LICENSE" },
+  { path: "packages/react-native", name: "@galinum/react-native", release: true, node: ">=20.19.0", packedLicense: "LICENSE" },
   { path: "packages/server", name: "@galinum/server", release: true, node: "24.x" },
 ];
 

@@ -1,0 +1,29 @@
+{
+  "name": "@galinum/example-react-native-expo",
+  "version": "0.0.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "main": "index.ts",
+  "scripts": {
+    "start": "expo start --dev-client",
+    "typecheck": "tsc --noEmit",
+    "build": "expo export --platform ios --platform android --output-dir dist"
+  },
+  "dependencies": {
+    "@galinum/react-native": "workspace:*",
+    "expo": "57.0.20",
+    "expo-dev-client": "57.0.18",
+    "expo-crypto": "57.0.2",
+    "expo-notifications": "57.0.17",
+    "expo-secure-store": "57.0.3",
+    "react": "19.2.3",
+    "react-native": "0.86.3",
+    "react-native-mmkv": "4.3.2",
+    "react-native-nitro-modules": "0.37.1"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.17",
+    "typescript": "6.0.3",
+    "react-dom": "19.2.3"
+  }
+}

@@ -8,12 +8,12 @@ function dashboardLane(selected) {
 }
 
 describe("affected package selection", () => {
-  it("selects push and its server host", () => { assert.deepEqual(selectAffected(["packages/push/src/engine.ts"]), ["push", "server"]); });
+  it("selects push, its server host and dependent native HTTP checks", () => { assert.deepEqual(selectAffected(["packages/push/src/engine.ts"]), ["push", "server", "native"]); });
   it("selects all contract consumers for a generated mobile change", () => {
-    assert.deepEqual(selectAffected(["packages/contracts/src/index.ts"]), ["contracts", "core", "dashboard", "push", "server"]);
+    assert.deepEqual(selectAffected(["packages/contracts/src/index.ts"]), ["contracts", "core", "dashboard", "push", "server", "native"]);
   });
   it("runs docs for an unknown base", () => {
-    assert.deepEqual(selectAffected(null), ["contracts", "core", "dashboard", "docs", "react", "react-example", "push", "server"]);
+    assert.deepEqual(selectAffected(null), ["contracts", "core", "dashboard", "docs", "react", "react-example", "push", "server", "native"]);
   });
 
   it("runs docs for a documentation change", () => {
@@ -21,11 +21,11 @@ describe("affected package selection", () => {
   });
 
   it("runs docs for a shared workspace change", () => {
-    assert.deepEqual(selectAffected(["pnpm-lock.yaml"]), ["contracts", "core", "dashboard", "docs", "react", "react-example", "push", "server"]);
+    assert.deepEqual(selectAffected(["pnpm-lock.yaml"]), ["contracts", "core", "dashboard", "docs", "react", "react-example", "push", "server", "native"]);
   });
 
   it("runs every package for a release registry change", () => {
-    assert.deepEqual(selectAffected(["release/packages.json"]), ["contracts", "core", "dashboard", "docs", "react", "react-example", "push", "server"]);
+    assert.deepEqual(selectAffected(["release/packages.json"]), ["contracts", "core", "dashboard", "docs", "react", "react-example", "push", "server", "native"]);
   });
 
   it("runs only dashboard for a dashboard primitive", () => {
@@ -37,16 +37,16 @@ describe("affected package selection", () => {
   });
 
   it("runs core, dashboard, and server for a core change", () => {
-    assert.deepEqual(selectAffected(["packages/core/src/messages.ts"]), ["core", "dashboard", "push", "server"]);
-    assert.deepEqual(prerequisiteCommands(dashboardLane(["core", "dashboard", "push", "server"]), ["core", "dashboard", "push", "server"]), []);
+    assert.deepEqual(selectAffected(["packages/core/src/messages.ts"]), ["core", "dashboard", "push", "server", "native"]);
+    assert.deepEqual(prerequisiteCommands(dashboardLane(["core", "dashboard", "push", "server", "native"]), ["core", "dashboard", "push", "server", "native"]), []);
   });
 
   it("runs docs and server for the OpenAPI contract", () => {
-    assert.deepEqual(selectAffected(["apps/docs/openapi.json"]), ["contracts", "core", "dashboard", "docs", "push", "server"]);
+    assert.deepEqual(selectAffected(["apps/docs/openapi.json"]), ["contracts", "core", "dashboard", "docs", "push", "server", "native"]);
   });
 
-  it("runs only server for a server change", () => {
-    assert.deepEqual(selectAffected(["packages/server/src/app.ts"]), ["server"]);
+  it("runs server and native HTTP tests for a server change", () => {
+    assert.deepEqual(selectAffected(["packages/server/src/app.ts"]), ["server", "native"]);
   });
 
   it("runs react and its example for a React SDK change", () => {
@@ -84,6 +84,11 @@ describe("affected package selection", () => {
       ["pnpm", "--filter", "@galinum/react", "test"],
       ["pnpm", "--filter", "@galinum/react", "build"],
     ]);
+  });
+
+  it("checks native package and example changes", () => {
+    assert.deepEqual(selectAffected(["packages/react-native/src/client.ts"]), ["native"]);
+    assert.deepEqual(selectAffected(["examples/react-native-expo/App.tsx"]), ["native"]);
   });
 
   it("runs no package for unrelated prose", () => {

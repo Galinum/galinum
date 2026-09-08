@@ -17,7 +17,9 @@ This repository owns the reusable Galinum product.
 - `packages/push` owns server-only push delivery, providers, and host contracts.
 - `packages/server` owns the self-host API, local runtime adapters, and product schema.
 - `packages/dashboard` owns reusable dashboard primitives and generic semantic tokens.
+- `packages/react-native` owns the native installation client and Expo/bare adapters.
 - `packages/react` owns the React SDK source, tests, and its packed tarball contents.
+- `examples/react-native-expo` owns the disposable native client example.
 - `examples/self-host` owns the local deployment example.
 - `examples/react-nextjs` owns the React SDK example application.
 - `release/packages.json` lists the release-owned packages and their paths.

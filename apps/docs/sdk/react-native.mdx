@@ -1,0 +1,71 @@
+---
+title: "React Native client"
+description: "Identify native users and synchronize installation permission, consent, tokens and activity."
+---
+
+`@galinum/react-native` provides a client, `GalinumProvider`, `useGalinum`,
+`useGalinumClient` and `useGalinumSnapshot`. It uses the public
+[installation lifecycle](/sdk/installations) and identify/track APIs.
+
+Create one client outside React renders with your API origin, publishable key,
+app ID, platform, environment, unique secure-storage key and native adapter.
+`createExpoAdapter` is exported from `@galinum/react-native/expo`.
+`createBareAdapter` is exported from `@galinum/react-native/bare`.
+
+The [package setup guide](https://github.com/Galinum/galinum/tree/main/packages/react-native)
+contains pinned dependencies, native configuration and the full API. The
+[Expo example](https://github.com/Galinum/galinum/tree/main/examples/react-native-expo)
+exercises each foundation operation.
+
+## Identity and safety
+
+Call `identify(userId, traits?)` before user-specific operations. `track(event,
+props?)` sends an event for that session. `reset()` immediately invalidates old
+session callbacks, then persists anonymous intent, unbinds the user and clears the
+server token. Switching users clears product consent and prior-user activity.
+Installation credentials remain durable across reset. A saved user's consent and
+registration survive same-user identify before or concurrently with startup,
+including a child effect before the provider effect.
+
+Reset schedules durable intent independently of native token/permission waits.
+Storage completion and server revocation are asynchronous. A pending or failed reset
+must not be reported as completed. On recovery, retry reset or startup reconciliation.
+Reset and superseding identity intents require an acknowledged server revision
+advance, even when GET already shows the desired user. The durable requirement
+survives restart. A client timeout or abort does not cancel server application of
+a request; the server revision fence rejects delayed old binding writes.
+Small credentials stay in SecureStore/Keychain; encrypted app-container MMKV holds
+session and pending-write state. Surviving credentials alone cannot restore an old
+user when app state is absent. The setup guide defines scope/key-rotation recovery.
+
+Use operations returned by `useGalinum()` or capture `client.session()` before
+asynchronous work. A captured session rejects after account changes. Direct client
+methods target whichever session is current when called.
+
+The SDK owns bootstrap credentials, mutation request IDs, acknowledgements and
+revision conflicts. It securely persists pending installation writes and reads
+current state after each acknowledgement. Callers do not manage revisions.
+Snapshots are immutable and contain no capabilities used for authentication or
+native token values. Errors expose sanitized codes and HTTP status only.
+
+## Permission, consent and activity
+
+Initialization never prompts. Call `requestPermission()` from an app-controlled
+interaction. Call `setConsent(true)` only after separate product consent. Permission
+does not imply consent. `syncDevice()` refreshes permission and native tokens;
+revoked consent clears the server token. An eligible token read returning null
+preserves the current token. Unchanged token registrations do not increment the
+server token revision. Passive synchronization does not supersede permission prompts.
+
+Call `recordForegroundActivity()` only for actual foreground use. Initialization,
+identify, track, permission checks and token callbacks do not record activity.
+
+## Foundation boundary
+
+The SDK has no push envelope parser, observation reporting, tap/action routing,
+background handler or in-app renderer. It advertises empty rendering capabilities.
+The Expo adapter uses native APNs/FCM tokens, not Expo Push Service tokens. The bare
+adapter uses APNs on iOS and Firebase Messaging on Android.
+
+Local HTTP and adapter tests do not prove provider acceptance or device delivery.
+Use native builds with configured provider credentials for that separate proof.
