@@ -82,8 +82,13 @@ async function run() {
     release();
     await client.flush();
     result.afterReplay = await prefix();
+    const replayRequestStart = http.length;
     result.duplicate = await client.track('journal_goal', { nested: { values: ['uncertain'] } }, { eventId: 'native-U' });
     check((result.duplicate as any).state === 'acknowledged', 'stable_business_event');
+    await client.flush();
+    result.replayHttp = http.slice(replayRequestStart);
+    check(!(result.replayHttp as any[]).some(request => request.path === '/api/v1/identify'), 'replay_does_not_identify');
+    check((result.replayHttp as any[]).some(request => request.method === 'GET'), 'replay_validates_current_installation');
     await client.identify('journal-A');
     result.confirmed = await prefix();
     const oldSession = client.session();

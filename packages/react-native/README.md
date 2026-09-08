@@ -119,6 +119,11 @@ an uncertain admission recoverable. Repeat the same event name and properties;
 changed data under the same ID fails. A reserved ticket alone is not durable.
 Process death before admission can lose it; retry with the retained event ID.
 
+Tracking reconciles the current installation binding without issuing a user
+identification request. An acknowledged replay still validates current identity and
+storage before returning its receipt. Explicit `identify()` and `start()` retain
+their identification behavior.
+
 The sender preserves the exact durable uncertain batch across appends and process
 restart. Reads use an indexed prefix of at most 32 commands and the 64 KiB wire
 budget. There is no fixed lifetime row limit. Storage exhaustion rejects admission

@@ -268,6 +268,10 @@ export class GalinumClient {
   private async bind(userId: string | null, epoch?: number, traits?: Properties, force = false) {
     if (epoch !== undefined) this.assertCurrent(epoch);
     if (userId !== null) await this.retry(() => this.request("/api/v1/identify", "POST", { userId, ...(traits === undefined ? {} : { traits }) }, false));
+    await this.reconcileBinding(userId, epoch, force);
+  }
+
+  private async reconcileBinding(userId: string | null, epoch?: number, force = false) {
     if (epoch !== undefined) this.assertCurrent(epoch);
     const bindingRevision = this.storage.local!.bindingRevision;
     if (force || this.state!.userId !== userId || this.storage.local!.acknowledgedBindingRevision !== bindingRevision) {
@@ -430,7 +434,7 @@ export class GalinumClient {
         if ((capture.redirect ?? capture) !== this.journalIntent) throw new GalinumError('superseded');
         const userId = this.storage.local!.session.userId;
         if (!userId) { this.journal.reject(ticket); throw new GalinumError('identify_required'); }
-        await this.bind(userId, this.epoch);
+        await this.reconcileBinding(userId, this.epoch);
         await this.publishJournal();
         const receipt = await admission;
         if ((capture.redirect ?? capture) !== this.journalIntent) throw new GalinumError('superseded');
