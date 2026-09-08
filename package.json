@@ -45,7 +45,7 @@
     "check:react-example": "pnpm --filter @galinum/react build && pnpm --filter @galinum/example-react-nextjs typecheck",
     "check:server": "pnpm --filter @galinum/server typecheck",
     "check": "pnpm check:contracts && pnpm check:core && pnpm check:push && pnpm check:dashboard && pnpm check:react && pnpm check:react-example && pnpm check:server && pnpm check:contract && pnpm check:mcp && pnpm check:skill && pnpm check:docs",
-    "test": "pnpm --filter @galinum/contracts build && node --test scripts/*.test.mjs && pnpm --filter @galinum/core test && pnpm --filter @galinum/dashboard test && pnpm --filter @galinum/react test && pnpm --filter @galinum/push build && pnpm --filter @galinum/push test && pnpm --filter @galinum/server test",
+    "test": "pnpm --filter @galinum/server... build && node --test scripts/*.test.mjs && pnpm --filter @galinum/core test && pnpm --filter @galinum/dashboard test && pnpm --filter @galinum/react test && pnpm --filter @galinum/push test && pnpm --filter @galinum/server test",
     "build": "pnpm --filter @galinum/contracts build && pnpm --filter @galinum/core build && pnpm --filter @galinum/push build && pnpm --filter @galinum/server build && pnpm --filter @galinum/dashboard build && pnpm --filter @galinum/react build && pnpm --filter @galinum/example-react-nextjs build",
     "release": "node scripts/release-packages.mjs",
     "verify": "pnpm verify:workspace && pnpm verify:mobile-contracts && pnpm verify:server-operations && pnpm verify:product-schema && pnpm verify:installation-upgrade && pnpm verify:push-upgrade && pnpm verify:dashboard && pnpm test && pnpm check && pnpm build && pnpm verify:dashboard-built && pnpm verify:release && pnpm check:native",
