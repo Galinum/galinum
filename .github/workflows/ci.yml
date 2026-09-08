@@ -42,22 +42,22 @@ jobs:
       - run: pnpm verify:product-schema
       - name: Apply the product schema
         env:
-          DATABASE_URL: postgres://postgres:postgres@localhost:5432/galinum_product_ci
+          DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/galinum_product_ci
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f packages/server/schema.sql
       - name: Run Postgres product integration tests
         env:
-          DATABASE_URL: postgres://postgres:postgres@localhost:5432/galinum_product_ci
+          DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/galinum_product_ci
           RUN_DB_INTEGRATION: "1"
         run: pnpm --filter @galinum/server test
       - name: Verify the existing database upgrade
         env:
-          GALINUM_UPGRADE_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+          GALINUM_UPGRADE_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
         run: pnpm verify:activation-upgrade
       - run: pnpm test
       - run: pnpm verify:affected -- --base "${{ github.event.before }}"
       - name: Verify the built activation runtime
         env:
-          GALINUM_RUNTIME_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+          GALINUM_RUNTIME_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
         run: |
           pnpm --filter @galinum/server... build
           pnpm verify:activation-runtime
