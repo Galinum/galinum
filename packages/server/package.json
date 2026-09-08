@@ -36,6 +36,10 @@
     "./installations": {
       "types": "./dist/installations.d.ts",
       "import": "./dist/installations.js"
+    },
+    "./runtime": {
+      "types": "./dist/runtime.d.ts",
+      "import": "./dist/runtime.js"
     }
   },
   "scripts": {
@@ -48,7 +52,8 @@
     "@galinum/core": "workspace:*",
     "kysely": "0.29.2",
     "pg": "8.23.0",
-    "@galinum/contracts": "workspace:*"
+    "@galinum/contracts": "workspace:*",
+    "@galinum/push": "workspace:*"
   },
   "devDependencies": {
     "@galinum/dashboard": "workspace:*",

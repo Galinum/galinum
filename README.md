@@ -14,6 +14,7 @@ and owns its own billing, tenancy, and operations.
 | --- | --- |
 | `apps/docs` | Customer documentation, OpenAPI, MCP metadata, and the distributable skill |
 | `packages/contracts` | Generated mobile-safe installation wire types and schemas |
+| `packages/push` | Server-only APNs/FCM providers and shared push delivery engine |
 | `packages/core` | Product-only campaign, audience, targeting, delivery, and adapter contracts |
 | `packages/dashboard` | Reusable supervision pages and a framework-neutral host mount |
 | `packages/react` | React SDK for identifying users, tracking events, and rendering in-app messages |
@@ -64,7 +65,7 @@ To start the server with Postgres 17:
 docker compose -f examples/self-host/compose.yaml up --build
 ```
 
-The current self-host path supports local web in-app campaigns and the installation
+The current self-host path supports web in-app campaigns, push delivery, and the installation
 lifecycle API documented in `apps/docs/sdk/installations.mdx`. It does not include Galinum Cloud organizations, billing, managed email delivery, hosted-agent scheduling, backups, or operations.
 
 ## License

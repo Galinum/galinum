@@ -1,0 +1,39 @@
+{
+  "name": "@galinum/push",
+  "version": "0.17.0",
+  "description": "Shared server-side Galinum push providers and delivery engine",
+  "private": true,
+  "license": "Apache-2.0",
+  "homepage": "https://docs.galinum.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Galinum/galinum.git",
+    "directory": "packages/push"
+  },
+  "bugs": {
+    "url": "https://github.com/Galinum/galinum/issues"
+  },
+  "engines": {
+    "node": "24.x"
+  },
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@galinum/core": "workspace:*",
+    "@galinum/contracts": "workspace:*"
+  },
+  "files": [
+    "dist",
+    "LICENSE"
+  ]
+}

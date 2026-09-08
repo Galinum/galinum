@@ -1,3 +1,4 @@
+import { generateKeyPairSync } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { createApp } from "./app.js";
@@ -13,7 +14,7 @@ const budget = JSON.parse(
 ) as { missing: string[] };
 
 function testClient() {
-  const product = createLocalProduct({ now: () => 1_755_000_000_000 });
+  const product = createLocalProduct({ now: () => 1_755_000_000_000, pushProvider: { async send() { return { kind: "accepted", providerId: "conformance-fixture" }; } } });
   const app = createApp(product.handlers, product.media);
   const call = (path: string, method = "GET", value?: unknown, publishable = false) => app(new Request(`http://local${path}`, {
     method,
@@ -92,7 +93,40 @@ async function installationScenario(client: TestClient, operation: string) {
   if (operation === "listInstallations") await expectJson(await client.call("/api/v1/installations"), 200, { total: 1 });
 }
 
+async function pushScenario(client: TestClient, operation: string) {
+  const credential = { provider: "apns", teamId: "ABCDEFGHIJ", keyId: "0123456789", topic: "app", privateKey: generateKeyPairSync("ec", { namedCurve: "prime256v1" }).privateKey.export({ type: "pkcs8", format: "pem" }).toString() };
+  await expectJson(await client.call("/api/v1/push/credentials/validate", "POST", { credential }), 200, { validation: "local_valid" });
+  await expectJson(await client.call("/api/v1/push/credentials", "PUT", { appId: "app", platform: "ios", environment: "development", expectedRevision: 0, credential }), 200, { credential: { revision: 1 } });
+  await installationScenario(client, "setInstallationFacts");
+  await identify(client, "push-user");
+  const headers = { authorization: `Bearer ${client.product.publishableKey}`, "X-Galinum-Installation-Capability": "c".repeat(43), "content-type": "application/json" };
+  const mutate = (path: string, body: object) => client.app(new Request(`http://local/api/v1/sdk/installations/device/${path}`, { method: "PUT", headers, body: JSON.stringify(body) }));
+  await mutate("binding", { requestId: "bind", revision: 1, bindingGeneration: 0, userId: "push-user" });
+  await mutate("token", { requestId: "token", revision: 2, bindingGeneration: 1, tokenRevision: 0, token: "token" });
+  await mutate("facts", { requestId: "facts", revision: 3, bindingGeneration: 1, permission: "granted", consent: true, capabilities: { actions: [], channels: [], richImages: false } });
+  const response = await client.call("/api/v1/campaigns", "POST", { name: "Push", channel: "push", launch: true, push: { appId: "app", selection: { kind: "all" } }, message: { title: "Hello", body: "Body", destination: { kind: "website", url: "https://example.com" } } });
+  expect(response.status).toBe(201);
+  const campaign = (await response.json()).campaign;
+  const dispatched = await client.call(`/api/v1/campaigns/${campaign.id}/push/dispatch`, "POST");
+  expect(dispatched.status).toBe(200);
+  const inspection = await dispatched.json();
+  expect(inspection.users.accepted).toBe(1);
+  if (operation === "testPushCampaign" || operation === "getPushTest") await expectJson(await client.call(`/api/v1/campaigns/${campaign.id}/push/test`, "POST", { installationId: "device", requestId: "test-1" }), 200, {});
+  if (operation === "observeInstallationPush") await expectJson(await client.app(new Request("http://local/api/v1/sdk/installations/device/observations", { method: "POST", headers, body: JSON.stringify({ bindingGeneration: 1, commands: [{ id: "tap", sequence: 1, kind: "tap", targetId: inspection.targets[0].id, attemptId: inspection.attempts[0].id }] }) })), 200, { acknowledgedThrough: 1 });
+  if (operation === "getPushTest") await expectJson(await client.call(`/api/v1/campaigns/${campaign.id}/push/tests/test-1`), 200, { requestId: "test-1" });
+  await expectJson(await client.call(`/api/v1/campaigns/${campaign.id}/push`), 200, { users: { targeted: 1 } });
+  await expectJson(await client.call("/api/v1/push/credentials"), 200, {});
+}
+
 const scenarios = {
+  getPushTest: (client: TestClient) => pushScenario(client, "getPushTest"),
+  configurePushCredential: (client: TestClient) => pushScenario(client, "configurePushCredential"),
+  listPushCredentials: (client: TestClient) => pushScenario(client, "listPushCredentials"),
+  validatePushCredential: (client: TestClient) => pushScenario(client, "validatePushCredential"),
+  dispatchPushCampaign: (client: TestClient) => pushScenario(client, "dispatchPushCampaign"),
+  testPushCampaign: (client: TestClient) => pushScenario(client, "testPushCampaign"),
+  inspectPushCampaign: (client: TestClient) => pushScenario(client, "inspectPushCampaign"),
+  observeInstallationPush: (client: TestClient) => pushScenario(client, "observeInstallationPush"),
   bootstrapInstallation: (client: TestClient) => installationScenario(client, "bootstrapInstallation"),
   getInstallation: (client: TestClient) => installationScenario(client, "getInstallation"),
   setInstallationBinding: (client: TestClient) => installationScenario(client, "setInstallationBinding"),
@@ -321,7 +355,7 @@ describe("runtime operation conformance", () => {
   it("keeps the reviewed product registry complete", () => {
     expect(budget.missing).toEqual([]);
     expect(Object.keys(scenarios).sort()).toEqual(productOperations.map((operation) => operation.operationId).sort());
-    expect(productOperations).toHaveLength(45);
+    expect(productOperations).toHaveLength(53);
   });
 
   for (const operation of productOperations) {

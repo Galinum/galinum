@@ -67,3 +67,21 @@ the installation tables and index. Restart the API after success. Skip this
 upgrade for databases initialized with the current schema. See
 [installation lifecycle](../../apps/docs/sdk/installations.mdx) for replay limits,
 authentication and verification reads.
+
+## Push worker
+
+The CLI polls push campaigns automatically after launch, applies delivery windows,
+and runs bounded retries. The default poll interval is 1000 ms; configure
+`GALINUM_PUSH_WORKER_INTERVAL_MS` between 100 and 60000 ms. Library hosts call
+`product.push.runDue()` explicitly. No overlapping worker passes run in one CLI.
+
+Set `GALINUM_PUSH_ENCRYPTION_KEY` to a stable base64-encoded 32-byte random key
+before configuring persistent app credentials. Compose passes this setting from
+your environment. Store it separately from database backups. Management reads
+never expose private credentials. See [push delivery](../../apps/docs/push.mdx)
+for configuration, native categories and idempotent selected-device tests.
+
+Existing installation-enabled databases require the separate transactional
+`packages/server/upgrades/push.sql` before upgrading the API. Stop workers, back
+up, then run `psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -f packages/server/upgrades/push.sql`
+from the repository root. Fresh databases already contain this schema.

@@ -113,6 +113,11 @@
                       "workspaceId": "ws_1",
                       "$pathname": "/onboarding"
                     }
+                  },
+                  "eventId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
                   }
                 }
               }
@@ -479,14 +484,22 @@
                     "type": "string",
                     "enum": [
                       "web_inapp",
-                      "email"
+                      "email",
+                      "push"
                     ],
                     "default": "web_inapp",
                     "description": "Delivery channel. Email content uses subject, previewText, Markdown body, and an optional CTA."
                   },
                   "message": {
-                    "$ref": "#/components/schemas/MessageInput",
-                    "description": "Single-variant shorthand: creates one variant named \"A\". Mutually exclusive with `variants`."
+                    "oneOf": [
+                      {
+                        "$ref": "#/components/schemas/MessageInput",
+                        "description": "Single-variant shorthand: creates one variant named \"A\". Mutually exclusive with `variants`."
+                      },
+                      {
+                        "$ref": "#/components/schemas/PushContent"
+                      }
+                    ]
                   },
                   "variants": {
                     "type": "array",
@@ -558,6 +571,9 @@
                       }
                     ],
                     "description": "Requested delivery-window end: epoch milliseconds or ISO-8601 with an explicit timezone offset. Must be in the future; delivery stops automatically at exactly this instant."
+                  },
+                  "push": {
+                    "$ref": "#/components/schemas/PushSettings"
                   }
                 },
                 "description": "Exactly one of `message` or `variants` is required.",
@@ -962,8 +978,15 @@
                     "description": "Link the campaign to a goal in this project; null unlinks. Linking takes effect for target events tracked from then on — it never rewrites past deliveries."
                   },
                   "message": {
-                    "$ref": "#/components/schemas/MessageInput",
-                    "description": "Replace the content of a single-variant campaign (400 if the campaign has more than one variant). Mutually exclusive with `variants`."
+                    "oneOf": [
+                      {
+                        "$ref": "#/components/schemas/MessageInput",
+                        "description": "Replace the content of a single-variant campaign (400 if the campaign has more than one variant). Mutually exclusive with `variants`."
+                      },
+                      {
+                        "$ref": "#/components/schemas/PushContent"
+                      }
+                    ]
                   },
                   "variants": {
                     "type": "array",
@@ -982,7 +1005,14 @@
                           "maxLength": 40
                         },
                         "message": {
-                          "$ref": "#/components/schemas/MessageInput"
+                          "oneOf": [
+                            {
+                              "$ref": "#/components/schemas/MessageInput"
+                            },
+                            {
+                              "$ref": "#/components/schemas/PushContent"
+                            }
+                          ]
                         },
                         "weight": {
                           "type": "integer",
@@ -1024,6 +1054,9 @@
                       }
                     ],
                     "description": "Replace the delivery-window end (must stay after deliverFrom and, when set, be in the future); null clears it."
+                  },
+                  "push": {
+                    "$ref": "#/components/schemas/PushSettings"
                   }
                 }
               }
@@ -6366,7 +6399,7 @@
               }
             }
           },
-          "description": "Encoded JSON body limit: 131072 bytes (128 KiB), including JSON escapes and whitespace."
+          "description": "Encoded JSON body limit: 262144 bytes (256 KiB), including JSON escapes and whitespace."
         },
         "x-mcp": {
           "exposed": false,
@@ -6705,7 +6738,7 @@
               }
             }
           },
-          "description": "Encoded JSON body limit: 131072 bytes (128 KiB), including JSON escapes and whitespace."
+          "description": "Encoded JSON body limit: 262144 bytes (256 KiB), including JSON escapes and whitespace."
         },
         "parameters": [
           {
@@ -6886,7 +6919,7 @@
               }
             }
           },
-          "description": "Encoded JSON body limit: 131072 bytes (128 KiB), including JSON escapes and whitespace."
+          "description": "Encoded JSON body limit: 262144 bytes (256 KiB), including JSON escapes and whitespace."
         },
         "parameters": [
           {
@@ -7067,7 +7100,7 @@
               }
             }
           },
-          "description": "Encoded JSON body limit: 131072 bytes (128 KiB), including JSON escapes and whitespace."
+          "description": "Encoded JSON body limit: 262144 bytes (256 KiB), including JSON escapes and whitespace."
         },
         "parameters": [
           {
@@ -7248,7 +7281,7 @@
               }
             }
           },
-          "description": "Encoded JSON body limit: 131072 bytes (128 KiB), including JSON escapes and whitespace."
+          "description": "Encoded JSON body limit: 262144 bytes (256 KiB), including JSON escapes and whitespace."
         },
         "parameters": [
           {
@@ -7452,6 +7485,666 @@
         "x-mcp": {
           "exposed": false,
           "reason": "installation-supervision"
+        }
+      }
+    },
+    "/api/v1/push/credentials": {
+      "put": {
+        "operationId": "configurePushCredential",
+        "summary": "configurePushCredential",
+        "tags": [
+          "Push"
+        ],
+        "security": [
+          {
+            "secretKey": []
+          }
+        ],
+        "x-mcp": {
+          "exposed": false,
+          "reason": "push-management"
+        },
+        "responses": {
+          "200": {
+            "description": "Successful operation. Acceptance is distinct from device receipt.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "credential": {
+                      "$ref": "#/components/schemas/PushCredentialView"
+                    }
+                  },
+                  "required": [
+                    "credential"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "413": {
+            "description": "Body too large"
+          },
+          "429": {
+            "description": "Rate limit"
+          },
+          "503": {
+            "description": "Configuration or capacity unavailable"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PushCredentialInput"
+              }
+            }
+          },
+          "description": "Maximum encoded body size: 65536 bytes."
+        }
+      },
+      "get": {
+        "operationId": "listPushCredentials",
+        "summary": "listPushCredentials",
+        "tags": [
+          "Push"
+        ],
+        "security": [
+          {
+            "secretKey": []
+          }
+        ],
+        "x-mcp": {
+          "exposed": false,
+          "reason": "push-management"
+        },
+        "responses": {
+          "200": {
+            "description": "Successful operation. Acceptance is distinct from device receipt.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "credentials": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/PushCredentialView"
+                      },
+                      "maxItems": 100
+                    },
+                    "nextCursor": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "credentials",
+                    "nextCursor"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "413": {
+            "description": "Body too large"
+          },
+          "429": {
+            "description": "Rate limit"
+          },
+          "503": {
+            "description": "Configuration or capacity unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "name": "afterId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/push/credentials/validate": {
+      "post": {
+        "operationId": "validatePushCredential",
+        "summary": "validatePushCredential",
+        "tags": [
+          "Push"
+        ],
+        "security": [
+          {
+            "secretKey": []
+          }
+        ],
+        "x-mcp": {
+          "exposed": false,
+          "reason": "push-management"
+        },
+        "responses": {
+          "200": {
+            "description": "Successful operation. Acceptance is distinct from device receipt.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "provider": {
+                      "type": "string",
+                      "enum": [
+                        "apns",
+                        "fcm"
+                      ]
+                    },
+                    "validation": {
+                      "type": "string",
+                      "enum": [
+                        "local_valid"
+                      ]
+                    },
+                    "externalAuthentication": {
+                      "type": "string",
+                      "enum": [
+                        "not_checked"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "provider",
+                    "validation",
+                    "externalAuthentication"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "413": {
+            "description": "Body too large"
+          },
+          "429": {
+            "description": "Rate limit"
+          },
+          "503": {
+            "description": "Configuration or capacity unavailable"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "credential": {
+                    "$ref": "#/components/schemas/PushCredential"
+                  }
+                },
+                "required": [
+                  "credential"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "description": "Maximum encoded body size: 65536 bytes."
+        }
+      }
+    },
+    "/api/v1/campaigns/{id}/push/dispatch": {
+      "post": {
+        "operationId": "dispatchPushCampaign",
+        "summary": "dispatchPushCampaign",
+        "tags": [
+          "Push"
+        ],
+        "security": [
+          {
+            "secretKey": []
+          }
+        ],
+        "x-mcp": {
+          "exposed": false,
+          "reason": "push-management"
+        },
+        "responses": {
+          "200": {
+            "description": "Successful operation. Acceptance is distinct from device receipt.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PushInspection"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "413": {
+            "description": "Body too large"
+          },
+          "429": {
+            "description": "Rate limit"
+          },
+          "503": {
+            "description": "Configuration or capacity unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/campaigns/{id}/push/test": {
+      "post": {
+        "operationId": "testPushCampaign",
+        "summary": "testPushCampaign",
+        "tags": [
+          "Push"
+        ],
+        "security": [
+          {
+            "secretKey": []
+          }
+        ],
+        "x-mcp": {
+          "exposed": false,
+          "reason": "push-management"
+        },
+        "responses": {
+          "200": {
+            "description": "Successful operation. Acceptance is distinct from device receipt.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "targetIds": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      },
+                      "maxItems": 10000
+                    }
+                  },
+                  "required": [
+                    "targetIds"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "413": {
+            "description": "Body too large"
+          },
+          "429": {
+            "description": "Rate limit"
+          },
+          "503": {
+            "description": "Configuration or capacity unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PushTestInput"
+              }
+            }
+          },
+          "description": "Maximum encoded body size: 65536 bytes."
+        }
+      }
+    },
+    "/api/v1/campaigns/{id}/push": {
+      "get": {
+        "operationId": "inspectPushCampaign",
+        "summary": "inspectPushCampaign",
+        "tags": [
+          "Push"
+        ],
+        "security": [
+          {
+            "secretKey": []
+          }
+        ],
+        "x-mcp": {
+          "exposed": false,
+          "reason": "push-management"
+        },
+        "responses": {
+          "200": {
+            "description": "Successful operation. Acceptance is distinct from device receipt.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PushInspection"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "413": {
+            "description": "Body too large"
+          },
+          "429": {
+            "description": "Rate limit"
+          },
+          "503": {
+            "description": "Configuration or capacity unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "name": "perPage",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/sdk/installations/{installationId}/observations": {
+      "post": {
+        "operationId": "observeInstallationPush",
+        "summary": "observeInstallationPush",
+        "tags": [
+          "Push"
+        ],
+        "security": [
+          {
+            "publishableKey": [],
+            "installationCapability": []
+          }
+        ],
+        "x-mcp": {
+          "exposed": false,
+          "reason": "mobile-sdk"
+        },
+        "responses": {
+          "200": {
+            "description": "Successful operation. Acceptance is distinct from device receipt.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "acknowledgedThrough": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "acknowledgedThrough"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "413": {
+            "description": "Body too large"
+          },
+          "429": {
+            "description": "Rate limit"
+          },
+          "503": {
+            "description": "Configuration or capacity unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "name": "installationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PushObservationBatch"
+              }
+            }
+          },
+          "description": "Maximum encoded body size: 65536 bytes."
+        }
+      }
+    },
+    "/api/v1/campaigns/{id}/push/tests/{requestId}": {
+      "get": {
+        "operationId": "getPushTest",
+        "summary": "Read a correlated push test",
+        "tags": [
+          "Push"
+        ],
+        "security": [
+          {
+            "secretKey": []
+          }
+        ],
+        "x-mcp": {
+          "exposed": false,
+          "reason": "push-management"
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "requestId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Original test request and outcomes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "requestId",
+                    "installationId",
+                    "targetIds",
+                    "attempts",
+                    "outcomes"
+                  ],
+                  "properties": {
+                    "requestId": {
+                      "type": "string"
+                    },
+                    "installationId": {
+                      "type": "string"
+                    },
+                    "targetIds": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "attempts": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/PushAttempt"
+                      }
+                    },
+                    "outcomes": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/PushOutcome"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Test not found"
+          }
         }
       }
     }
@@ -7970,7 +8663,8 @@
             "type": "string",
             "enum": [
               "web_inapp",
-              "email"
+              "email",
+              "push"
             ],
             "example": "web_inapp"
           },
@@ -8050,6 +8744,16 @@
           },
           "stats": {
             "$ref": "#/components/schemas/CampaignStats"
+          },
+          "push": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PushSettings"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       },
@@ -11048,6 +11752,50 @@
           },
           "richImages": {
             "type": "boolean"
+          },
+          "categories": {
+            "type": "array",
+            "maxItems": 16,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "actions"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "actions": {
+                  "type": "array",
+                  "maxItems": 4,
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 64,
+                        "pattern": "^[a-zA-Z0-9_-]+$"
+                      },
+                      "title": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 64
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "title"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              }
+            }
           }
         },
         "required": [
@@ -11400,6 +12148,1759 @@
           "perPage",
           "total"
         ]
+      },
+      "PushContent": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "destination": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "website",
+                  "app"
+                ]
+              },
+              "url": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048
+              }
+            },
+            "required": [
+              "kind",
+              "url"
+            ],
+            "additionalProperties": false
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1024
+            },
+            "maxProperties": 32
+          },
+          "image": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "actions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "pattern": "^[a-zA-Z0-9_-]+$"
+                },
+                "title": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                }
+              },
+              "required": [
+                "id",
+                "title"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 4
+          },
+          "ios": {
+            "type": "object",
+            "properties": {
+              "subtitle": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "sound": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "badge": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "categoryId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          },
+          "android": {
+            "type": "object",
+            "properties": {
+              "channelId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "sound": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              }
+            },
+            "required": [
+              "channelId"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "title",
+          "body",
+          "destination"
+        ],
+        "additionalProperties": false
+      },
+      "PushSettings": {
+        "type": "object",
+        "properties": {
+          "appId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "selection": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "last_active",
+                      "all"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "specific"
+                    ]
+                  },
+                  "installationId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  }
+                },
+                "required": [
+                  "kind",
+                  "installationId"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "ttlSeconds": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2419200
+          },
+          "replacementKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "appId",
+          "selection"
+        ],
+        "additionalProperties": false
+      },
+      "PushCredential": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "provider": {
+                "type": "string",
+                "enum": [
+                  "apns"
+                ]
+              },
+              "teamId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 10,
+                "pattern": "^[A-Z0-9]{10}$"
+              },
+              "keyId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 10,
+                "pattern": "^[A-Z0-9]{10}$"
+              },
+              "topic": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "privateKey": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 16384
+              }
+            },
+            "required": [
+              "provider",
+              "teamId",
+              "keyId",
+              "topic",
+              "privateKey"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "provider": {
+                "type": "string",
+                "enum": [
+                  "fcm"
+                ]
+              },
+              "projectId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 63
+              },
+              "clientEmail": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "privateKey": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 16384
+              }
+            },
+            "required": [
+              "provider",
+              "projectId",
+              "clientEmail",
+              "privateKey"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "PushCredentialInput": {
+        "type": "object",
+        "properties": {
+          "appId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "platform": {
+            "type": "string",
+            "enum": [
+              "ios",
+              "android"
+            ]
+          },
+          "environment": {
+            "type": "string",
+            "enum": [
+              "development",
+              "production"
+            ]
+          },
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "credential": {
+            "$ref": "#/components/schemas/PushCredential"
+          }
+        },
+        "required": [
+          "appId",
+          "platform",
+          "environment",
+          "expectedRevision",
+          "credential"
+        ],
+        "additionalProperties": false
+      },
+      "PushCredentialView": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "appId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "platform": {
+            "type": "string",
+            "enum": [
+              "ios",
+              "android"
+            ]
+          },
+          "environment": {
+            "type": "string",
+            "enum": [
+              "development",
+              "production"
+            ]
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "validation": {
+            "type": "string",
+            "enum": [
+              "local_valid"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "appId",
+          "platform",
+          "environment",
+          "revision",
+          "validation"
+        ],
+        "additionalProperties": false
+      },
+      "PushCommand": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/PushReceiptCommand"
+          },
+          {
+            "$ref": "#/components/schemas/PushActionCommand"
+          },
+          {
+            "$ref": "#/components/schemas/PushEventCommand"
+          }
+        ]
+      },
+      "PushObservationBatch": {
+        "type": "object",
+        "properties": {
+          "bindingGeneration": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "commands": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PushCommand"
+            },
+            "maxItems": 32,
+            "minItems": 1
+          }
+        },
+        "required": [
+          "bindingGeneration",
+          "commands"
+        ],
+        "additionalProperties": false
+      },
+      "PushEnvelope": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "integer",
+            "enum": [
+              1
+            ]
+          },
+          "targetId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "attemptId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "installationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "bindingGeneration": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "content": {
+            "$ref": "#/components/schemas/PushContent"
+          },
+          "test": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "version",
+          "targetId",
+          "attemptId",
+          "installationId",
+          "bindingGeneration",
+          "content",
+          "test"
+        ],
+        "additionalProperties": false
+      },
+      "PushProviderOutcome": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "accepted",
+              "rejected",
+              "unknown",
+              "blocked"
+            ]
+          },
+          "providerId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "retryAfterMs": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "additionalProperties": false
+      },
+      "PushAttempt": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "campaignId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "targetId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "ordinal": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "startedAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "slotId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "slotRevision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "validUntil": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "id",
+          "campaignId",
+          "targetId",
+          "ordinal",
+          "startedAt",
+          "slotId",
+          "slotRevision",
+          "validUntil"
+        ],
+        "additionalProperties": false
+      },
+      "PushOutcome": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "campaignId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "attemptId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "targetId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "observedAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "result": {
+            "$ref": "#/components/schemas/PushProviderOutcome"
+          },
+          "slotId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "submission": {
+            "type": "string",
+            "enum": [
+              "none",
+              "confirmed",
+              "possible"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "campaignId",
+          "attemptId",
+          "targetId",
+          "observedAt",
+          "result",
+          "slotId",
+          "submission"
+        ],
+        "additionalProperties": false
+      },
+      "PushTargetView": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "campaignId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "deliveryId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "userId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "externalId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "installationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "credentialId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "campaignFingerprint": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "bindingGeneration": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "tokenRevision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "credentialRevision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "expiresAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "createdAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "createdOrder": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "content": {
+            "$ref": "#/components/schemas/PushContent"
+          },
+          "replacementKey": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "test": {
+            "type": "boolean"
+          },
+          "slotId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "generation": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "replacesTargetId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "campaignId",
+          "deliveryId",
+          "userId",
+          "externalId",
+          "installationId",
+          "credentialId",
+          "campaignFingerprint",
+          "bindingGeneration",
+          "tokenRevision",
+          "credentialRevision",
+          "expiresAt",
+          "createdAt",
+          "createdOrder",
+          "content",
+          "replacementKey",
+          "test",
+          "slotId",
+          "generation",
+          "replacesTargetId"
+        ],
+        "additionalProperties": false
+      },
+      "PushObservationView": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "campaignId": {
+            "type": "string"
+          },
+          "installationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "userId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "digest": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "bindingGeneration": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "sequence": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "order": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "receivedAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "command": {
+            "$ref": "#/components/schemas/PushCommand"
+          },
+          "slotId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "campaignId",
+          "installationId",
+          "userId",
+          "digest",
+          "bindingGeneration",
+          "sequence",
+          "order",
+          "receivedAt",
+          "command",
+          "slotId"
+        ],
+        "additionalProperties": false
+      },
+      "PushConversion": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "campaignId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "deliveryId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "userId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "eventId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "engagementId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "order": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "convertedAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "id",
+          "campaignId",
+          "deliveryId",
+          "userId",
+          "eventId",
+          "engagementId",
+          "order",
+          "convertedAt"
+        ],
+        "additionalProperties": false
+      },
+      "PushInspection": {
+        "type": "object",
+        "properties": {
+          "targets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PushTargetView"
+            },
+            "maxItems": 100
+          },
+          "attempts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PushAttempt"
+            },
+            "maxItems": 100
+          },
+          "outcomes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PushOutcome"
+            },
+            "maxItems": 100
+          },
+          "observations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PushObservationView"
+            },
+            "maxItems": 100
+          },
+          "conversions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PushConversion"
+            },
+            "maxItems": 100
+          },
+          "users": {
+            "type": "object",
+            "properties": {
+              "targeted": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "accepted": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "engaged": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "converted": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "targeted",
+              "accepted",
+              "engaged",
+              "converted"
+            ],
+            "additionalProperties": false
+          },
+          "devices": {
+            "type": "object",
+            "properties": {
+              "targeted": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "attempts": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "accepted": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "receiptObserved": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "receiptUnknown": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "confirmedSubmissions": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "possibleSubmissions": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "preSendBlocks": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "pendingOutcomes": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "waiting": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "targeted",
+              "attempts",
+              "accepted",
+              "receiptObserved",
+              "receiptUnknown",
+              "confirmedSubmissions",
+              "possibleSubmissions",
+              "preSendBlocks",
+              "pendingOutcomes",
+              "waiting"
+            ],
+            "additionalProperties": false
+          },
+          "testTargets": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "perPage": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "evaluatedAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "records": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "targets": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "attempts": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "outcomes": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "observations": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "conversions": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "recipients": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "slots": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "targets",
+              "attempts",
+              "outcomes",
+              "observations",
+              "conversions",
+              "recipients",
+              "slots"
+            ]
+          },
+          "pageCounts": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "targets": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "attempts": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "outcomes": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "observations": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "conversions": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "recipients": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "slots": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "targets",
+              "attempts",
+              "outcomes",
+              "observations",
+              "conversions",
+              "recipients",
+              "slots"
+            ]
+          },
+          "recipients": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PushRecipientView"
+            },
+            "maxItems": 100
+          },
+          "slots": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PushSlotView"
+            },
+            "maxItems": 100
+          },
+          "planning": {
+            "type": "object",
+            "properties": {
+              "waiting": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "active": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "closed": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "waiting",
+              "active",
+              "closed"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "targets",
+          "attempts",
+          "outcomes",
+          "observations",
+          "conversions",
+          "users",
+          "devices",
+          "testTargets",
+          "page",
+          "perPage",
+          "evaluatedAt",
+          "records",
+          "pageCounts",
+          "recipients",
+          "slots",
+          "planning"
+        ],
+        "additionalProperties": false
+      },
+      "PushJson": {
+        "oneOf": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "boolean"
+          },
+          {
+            "type": "number"
+          },
+          {
+            "type": "string"
+          },
+          {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PushJson"
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/PushJson"
+            }
+          }
+        ]
+      },
+      "PushEventProps": {
+        "type": "object",
+        "additionalProperties": {
+          "$ref": "#/components/schemas/PushJson"
+        },
+        "description": "Full JSON properties, matching track. Maximum compact encoded size is 4096 bytes."
+      },
+      "PushReceiptCommand": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "sequence": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "receipt",
+              "tap"
+            ]
+          },
+          "targetId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "attemptId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "id",
+          "sequence",
+          "kind",
+          "targetId",
+          "attemptId"
+        ],
+        "additionalProperties": false
+      },
+      "PushActionCommand": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "sequence": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "action"
+            ]
+          },
+          "targetId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "attemptId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "actionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "id",
+          "sequence",
+          "kind",
+          "targetId",
+          "attemptId",
+          "actionId"
+        ],
+        "additionalProperties": false
+      },
+      "PushEventCommand": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "sequence": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "event"
+            ]
+          },
+          "event": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "eventId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "props": {
+            "$ref": "#/components/schemas/PushEventProps"
+          }
+        },
+        "required": [
+          "id",
+          "sequence",
+          "kind",
+          "event",
+          "eventId"
+        ],
+        "additionalProperties": false
+      },
+      "PushRecipientState": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "enum": [
+                  "active"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "enum": [
+                  "closed"
+                ],
+                "type": "string"
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              }
+            },
+            "required": [
+              "kind",
+              "reason"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "enum": [
+                  "waiting"
+                ],
+                "type": "string"
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "checkedAt": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "recheckAt": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "delayMs": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "kind",
+              "reason",
+              "checkedAt",
+              "recheckAt",
+              "delayMs"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "PushSlotState": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "enum": [
+                  "ready"
+                ],
+                "type": "string"
+              },
+              "at": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "kind",
+              "at"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "enum": [
+                  "waiting"
+                ],
+                "type": "string"
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "recheckAt": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "kind",
+              "reason",
+              "recheckAt"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "enum": [
+                  "reserved"
+                ],
+                "type": "string"
+              },
+              "attemptId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "until": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "kind",
+              "attemptId",
+              "until"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "enum": [
+                  "accepted"
+                ],
+                "type": "string"
+              },
+              "acceptanceId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              }
+            },
+            "required": [
+              "kind",
+              "acceptanceId"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "enum": [
+                  "closed"
+                ],
+                "type": "string"
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              }
+            },
+            "required": [
+              "kind",
+              "reason"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "PushRecipientView": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "campaignId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "userId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "externalId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "variantId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "deliveryId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "$ref": "#/components/schemas/PushRecipientState"
+          },
+          "test": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "campaignId",
+          "userId",
+          "externalId",
+          "variantId",
+          "deliveryId",
+          "state",
+          "test"
+        ],
+        "additionalProperties": false
+      },
+      "PushSlotView": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "recipientId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "campaignId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "userId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "installationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "targetId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "generation": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "sequence": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "submissionsUsed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "expiresAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "uncertain": {
+            "type": "boolean"
+          },
+          "authRefreshRevision": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "state": {
+            "$ref": "#/components/schemas/PushSlotState"
+          },
+          "test": {
+            "type": "boolean"
+          },
+          "submissionNotBefore": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Persistent earliest notification submission time. Holds and target generations do not lower this retry floor; expiry remains terminal."
+          },
+          "repair": {
+            "$ref": "#/components/schemas/PushSlotRepair"
+          }
+        },
+        "required": [
+          "id",
+          "recipientId",
+          "campaignId",
+          "userId",
+          "installationId",
+          "targetId",
+          "generation",
+          "revision",
+          "sequence",
+          "submissionsUsed",
+          "expiresAt",
+          "uncertain",
+          "authRefreshRevision",
+          "state",
+          "test",
+          "submissionNotBefore",
+          "repair"
+        ],
+        "additionalProperties": false
+      },
+      "PushTestInput": {
+        "type": "object",
+        "properties": {
+          "installationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "installationId",
+          "requestId"
+        ],
+        "additionalProperties": false
+      },
+      "PushSlotRepair": {
+        "oneOf": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "credential"
+                ]
+              },
+              "credentialRevision": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "kind",
+              "credentialRevision"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "payload"
+                ]
+              },
+              "credentialRevision": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              "campaignFingerprint": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "credentialRevision",
+              "campaignFingerprint"
+            ],
+            "additionalProperties": false
+          }
+        ]
       }
     },
     "responses": {
@@ -11515,5 +14016,5 @@
     "instructions": "Galinum is self-driving product communications. You use it to create, target,\nlaunch, and measure product messages for one project. The project secret you\nauthenticated with scopes every call to that project.\n\n## Classify the request before you write\n\nDecide which of three modes the user asked for, then use the smallest one:\n\n- **Direct** — one message, engagement stats only. \"Announce the CSV export\",\n  \"tell free users about the promo\", \"draft a message about the pricing change\".\n- **Outcome-measured** — one message plus a goal you measure. \"Send the promo\n  and track upgrades\", \"tell me whether people start using it\".\n- **Optimized** — variants and goal-driven optimization. \"A/B test this\n  message\", \"optimize onboarding\", \"work toward the activation goal\".\n\nDirect is the default. Never add a goal, variants, a delivery window, an\nevaluation, or optimization that the user did not ask for. A product having\ngoals does not make an ordinary announcement outcome-measured. Use one message\nfor direct communication. Set a delivery window only from timing the user gave\nyou, or after you resolve the missing dates with them.\n\n## Respect launch authority\n\nIf the user said draft, propose, or prepare, stop at draft. Never launch.\n\nLaunch only when the user gave explicit launch, send, or announce authority.\nIf launch authority is ambiguous, stop at draft and ask the user.\n\n## Check what already exists before you write\n\nBefore you create, launch, or update a campaign:\n\n1. Read recent agent runs, so you can see what another agent already did.\n2. Query running campaigns and scheduled campaigns as two separate calls.\n3. Read every page through `pageCount` for both status queries.\n4. Treat the deduplicated union as a complete point-in-time snapshot only\n   after both paginated searches are exhausted.\n5. Repeat both queries immediately before the write.\n\nThis snapshot never protects you against a concurrent campaign write. Do not\nclaim that it does. Avoid overlapping audiences and delivery periods.\n\n## Log decisions, and never double-write\n\nLog material decisions, proposals, and launches as agent runs. Reuse the same\nidempotency key when you retry, so one decision produces one run record.\n\nNever retry an uncertain campaign creation. Read campaigns back and confirm\nwhat exists first. For any other uncertain write, read the current state before\nyou act again.",
     "readonlyInstructions": "This endpoint exposes read-only tools only. Campaign, goal, and segment writes are not available here. Connect to the full endpoint when the user asks you to create, update, or launch something."
   },
-  "x-installation-body-bytes": 131072
+  "x-installation-body-bytes": 262144
 }

@@ -10,6 +10,7 @@ supervision pages. They do not have feature parity.
 | Campaign, audience, segment, goal, and event rules | Included | Included through exact product releases |
 | Supervision dashboard | Reusable package; host integration required | Included with cloud navigation and policy |
 | Web in-app delivery API | Included | Managed |
+| APNs/FCM push engine and worker | Included | Not included |
 | Installation lifecycle API | Included | Not included |
 | Persistent PostgreSQL storage | Included | Managed |
 | Campaign media | Local memory or filesystem | Managed object storage |

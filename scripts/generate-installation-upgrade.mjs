@@ -6,7 +6,8 @@ export function installationUpgrade(schema) {
   const marker = "CREATE TABLE installations (";
   const start = schema.indexOf(marker);
   if (start < 0) throw new Error("Installation schema is missing");
-  const ddl = schema.slice(start).trim();
+  const end = schema.indexOf("CREATE TABLE push_records (", start);
+  const ddl = schema.slice(start, end < 0 ? undefined : end).trim();
   const tables = [...ddl.matchAll(/CREATE TABLE (\w+)/g)].map((match) => match[1]);
   if (JSON.stringify(tables) !== JSON.stringify(["installations", "installation_requests"])) throw new Error("Unexpected tables in installation upgrade; update the extraction boundary");
   return `BEGIN;\n\n${ddl}\n\nCOMMIT;\n`;

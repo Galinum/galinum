@@ -103,6 +103,15 @@ importers:
         specifier: 4.1.8
         version: 4.1.8(@types/node@20.19.41)(happy-dom@20.10.6)(vite@8.2.2(@types/node@20.19.41))
 
+  packages/push:
+    dependencies:
+      '@galinum/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@galinum/core':
+        specifier: workspace:*
+        version: link:../core
+
   packages/react:
     devDependencies:
       '@testing-library/dom':
@@ -141,6 +150,9 @@ importers:
       '@galinum/core':
         specifier: workspace:*
         version: link:../core
+      '@galinum/push':
+        specifier: workspace:*
+        version: link:../push
       kysely:
         specifier: 0.29.2
         version: 0.29.2

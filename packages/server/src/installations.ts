@@ -1,24 +1,13 @@
+import { retireInstallationToken } from "@galinum/core";
 import { createHash, timingSafeEqual } from "node:crypto";
-import { INSTALLATION_BODY_BYTES, installationSchemas, type InstallationState, type InstallationBootstrap, type InstallationBindingInput, type InstallationFactsInput, type InstallationTokenInput, type InstallationMutation } from "@galinum/contracts";
-import type { ProductStore } from "./local-product.js";
+import { validateSchema, INSTALLATION_BODY_BYTES, installationSchemas, type InstallationState, type InstallationBootstrap, type InstallationBindingInput, type InstallationFactsInput, type InstallationTokenInput, type InstallationMutation } from "@galinum/contracts";
+import type { InstallationRecord, InstallationStore } from "@galinum/core";
+export type { InstallationRecord, InstallationReplay, InstallationAccess, InstallationSession } from "@galinum/core";
 import type { OperationHandlers } from "./router.js";
 import { readJsonObject } from "./request-body.js";
 
 export const INSTALLATION_REPLAY_LIMIT = 128;
 
-export type InstallationRecord = Omit<InstallationState, "hasToken"> & { capabilityVerifier: string; token: string | null; tokenScope: string | null };
-export type InstallationReplay = { digest: string; state: InstallationState };
-export interface InstallationAccess {
-  getInstallation(id: string): Promise<InstallationRecord | null>;
-  listInstallations(userId: string | null, offset: number, limit: number): Promise<{ values: InstallationRecord[]; total: number }>;
-}
-export interface InstallationSession extends InstallationAccess {
-  lockInstallations(): Promise<void>;
-  saveInstallation(installation: InstallationRecord): Promise<void>;
-  getTokenOwner(scope: string): Promise<InstallationRecord | null>;
-  getInstallationReplay(id: string, requestId: string): Promise<InstallationReplay | null>;
-  saveInstallationReplay(id: string, requestId: string, replay: InstallationReplay): Promise<void>;
-}
 export const INSTALLATION_SDK_OPERATIONS = ["bootstrapInstallation", "getInstallation", "setInstallationBinding", "setInstallationFacts", "setInstallationToken", "recordInstallationActivity"] as const;
 export function installationState(record: InstallationRecord): InstallationState {
   return {
@@ -37,23 +26,8 @@ function canonical(value: unknown): string {
   if (value !== null && typeof value === "object") return `{${Object.entries(value).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([key, entry]) => `${JSON.stringify(key)}:${canonical(entry)}`).join(",")}}`;
   return JSON.stringify(value);
 }
-type Schema = { $ref?: string; type?: string | readonly string[]; enum?: readonly unknown[]; properties?: Readonly<Record<string, Schema>>; required?: readonly string[]; additionalProperties?: boolean; items?: Schema; minLength?: number; maxLength?: number; pattern?: string; minimum?: number; maximum?: number; maxItems?: number; uniqueItems?: boolean };
-function valid(schema: Schema, value: unknown): boolean {
-  if (schema.$ref) return valid((installationSchemas as Record<string, Schema>)[schema.$ref.split("/").at(-1)!], value);
-  if (schema.enum && !schema.enum.includes(value)) return false;
-  if (Array.isArray(schema.type)) return schema.type.some((type) => valid({ ...schema, type }, value));
-  switch (schema.type) {
-    case "null": return value === null;
-    case "string": return typeof value === "string" && [...value].length >= (schema.minLength ?? 0) && [...value].length <= (schema.maxLength ?? Infinity) && (!schema.pattern || new RegExp(schema.pattern).test(value));
-    case "integer": return typeof value === "number" && Number.isSafeInteger(value) && value >= (schema.minimum ?? -Infinity) && value <= (schema.maximum ?? Infinity);
-    case "boolean": return typeof value === "boolean";
-    case "array": return Array.isArray(value) && value.length <= (schema.maxItems ?? Infinity) && value.every((entry) => valid(schema.items!, entry)) && (!schema.uniqueItems || new Set(value.map(canonical)).size === value.length);
-    case "object": return value !== null && typeof value === "object" && !Array.isArray(value) && (schema.required ?? []).every((key) => Object.hasOwn(value, key)) && Object.entries(value).every(([key, entry]) => Object.hasOwn(schema.properties!, key) && valid(schema.properties![key], entry));
-    default: return false;
-  }
-}
 const failure = (status: number, error: string) => Response.json({ error }, { status });
-export function installationHandlers(store: ProductStore, options: { publishableKey: string; secretKey: string; now: () => number }): OperationHandlers {
+export function installationHandlers(store: InstallationStore, options: { publishableKey: string; secretKey: string; now: () => number }): OperationHandlers {
   const mutations = {
     setInstallationBinding: "InstallationBindingInput",
     setInstallationFacts: "InstallationFactsInput",
@@ -65,7 +39,7 @@ export function installationHandlers(store: ProductStore, options: { publishable
       if (request.headers.get("authorization") !== `Bearer ${options.publishableKey}`) return failure(401, "Unauthorized");
       const body = await readJsonObject(request, INSTALLATION_BODY_BYTES);
       if (!body.ok) return failure(body.status, "Invalid body");
-      if (!valid(installationSchemas.InstallationBootstrap, body.value)) return failure(400, "Invalid installation");
+      if (!validateSchema(installationSchemas.InstallationBootstrap, body.value, installationSchemas)) return failure(400, "Invalid installation");
       const input = body.value as InstallationBootstrap;
       return store.transaction(async (session) => {
         await session.lockInstallations();
@@ -102,7 +76,7 @@ export function installationHandlers(store: ProductStore, options: { publishable
       if (request.headers.get("authorization") !== `Bearer ${options.publishableKey}`) return failure(401, "Unauthorized");
       const body = await readJsonObject(request, INSTALLATION_BODY_BYTES);
       if (!body.ok) return failure(body.status, "Invalid body");
-      if (!valid(installationSchemas[schemaName], body.value)) return failure(400, "Invalid installation mutation");
+      if (!validateSchema(installationSchemas[schemaName], body.value, installationSchemas)) return failure(400, "Invalid installation mutation");
       const input = body.value as InstallationMutation;
       const digest = hash(canonical({ operation, input }));
       return store.transaction(async (session) => {
@@ -123,6 +97,8 @@ export function installationHandlers(store: ProductStore, options: { publishable
           }
         } else if (operation === "setInstallationFacts") {
           const facts = body.value as InstallationFactsInput;
+          const categories = facts.capabilities.categories ?? [];
+          if (new Set(categories.map((category) => category.id)).size !== categories.length || categories.some((category) => new Set(category.actions.map((action) => action.id)).size !== category.actions.length)) return failure(400, "Duplicate category or action identifier");
           record.permission = facts.permission;
           record.consent = facts.consent;
           record.capabilities = facts.capabilities;
@@ -156,16 +132,9 @@ export function installationHandlers(store: ProductStore, options: { publishable
   }
   return handlers;
 }
-export async function invalidateInstallationToken(store: ProductStore, captured: { installationId: string; tokenRevision: number; tokenScope: string }): Promise<boolean> {
+export async function invalidateInstallationToken(store: InstallationStore, captured: { installationId: string; tokenRevision: number; tokenScope: string }): Promise<boolean> {
   return store.transaction(async (session) => {
     await session.lockInstallations();
-    const record = await session.getInstallation(captured.installationId);
-    if (!record || record.tokenRevision !== captured.tokenRevision || record.tokenScope !== captured.tokenScope) return false;
-    record.token = null;
-    record.tokenScope = null;
-    record.tokenRevision++;
-    record.revision++;
-    await session.saveInstallation(record);
-    return true;
+    return retireInstallationToken(session, captured);
   });
 }

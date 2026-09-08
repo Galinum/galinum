@@ -46,7 +46,7 @@ describe("release registry", () => {
   });
 
   it("keeps all product packages in one versioned release", () => {
-    assert.deepEqual(registry.packages.map((entry) => entry.name), ["@galinum/contracts", "@galinum/core", "@galinum/dashboard", "@galinum/react", "@galinum/server"]);
+    assert.deepEqual(registry.packages.map((entry) => entry.name), ["@galinum/contracts", "@galinum/core", "@galinum/dashboard", "@galinum/react", "@galinum/server", "@galinum/push"]);
     const manifests = registry.packages.map((entry) => JSON.parse(readFileSync(resolve(root, entry.path, "package.json"), "utf8")));
     assert.deepEqual(resolveReleaseVersion(manifests).failures, []);
     for (const manifest of manifests) {
@@ -65,7 +65,7 @@ describe("release registry", () => {
       name: "@galinum/react",
       version: reactPackage.version,
       license: "Apache-2.0",
-      releaseNames: ["@galinum/contracts", "@galinum/core", "@galinum/dashboard", "@galinum/react", "@galinum/server"],
+      releaseNames: ["@galinum/contracts", "@galinum/core", "@galinum/dashboard", "@galinum/react", "@galinum/server", "@galinum/push"],
       requires: [],
     }), []);
   });
@@ -165,9 +165,9 @@ describe("dependency ranges", () => {
 
 describe("build order", () => {
   it("builds core before server", () => {
-    const releaseNames = ["@galinum/contracts", "@galinum/core", "@galinum/dashboard", "@galinum/react", "@galinum/server"];
+    const releaseNames = ["@galinum/contracts", "@galinum/core", "@galinum/dashboard", "@galinum/react", "@galinum/server", "@galinum/push"];
     const edges = intraReleaseEdges(registry.packages.map((entry) => JSON.parse(readFileSync(resolve(root, entry.path, "package.json"), "utf8"))), releaseNames);
-    assert.deepEqual(edges.get("@galinum/server"), ["@galinum/contracts", "@galinum/core"]);
+    assert.deepEqual(edges.get("@galinum/server"), ["@galinum/contracts", "@galinum/core", "@galinum/push"]);
     assert.deepEqual(edges.get("@galinum/react"), []);
     const ordered = orderReleasePackages(edges);
     assert.ok(ordered.indexOf("@galinum/contracts") < ordered.indexOf("@galinum/core"));

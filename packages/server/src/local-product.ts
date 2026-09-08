@@ -1,3 +1,6 @@
+import { validateSchema, installationSchemas } from "@galinum/contracts";
+import { createServerPush, pushTransaction, recordServerEvent } from "./push.js";
+import { PushError, validatePushContent, validatePushSettings, type PushSettings, type PushProvider, type PushPersistence, type PushRecords, type RecordKind, type PushQuery, MemoryPushRecords, type AcceptanceFact, type PushTransaction } from "@galinum/push";
 import { INSTALLATION_REPLAY_LIMIT, installationHandlers, INSTALLATION_SDK_OPERATIONS, type InstallationAccess, type InstallationSession, type InstallationRecord, type InstallationReplay } from "./installations.js";
 import { randomBytes, randomUUID } from "node:crypto";
 import {
@@ -15,6 +18,7 @@ import {
   type MediaStore,
 } from "@galinum/core";
 import {
+  campaignMatches,
   audienceCapabilities,
   audienceDiagnosticsFromPresence,
   explainPreparedAudience,
@@ -91,7 +95,8 @@ export type ProductCampaign = {
   id: string;
   name: string;
   status: "draft" | "running" | "paused" | "ended";
-  channel: "web_inapp";
+  channel: "web_inapp" | "push";
+  push?: PushSettings | null;
   goalId: string | null;
   createdAt: number;
   startedAt: number | null;
@@ -271,6 +276,8 @@ export type AudienceFactsBatch = {
 };
 export type AudiencePresence = { traits: Set<string>; events: Set<string> };
 export type CampaignQuery = {
+  afterId?: string | null;
+  channel?: ProductCampaign["channel"];
   effectiveStatus: CampaignEffectiveStatus | null;
   query: string | null;
   evaluatedAt: number;
@@ -292,7 +299,8 @@ export type DeliveryStats = {
 };
 export type CampaignStats = { total: DeliveryStats; variants: Map<string, DeliveryStats> };
 
-export interface ProductStoreAccess extends InstallationAccess {
+export interface ProductStoreAccess extends InstallationAccess, PushPersistence {
+  queryPushUsers(afterId: string | null, limit: number): Promise<ProductUser[]>;
   identifyUser(externalId: string, traits: JsonObject, now: number): Promise<ProductUser>;
   getUserById(id: string): Promise<ProductUser | null>;
   getUserByExternalId(externalId: string): Promise<ProductUser | null>;
@@ -358,6 +366,10 @@ export interface ProductStore extends ProductStoreAccess {
 }
 
 export type LocalProductOptions = {
+  pushEncryptionKey?: string;
+  pushProvider?: PushProvider;
+  pushMaySend?: (transaction: PushTransaction, userId: string, now: number) => Promise<boolean>;
+  pushRecordAcceptance?: (transaction: PushTransaction, fact: AcceptanceFact) => Promise<void>;
   projectId?: string;
   secretKey?: string;
   publishableKey?: string;
@@ -375,7 +387,7 @@ const DEFAULT_SDK_RATE_LIMIT = { perMinute: 120, perHour: 2_000 };
 const DEFAULT_MANAGEMENT_RATE_LIMIT = { perMinute: 60, perHour: 1_000 };
 const MAX_MERGED_TRAITS_BYTES = 64 * 1024;
 export class TraitsCapacityError extends Error {}
-const SDK_OPERATIONS = new Set<OperationId>(["identifyUser", "trackEvent", "getMessages", "recordDeliveryEvent", ...INSTALLATION_SDK_OPERATIONS]);
+const SDK_OPERATIONS = new Set<OperationId>(["identifyUser", "trackEvent", "getMessages", "recordDeliveryEvent", ...INSTALLATION_SDK_OPERATIONS, "observeInstallationPush"]);
 const MANAGEMENT_RESOURCE_GROUP: Partial<Record<OperationId, string>> = {
   uploadCampaignMedia: "media",
   createCampaign: "campaigns",
@@ -647,22 +659,6 @@ function campaignAudienceView(audience: ProductCampaignAudience) {
   };
 }
 
-function campaignMatches(
-  campaign: ProductCampaign,
-  user: ProductUser,
-  events: ProductEvent[],
-  evaluatedAt: number,
-) {
-  if (campaign.audience.kind === "all") return true;
-  if (campaign.audience.kind === "invalid") return false;
-  const prepared = prepareAudience(JSON.parse(campaign.audience.expressionJson));
-  if (!prepared.ok || prepared.value.hash !== campaign.audience.expressionHash) return false;
-  return evaluateExpression(
-    prepared.value.expression.root,
-    factsForUser(user, events, prepared.value.expression),
-    evaluatedAt,
-  );
-}
 
 function deliveryView(delivery: ProductDelivery, user: ProductUser, variant: ProductVariant) {
   return {
@@ -879,6 +875,7 @@ export function createProduct(store: ProductStore, options: LocalProductOptions 
       status: campaign.status,
       effectiveStatus: effectiveStatus(campaign, evaluatedAt),
       channel: campaign.channel,
+      ...(campaign.channel === "push" ? { push: campaign.push } : {}),
       goalId: campaign.goalId,
       createdBy: "api",
       createdAt: campaign.createdAt,
@@ -895,7 +892,7 @@ export function createProduct(store: ProductStore, options: LocalProductOptions 
         name: variant.name,
         weight: variant.weight,
         isControl: variant.isControl,
-        content: publicMessageContent(JSON.parse(variant.content_json), media, projectId),
+        content: campaign.channel === "push" ? JSON.parse(variant.content_json) : publicMessageContent(JSON.parse(variant.content_json), media, projectId),
         stats: stats?.variants.get(variant.id) ?? emptyDeliveryStats(),
       })),
     };
@@ -1011,7 +1008,7 @@ export function createProduct(store: ProductStore, options: LocalProductOptions 
     isControl: boolean | undefined;
   };
   const variantError = (error: string, status: 400 | 503 = 400) => ({ ok: false as const, status, error });
-  const parseVariantPatches = async (value: unknown) => {
+  const parseVariantPatches = async (value: unknown, push = false) => {
     if (!Array.isArray(value) || value.length < 1 || value.length > 10) return variantError("Invalid variants");
     const patches: ParsedVariantPatch[] = [];
     for (const raw of value) {
@@ -1022,7 +1019,7 @@ export function createProduct(store: ProductStore, options: LocalProductOptions 
       if (patch.weight !== undefined && (!Number.isInteger(patch.weight) || (patch.weight as number) < 0 || (patch.weight as number) > 100)) return variantError("Invalid variant weight");
       if (patch.isControl !== undefined && typeof patch.isControl !== "boolean") return variantError("Invalid control value");
       if (patch.id === undefined && patch.message === undefined) return variantError("New variants require message");
-      const message = patch.message === undefined ? undefined : await parseMessage(patch.message, media, projectId);
+      const message = patch.message === undefined ? undefined : push ? validatePushContent(patch.message) ? { ok: true as const, content: patch.message as unknown as JsonObject } : variantError("Invalid push message") : await parseMessage(patch.message, media, projectId);
       if (message && !message.ok) return variantError(message.error, message.status);
       patches.push({
         id: typeof patch.id === "string" ? patch.id : null,
@@ -1090,7 +1087,7 @@ export function createProduct(store: ProductStore, options: LocalProductOptions 
       const traits = input.traits === undefined ? {} : input.traits as JsonObject;
       if (Buffer.byteLength(JSON.stringify(traits)) > 4096) return json({ error: "Invalid traits" }, 400);
       try {
-        await store.transaction((transaction) => transaction.identifyUser(userId, traits, now()));
+        await store.transaction(async (transaction) => { await transaction.lockInstallations(); await transaction.identifyUser(userId, traits, now()); });
       } catch (error) {
         if (error instanceof TraitsCapacityError) return json({ error: "Merged traits are too large" }, 413);
         throw error;
@@ -1107,19 +1104,22 @@ export function createProduct(store: ProductStore, options: LocalProductOptions 
       const userId = input.userId;
       const eventName = input.event;
       const props = input.props && typeof input.props === "object" && !Array.isArray(input.props) ? input.props as JsonObject : null;
-      if (input.props !== undefined && props === null) return json({ error: "Invalid props" }, 400);
+      if (input.props !== undefined && (props === null || !validateSchema(installationSchemas.PushEventProps, input.props, installationSchemas))) return json({ error: "Invalid props" }, 400);
       if (Buffer.byteLength(JSON.stringify(props)) > 4096) return json({ error: "Invalid props" }, 400);
+      if (input.eventId !== undefined && (typeof input.eventId !== "string" || !input.eventId || input.eventId.length > 128)) return json({ error: "Invalid eventId" }, 400);
       const occurredAt = now();
-      await store.transaction(async (transaction) => {
-        const user = await transaction.identifyUser(userId, {}, occurredAt);
-        await transaction.insertEvent({ id: `evt_${randomUUID()}`, userId: user.id, externalUserId: user.externalId, name: eventName, props, occurredAt });
-        const candidates = await transaction.listConversionCandidatesForUpdate(user.id, eventName, occurredAt);
-        for (const delivery of candidates) {
-          delivery.state = "converted";
-          delivery.convertedAt = occurredAt;
-          await transaction.saveDelivery(delivery);
-        }
-      });
+      try {
+        await store.transaction(async (transaction) => {
+          await transaction.lockInstallations();
+          let user = await transaction.getUserByExternalId(userId);
+          if (!user && typeof input.eventId === "string" && await transaction.getPushRecord("event", input.eventId)) throw new PushError(409, "Event replay conflict");
+          user ??= await transaction.identifyUser(userId, {}, occurredAt);
+          await recordServerEvent(transaction, user, eventName, typeof input.eventId === "string" ? input.eventId : `evt_${randomUUID()}`, occurredAt, props);
+        });
+      } catch (error) {
+        if (error instanceof PushError) return json({ error: error.message }, error.status);
+        throw error;
+      }
       return json({ ok: true });
     },
 
@@ -1172,6 +1172,7 @@ export function createProduct(store: ProductStore, options: LocalProductOptions 
       if (input.approvalMode !== undefined && input.approvalMode !== "require_human" && input.approvalMode !== "auto") return json({ error: "Invalid approvalMode" }, 400);
       if (input.status !== undefined && input.status !== "active" && input.status !== "archived") return json({ error: "Invalid status" }, 400);
       const goal = await store.transaction(async (transaction) => {
+        await transaction.lockInstallations();
         const current = await transaction.getGoalForUpdate(params.id);
         if (!current) return null;
         if (typeof input.name === "string") current.name = input.name;
@@ -1554,7 +1555,9 @@ export function createProduct(store: ProductStore, options: LocalProductOptions 
       if (!parsed.ok) return bodyError(parsed.status);
       const input = parsed.value;
       if (typeof input.name !== "string" || !input.name || input.name.length > 80) return json({ error: "name is required" }, 400);
-      if (input.channel !== undefined && input.channel !== "web_inapp") return json({ error: "The local adapter currently supports web_inapp" }, 400);
+      if (input.channel !== undefined && !["web_inapp", "push"].includes(String(input.channel))) return json({ error: "Unsupported channel" }, 400);
+      if (input.channel === "push" && (!validatePushSettings(input.push) || input.pages !== undefined)) return json({ error: "Invalid push settings" }, 400);
+      if (input.channel !== "push" && input.push !== undefined) return json({ error: "Push settings require push channel" }, 400);
       if (input.goalId !== undefined && input.goalId !== null && (typeof input.goalId !== "string" || !input.goalId)) return json({ error: "Goal not found" }, 400);
       if (input.launch !== undefined && typeof input.launch !== "boolean") return json({ error: "Invalid launch value" }, 400);
       if ((input.message === undefined) === (input.variants === undefined)) return json({ error: "Provide exactly one of message or variants" }, 400);
@@ -1569,7 +1572,7 @@ export function createProduct(store: ProductStore, options: LocalProductOptions 
       const rawVariants = input.message !== undefined
         ? [{ name: "A", message: input.message, weight: 1, isControl: true }]
         : input.variants;
-      const parsedVariants = await parseVariantPatches(rawVariants);
+      const parsedVariants = await parseVariantPatches(rawVariants, input.channel === "push");
       if (!parsedVariants.ok) return json({ error: parsedVariants.error }, parsedVariants.status);
       if (parsedVariants.patches.some((variant) => variant.id !== null)) return json({ error: "New variants cannot set id" }, 400);
       const variants = parsedVariants.patches.map((variant, index): ProductVariant => ({
@@ -1582,6 +1585,7 @@ export function createProduct(store: ProductStore, options: LocalProductOptions 
         }));
       if (!variants.some((variant) => variant.weight > 0) || variants.filter((variant) => variant.isControl).length > 1) return json({ error: "Invalid variant allocation" }, 400);
       const result = await store.transaction(async (transaction) => {
+        await transaction.lockInstallations();
         const createdAt = now();
         if ((deliverFrom !== null && deliverUntil !== null && deliverFrom >= deliverUntil) || (deliverUntil !== null && deliverUntil <= createdAt)) {
           return { ok: false as const, status: 400, error: "Invalid delivery window" };
@@ -1595,7 +1599,8 @@ export function createProduct(store: ProductStore, options: LocalProductOptions 
           id,
           name: input.name as string,
           status: input.launch === true ? "running" : "draft",
-          channel: "web_inapp",
+          channel: input.channel === "push" ? "push" : "web_inapp",
+          ...(input.channel === "push" ? { push: input.push as PushSettings } : {}),
           goalId,
           createdAt,
           startedAt: input.launch === true ? createdAt : null,
@@ -1657,6 +1662,12 @@ export function createProduct(store: ProductStore, options: LocalProductOptions 
       const parsed = await body(request);
       if (!parsed.ok) return bodyError(parsed.status);
       const input = parsed.value;
+      const editing = await store.getCampaign(params.id);
+      if (!editing) return json({ error: "Campaign not found" }, 404);
+      if (input.channel !== undefined && input.channel !== editing.channel) return json({ error: "Channel is immutable" }, 400);
+      if (input.push !== undefined && (editing.channel !== "push" || !validatePushSettings(input.push))) return json({ error: "Invalid push settings" }, 400);
+      if (editing.channel === "push" && input.pages !== undefined) return json({ error: "Push campaigns do not target pages" }, 400);
+
       if (input.name !== undefined && (typeof input.name !== "string" || !input.name || input.name.length > 80)) return json({ error: "Invalid name" }, 400);
       const pages = input.pages === undefined ? null : validatePages(input.pages);
       if (pages && !pages.ok) return json({ error: pages.error }, 400);
@@ -1668,14 +1679,16 @@ export function createProduct(store: ProductStore, options: LocalProductOptions 
       if (deliverFromInput === undefined && input.deliverFrom !== undefined) return json({ error: "Invalid delivery window" }, 400);
       if (deliverUntilInput === undefined && input.deliverUntil !== undefined) return json({ error: "Invalid delivery window" }, 400);
       if (input.message !== undefined && input.variants !== undefined) return json({ error: "message and variants are mutually exclusive" }, 400);
-      const message = input.message === undefined ? null : await parseMessage(input.message, media, projectId);
+      const message = input.message === undefined ? null : editing.channel === "push" ? validatePushContent(input.message) ? { ok: true as const, content: input.message } : { ok: false as const, error: "Invalid push message", status: 400 } : await parseMessage(input.message, media, projectId);
       if (message && !message.ok) return json({ error: message.error }, message.status);
-      const variantPatches = input.variants === undefined ? null : await parseVariantPatches(input.variants);
+      const variantPatches = input.variants === undefined ? null : await parseVariantPatches(input.variants, editing.channel === "push");
       if (variantPatches && !variantPatches.ok) return json({ error: variantPatches.error }, variantPatches.status);
       const result = await store.transaction(async (transaction) => {
+        await transaction.lockInstallations();
         const campaign = await transaction.getCampaignForUpdate(params.id);
         if (!campaign) return { ok: false as const, status: 404, error: "Campaign not found" };
         if (typeof input.name === "string") campaign.name = input.name;
+        if (input.push !== undefined) campaign.push = input.push as PushSettings;
         if (pages?.ok) campaign.pages = pages.pages;
         if (input.goalId !== undefined) {
           const goalId = input.goalId as string | null;
@@ -1719,6 +1732,7 @@ export function createProduct(store: ProductStore, options: LocalProductOptions 
       const action = parsed.value.action;
       if (action !== "launch" && action !== "pause" && action !== "end") return json({ error: "Invalid action" }, 400);
       const campaign = await store.transaction(async (transaction) => {
+        await transaction.lockInstallations();
         const current = await transaction.getCampaignForUpdate(params.id);
         if (!current) return null;
         const transitionedAt = now();
@@ -1950,7 +1964,7 @@ export function createProduct(store: ProductStore, options: LocalProductOptions 
       if (!externalId) return json({ error: "userId is required" }, 400);
       const evaluatedAt = now();
       const facts = await store.withReadSnapshot(async (snapshot) => {
-        const { values: campaigns } = await snapshot.queryCampaigns({ effectiveStatus: "running", query: null, evaluatedAt, offset: 0, limit: 101 });
+        const { values: campaigns } = await snapshot.queryCampaigns({ channel: "web_inapp", effectiveStatus: "running", query: null, evaluatedAt, offset: 0, limit: 101 });
         if (campaigns.length > 100) return { kind: "candidates" as const };
         const user = await snapshot.getUserByExternalId(externalId);
         if (!user) return { kind: "missing" as const };
@@ -1975,11 +1989,12 @@ export function createProduct(store: ProductStore, options: LocalProductOptions 
       const { campaigns, user, events: userEvents } = facts;
       const messages = [];
       for (const campaign of campaigns) {
+        if (campaign.channel !== "web_inapp") continue;
         if (campaign.pages !== null && url.searchParams.get("pages") !== "1") continue;
         if (!await campaignMatches(campaign, user, userEvents, evaluatedAt)) continue;
         const assigned = pickVariant(user.id, campaign.id, campaign.variants);
         if (!assigned) continue;
-        const delivery = await store.getOrCreateDelivery({
+        const delivery = await store.transaction((transaction) => transaction.getOrCreateDelivery({
           id: `del_${randomUUID()}`,
           campaignId: campaign.id,
           variantId: assigned.id,
@@ -1996,7 +2011,7 @@ export function createProduct(store: ProductStore, options: LocalProductOptions 
           complainedAt: null,
           unsubscribedAt: null,
           convertedAt: null,
-        });
+        }));
         if (!["queued", "shown"].includes(delivery.state)) continue;
         const variant = campaign.variants.find((candidate) => candidate.id === delivery.variantId);
         if (!variant) continue;
@@ -2020,7 +2035,7 @@ export function createProduct(store: ProductStore, options: LocalProductOptions 
       const occurredAt = now();
       const found = await store.transaction(async (transaction) => {
         const delivery = await transaction.getDeliveryForUpdate(params.id);
-        if (!delivery) return false;
+        if (!delivery || (await transaction.getCampaign(delivery.campaignId))?.channel !== "web_inapp") return false;
         const firstExposure = delivery.shownAt === null;
         applyDeliveryFeedback(delivery, type as DeliveryFeedback, occurredAt);
         if (type === "shown" && firstExposure) {
@@ -2064,6 +2079,8 @@ export function createProduct(store: ProductStore, options: LocalProductOptions 
     },
   };
 
+  const push = createServerPush(store, { ...options, projectId, secretKey, publishableKey, now });
+  Object.assign(rawHandlers, push.handlers);
   Object.assign(rawHandlers, installationHandlers(store, { publishableKey, secretKey, now }));
   const handlers: OperationHandlers = {};
   for (const operationId of Object.keys(rawHandlers) as OperationId[]) {
@@ -2084,14 +2101,16 @@ export function createProduct(store: ProductStore, options: LocalProductOptions 
     };
   }
 
-  return { projectId, secretKey, publishableKey, handlers, media, close: () => store.close() };
+  return { projectId, secretKey, publishableKey, handlers, media, push: push.engine, close: async () => { push.close(); await store.close(); } };
 }
 
 export class MemoryProductStore implements ProductStore {
+  private readonly userUndo = new Map<string, ProductUser | undefined>();
   private readonly users = new Map<string, ProductUser>();
   private readonly usersById = new Map<string, ProductUser>();
   private readonly goals = new Map<string, ProductGoal>();
   private readonly campaigns = new Map<string, ProductCampaign>();
+  private readonly deliveryUndo = new Map<string, ProductDelivery | undefined>();
   private readonly deliveries = new Map<string, ProductDelivery>();
   private readonly deliveryByCampaignUser = new Map<string, string>();
   private readonly events: ProductEvent[] = [];
@@ -2101,6 +2120,16 @@ export class MemoryProductStore implements ProductStore {
   private readonly segmentByKey = new Map<string, string>();
   private readonly segmentByIdempotencyKey = new Map<string, string>();
   private readonly audienceVersions = new Map<string, ProductAudienceVersion[]>();
+  private readonly pushRecords = new MemoryPushRecords();
+  async queryPushUsers(afterId: string | null, limit: number) {
+    if (limit < 1 || limit > 101) throw new Error("Invalid user page");
+    return [...this.usersById.values()].filter((user) => afterId === null || user.id > afterId).sort((a, b) => a.id < b.id ? -1 : 1).slice(0, limit).map((user) => structuredClone(user));
+  }
+  getPushRecord<K extends RecordKind>(kind: K, id: string) { return this.pushRecords.getPushRecord(kind, id); }
+  queryPushRecords<K extends RecordKind>(kind: K, query: PushQuery) { return this.pushRecords.queryPushRecords(kind, query); }
+  pushTotals(campaignId: string) { return this.pushRecords.pushTotals(campaignId); }
+  insertPushRecord<K extends RecordKind>(kind: K, record: PushRecords[K]) { return this.pushRecords.insertPushRecord(kind, record); }
+  savePushControl<K extends "credential" | "clock" | "cursor" | "queue" | "scan" | "work" | "delivery">(kind: K, record: PushRecords[K]) { return this.pushRecords.savePushControl(kind, record); }
   private readonly installations = new Map<string, InstallationRecord>();
   private readonly installationReplays = new Map<string, Map<string, InstallationReplay>>();
   private installationUndo = new Map<string, InstallationRecord | undefined>();
@@ -2137,15 +2166,32 @@ export class MemoryProductStore implements ProductStore {
     });
     await previous;
     this.installationTransactionActive = true;
+    this.pushRecords.begin();
+    this.userUndo.clear();
+    this.deliveryUndo.clear();
+    const eventCount = this.events.length;
     this.installationUndo.clear();
     this.installationReplayUndo.clear();
     try {
       return await work(this);
     } catch (error) {
+      this.events.splice(eventCount);
+      for (const [externalId, user] of this.userUndo) {
+        const current = this.users.get(externalId);
+        if (user) { this.users.set(externalId, user); this.usersById.set(user.id, user); }
+        else { this.users.delete(externalId); if (current) this.usersById.delete(current.id); }
+      }
+      for (const [key, value] of this.deliveryUndo) {
+        const current = this.deliveries.get(key);
+        if (value) this.deliveries.set(key, value);
+        else { this.deliveries.delete(key); if (current) this.deliveryByCampaignUser.delete(`${current.campaignId}:${current.userId}`); }
+      }
+      this.pushRecords.rollback();
       for (const [key, value] of this.installationUndo) value === undefined ? this.installations.delete(key) : this.installations.set(key, value);
       for (const [key, value] of this.installationReplayUndo) value === undefined ? this.installationReplays.delete(key) : this.installationReplays.set(key, value);
       throw error;
     } finally {
+      this.pushRecords.commit();
       this.installationTransactionActive = false;
       release();
     }
@@ -2166,6 +2212,7 @@ export class MemoryProductStore implements ProductStore {
     };
     if (Buffer.byteLength(JSON.stringify(user.traits)) > MAX_MERGED_TRAITS_BYTES) throw new TraitsCapacityError();
     const stored = structuredClone(user);
+    if (!this.userUndo.has(externalId)) this.userUndo.set(externalId, previous);
     this.users.set(externalId, stored);
     this.usersById.set(user.id, stored);
     return structuredClone(user);
@@ -2334,10 +2381,12 @@ export class MemoryProductStore implements ProductStore {
     const values: ProductCampaign[] = [];
     let total = 0;
     for (const campaign of this.campaigns.values()) {
+      if (query.afterId != null && campaign.id <= query.afterId) continue;
+      if (query.channel !== undefined && campaign.channel !== query.channel) continue;
       if (query.effectiveStatus !== null && effectiveStatus(campaign, query.evaluatedAt) !== query.effectiveStatus) continue;
       if (query.query && !campaign.name.toLowerCase().includes(query.query)) continue;
       total += 1;
-      retainOrdered(values, campaign, query.offset + query.limit, (left, right) => right.createdAt - left.createdAt || right.id.localeCompare(left.id));
+      retainOrdered(values, campaign, query.offset + query.limit, (left, right) => query.afterId !== undefined ? left.id < right.id ? -1 : left.id > right.id ? 1 : 0 : right.createdAt - left.createdAt || right.id.localeCompare(left.id));
     }
     return { values: structuredClone(values.slice(query.offset)), total };
   }
@@ -2388,6 +2437,7 @@ export class MemoryProductStore implements ProductStore {
     const key = `${delivery.campaignId}:${delivery.userId}`;
     const existingId = this.deliveryByCampaignUser.get(key);
     if (existingId) return structuredClone(this.deliveries.get(existingId)!);
+    if (!this.deliveryUndo.has(delivery.id)) this.deliveryUndo.set(delivery.id, this.deliveries.get(delivery.id));
     this.deliveries.set(delivery.id, structuredClone(delivery));
     this.deliveryByCampaignUser.set(key, delivery.id);
     return structuredClone(delivery);
@@ -2399,6 +2449,7 @@ export class MemoryProductStore implements ProductStore {
   }
 
   async saveDelivery(delivery: ProductDelivery) {
+    if (!this.deliveryUndo.has(delivery.id)) this.deliveryUndo.set(delivery.id, this.deliveries.get(delivery.id));
     this.deliveries.set(delivery.id, structuredClone(delivery));
   }
 
@@ -2724,5 +2775,5 @@ export class MemoryProductStore implements ProductStore {
 }
 
 export function createLocalProduct(options: LocalProductOptions = {}) {
-  return createProduct(new MemoryProductStore(), options);
+  return createProduct(new MemoryProductStore(), { ...options, pushEncryptionKey: options.pushEncryptionKey ?? randomBytes(32).toString("base64") });
 }

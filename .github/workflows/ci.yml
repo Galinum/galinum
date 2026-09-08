@@ -46,6 +46,7 @@ jobs:
         env:
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/galinum_product_ci
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f packages/server/schema.sql
+      - run: pnpm --filter @galinum/core build && pnpm --filter @galinum/push build
       - name: Run Postgres product integration tests
         env:
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/galinum_product_ci

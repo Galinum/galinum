@@ -23,7 +23,7 @@ import {
   type ExpressionNode,
   type UserAudienceFacts,
 } from "@galinum/core";
-import type { ProductEvent, ProductUser } from "./local-product.js";
+import type { ProductCampaign, ProductEvent, ProductUser } from "./local-product.js";
 
 export const MAX_CAPABILITY_TRAITS = 100;
 export const MAX_CAPABILITY_EVENTS = 100;
@@ -382,4 +382,21 @@ export function explainPreparedAudience(
     expressionHash: prepared.hash,
     trace,
   };
+}
+
+export function campaignMatches(
+  campaign: ProductCampaign,
+  user: ProductUser,
+  events: ProductEvent[],
+  evaluatedAt: number,
+) {
+  if (campaign.audience.kind === "all") return true;
+  if (campaign.audience.kind === "invalid") return false;
+  const prepared = prepareAudience(JSON.parse(campaign.audience.expressionJson));
+  if (!prepared.ok || prepared.value.hash !== campaign.audience.expressionHash) return false;
+  return evaluateExpression(
+    prepared.value.expression.root,
+    factsForUser(user, events, prepared.value.expression),
+    evaluatedAt,
+  );
 }

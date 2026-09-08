@@ -14,3 +14,7 @@ export * from "./targeting.js";
 export * from "./traits.js";
 
 export { eligibleInstallation, selectInstallations, type InstallationSelection } from "./installations.js";
+
+export type { InstallationRecord, InstallationReplay, InstallationAccess, InstallationSession, InstallationStore } from "./installation-store.js";
+
+export { retireInstallationToken } from "./installation-store.js";

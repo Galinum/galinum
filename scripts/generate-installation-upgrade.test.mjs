@@ -9,5 +9,6 @@ test("installation upgrade is transactional and derives from the canonical schem
   assert.equal(upgrade, installationUpgrade(schema));
   assert.match(upgrade, /^BEGIN;/);
   assert.match(upgrade, /COMMIT;\n$/);
-  assert.throws(() => installationUpgrade(schema + "\nCREATE TABLE unrelated (id text);"), /Unexpected tables/);
+  assert.equal(installationUpgrade(schema + "\nCREATE TABLE unrelated (id text);"), upgrade);
+  assert.throws(() => installationUpgrade(schema.replace("CREATE TABLE push_records", "CREATE TABLE unrelated (id text);\nCREATE TABLE push_records")), /Unexpected tables/);
 });

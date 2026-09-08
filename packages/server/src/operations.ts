@@ -340,6 +340,54 @@ export const OPERATIONS = [
     "path": "/api/v1/installations",
     "operationId": "listInstallations",
     "availability": "product"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/push/credentials",
+    "operationId": "listPushCredentials",
+    "availability": "product"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/push/credentials",
+    "operationId": "configurePushCredential",
+    "availability": "product"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/push/credentials/validate",
+    "operationId": "validatePushCredential",
+    "availability": "product"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/campaigns/{id}/push/dispatch",
+    "operationId": "dispatchPushCampaign",
+    "availability": "product"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/campaigns/{id}/push/test",
+    "operationId": "testPushCampaign",
+    "availability": "product"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/campaigns/{id}/push",
+    "operationId": "inspectPushCampaign",
+    "availability": "product"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/sdk/installations/{installationId}/observations",
+    "operationId": "observeInstallationPush",
+    "availability": "product"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/campaigns/{id}/push/tests/{requestId}",
+    "operationId": "getPushTest",
+    "availability": "product"
   }
 ] as const;
 

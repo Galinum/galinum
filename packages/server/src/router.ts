@@ -13,6 +13,7 @@ export type OperationHandlers = Partial<Record<OperationId, OperationHandler>>;
 // stay non-CORS so browsers cannot call them with a secret key.
 export const BROWSER_SDK_OPERATIONS = new Set<OperationId>([
   ...INSTALLATION_SDK_OPERATIONS,
+  "observeInstallationPush",
   "identifyUser",
   "trackEvent",
   "getMessages",

@@ -5,7 +5,7 @@ WORKDIR /app
 
 COPY . .
 RUN pnpm install --frozen-lockfile
-RUN pnpm --filter @galinum/core build && pnpm --filter @galinum/server build
+RUN pnpm --filter @galinum/contracts build && pnpm --filter @galinum/core build && pnpm --filter @galinum/push build && pnpm --filter @galinum/server build
 
 ENV PORT=3000
 EXPOSE 3000

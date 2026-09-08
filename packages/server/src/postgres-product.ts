@@ -1,3 +1,4 @@
+import { pushProjection, validatePushQuery, type PushQuery, type PushTotals, type PushRecords, type RecordKind, type PushSettings } from "@galinum/push";
 import { INSTALLATION_REPLAY_LIMIT, type InstallationRecord, type InstallationReplay } from "./installations.js";
 import { randomUUID } from "node:crypto";
 import type {
@@ -217,12 +218,13 @@ function variantFromRow(row: VariantRow): ProductVariant {
 }
 
 function campaignFromRow(row: CampaignRow, variants: ProductVariant[]): ProductCampaign {
-  if (row.channel !== "web_inapp") throw new Error(`Unsupported campaign channel: ${row.channel}`);
+  if (row.channel !== "web_inapp" && row.channel !== "push") throw new Error(`Unsupported campaign channel: ${row.channel}`);
   return {
     id: row.id,
     name: row.name,
     status: campaignStatus(row.status),
     channel: row.channel,
+    ...(row.channel === "push" ? { push: row.push_json ? JSON.parse(row.push_json) as PushSettings : null } : {}),
     goalId: row.goal_id,
     createdAt: integer(row.created_at),
     startedAt: row.started_at === null ? null : integer(row.started_at),
@@ -392,6 +394,81 @@ class PostgresProductSession implements ProductStoreSession {
     protected readonly database: Database,
     protected readonly projectId: string,
   ) {}
+
+  async queryPushUsers(afterId: string | null, limit: number) {
+    if (limit < 1 || limit > 101) throw new Error("Invalid user page");
+    let query = this.database.selectFrom("end_users").selectAll().where("project_id", "=", this.projectId);
+    if (afterId !== null) query = query.where(sql<boolean>`id collate "C" > ${afterId}`);
+    return (await query.orderBy(sql`id collate "C"`).limit(limit).execute()).map(userFromRow);
+  }
+  async getPushRecord<K extends RecordKind>(kind: K, id: string): Promise<PushRecords[K] | null> {
+    const row = await this.database.selectFrom("push_records").select("body_json").where("project_id", "=", this.projectId).where("kind", "=", kind).where("id", "=", id).executeTakeFirst();
+    return row ? JSON.parse(row.body_json) as PushRecords[K] : null;
+  }
+  async queryPushRecords<K extends RecordKind>(kind: K, input: PushQuery): Promise<PushRecords[K][]> {
+    validatePushQuery(input);
+    let query = this.database.selectFrom("push_records").select("body_json").where("project_id", "=", this.projectId).where("kind", "=", kind);
+    const columns = { campaignId: "campaign_id", userId: "user_id", targetId: "target_id", installationId: "installation_id", goalEvent: "goal_event", replacementKey: "replacement_key", credentialId: "credential_id", recipientId: "recipient_id", slotId: "slot_id", stateKind: "state_kind" } as const;
+    for (const key of Object.keys(columns) as (keyof typeof columns)[]) if (input[key] !== undefined) query = query.where(columns[key], "=", input[key]!);
+    if (input.uncertain !== undefined) query = query.where("is_uncertain", "=", input.uncertain);
+    if (input.createdAfter !== undefined) query = query.where("event_order", ">", input.createdAfter);
+    if (input.isTest !== undefined) query = query.where("is_test", "=", input.isTest);
+    if (input.afterId !== undefined) query = query.where(sql<boolean>`id collate "C" > ${input.afterId}`);
+    if (input.dueAt !== undefined) query = query.where("available_at", "<=", input.dueAt).orderBy("available_at");
+    if (input.engagedBefore !== undefined) query = query.where(sql<boolean>`kind = 'observation' and command_kind in ('tap','action')`).where("event_order", "<", input.engagedBefore);
+    if (input.unconverted) query = query.where(sql<boolean>`kind = 'delivery' and is_test = false and not exists (select 1 from push_records c where c.project_id = push_records.project_id and c.kind = 'conversion' and c.id = push_records.id)`);
+    return (await query.orderBy(sql`id collate "C"`).offset(input.offset ?? 0).limit(input.limit).execute()).map((row) => JSON.parse(row.body_json) as PushRecords[K]);
+  }
+  private pushValues<K extends RecordKind>(kind: K, record: PushRecords[K]) {
+    const p = pushProjection(kind, record);
+    return { project_id: this.projectId, kind, id: record.id, campaign_id: p.campaignId, user_id: p.userId, target_id: p.targetId, installation_id: p.installationId, is_test: p.isTest, command_kind: p.commandKind, result_kind: p.resultKind, available_at: p.availableAt, event_order: p.eventOrder, goal_event: p.goalEvent, replacement_key: p.replacementKey, credential_id: p.credentialId, recipient_id: p.recipientId, slot_id: p.slotId, state_kind: p.stateKind, submission_kind: p.submissionKind, is_uncertain: p.uncertain, body_json: JSON.stringify(record) };
+  }
+  async insertPushRecord<K extends RecordKind>(kind: K, record: PushRecords[K]) {
+    await this.database.insertInto("push_records").values(this.pushValues(kind, record)).execute();
+  }
+  async savePushControl<K extends "credential" | "clock" | "cursor" | "queue" | "scan" | "work" | "delivery">(kind: K, record: PushRecords[K]) {
+    const values = this.pushValues(kind, record);
+    await this.database.insertInto("push_records").values(values).onConflict((conflict) => conflict.columns(["project_id", "kind", "id"]).doUpdateSet(values)).execute();
+  }
+  async pushTotals(campaignId: string): Promise<PushTotals> {
+    const scoped = sql`project_id = ${this.projectId} and campaign_id = ${campaignId}`;
+    const counts = await sql<{ kind: string; total: string }>`select kind, count(*) as total from push_records where ${scoped} group by kind`.execute(this.database);
+    const totals = new Map(counts.rows.map((row) => [row.kind, integer(row.total)]));
+    const summary = await sql<Record<string, string>>`
+      with slots as (select id, user_id, state_kind from push_records where ${scoped} and kind = 'queue' and is_test = false),
+      outcomes as (select o.* from push_records o join slots s on s.id = o.slot_id where o.project_id = ${this.projectId} and o.kind = 'outcome'),
+      accepted as (select distinct slot_id from outcomes where result_kind = 'accepted'),
+      possible as (select distinct slot_id from outcomes where submission_kind = 'possible'),
+      received as (select distinct slot_id from push_records where ${scoped} and kind = 'observation' and command_kind = 'receipt')
+      select
+        (select count(distinct user_id) from slots) as users_targeted,
+        (select count(distinct s.user_id) from slots s join accepted a on a.slot_id = s.id) as users_accepted,
+        (select count(distinct user_id) from push_records where ${scoped} and kind = 'observation' and command_kind in ('tap','action')) as users_engaged,
+        (select count(distinct user_id) from push_records where ${scoped} and kind = 'conversion') as users_converted,
+        (select count(*) from slots) as targeted,
+        (select count(*) from push_records a join slots s on s.id = a.slot_id where a.project_id = ${this.projectId} and a.kind = 'attempt') as attempts,
+        (select count(*) from accepted) as accepted,
+        (select count(*) from slots s join received r on r.slot_id = s.id) as received,
+        (select count(*) from slots s where (exists(select 1 from accepted a where a.slot_id = s.id) or exists(select 1 from possible p where p.slot_id = s.id)) and not exists(select 1 from received r where r.slot_id = s.id)) as unknown,
+        (select count(*) from outcomes where submission_kind = 'confirmed') as confirmed,
+        (select count(*) from outcomes where submission_kind = 'possible') as possible,
+        (select count(*) from outcomes where submission_kind = 'none') as blocked,
+        (select count(*) from slots where state_kind = 'reserved') as pending,
+        (select count(*) from slots where state_kind = 'waiting') as waiting,
+        (select count(*) from push_records where ${scoped} and kind = 'target' and is_test = true) as tests,
+        (select count(*) from push_records where ${scoped} and kind = 'work' and is_test = false and state_kind = 'waiting') as work_waiting,
+        (select count(*) from push_records where ${scoped} and kind = 'work' and is_test = false and state_kind = 'active') as work_active,
+        (select count(*) from push_records where ${scoped} and kind = 'work' and is_test = false and state_kind = 'closed') as work_closed
+    `.execute(this.database);
+    const n = (key: string) => integer(summary.rows[0][key]);
+    return {
+      users: { targeted: n("users_targeted"), accepted: n("users_accepted"), engaged: n("users_engaged"), converted: n("users_converted") },
+      devices: { targeted: n("targeted"), attempts: n("attempts"), accepted: n("accepted"), receiptObserved: n("received"), receiptUnknown: n("unknown"), confirmedSubmissions: n("confirmed"), possibleSubmissions: n("possible"), preSendBlocks: n("blocked"), pendingOutcomes: n("pending"), waiting: n("waiting") },
+      planning: { waiting: n("work_waiting"), active: n("work_active"), closed: n("work_closed") },
+      testTargets: n("tests"),
+      records: { recipients: totals.get("work") ?? 0, slots: totals.get("queue") ?? 0, targets: totals.get("target") ?? 0, attempts: totals.get("attempt") ?? 0, outcomes: totals.get("outcome") ?? 0, observations: totals.get("observation") ?? 0, conversions: totals.get("conversion") ?? 0 },
+    };
+  }
 
   async lockInstallations() {
     await sql`select pg_advisory_xact_lock(74102, hashtext(${this.projectId}))`.execute(this.database);
@@ -791,6 +868,7 @@ class PostgresProductSession implements ProductStoreSession {
       goal_id: campaign.goalId,
       name: campaign.name,
       channel: campaign.channel,
+      push_json: campaign.push ? JSON.stringify(campaign.push) : null,
       status: campaign.status,
       ...audienceColumns,
       pages_json: campaign.pages === null ? null : JSON.stringify(campaign.pages),
@@ -867,6 +945,8 @@ class PostgresProductSession implements ProductStoreSession {
     const at = input.evaluatedAt;
     const filtered = () => {
       let query = this.database.selectFrom("campaigns").where("project_id", "=", this.projectId);
+      if (input.afterId != null) query = query.where(sql<boolean>`id collate "C" > ${input.afterId}`);
+      if (input.channel !== undefined) query = query.where("channel", "=", input.channel);
       if (input.query) query = query.where(sql<boolean>`name ilike ${containsPattern(input.query)} escape '\\'`);
       if (input.effectiveStatus === "draft") query = query.where("status", "=", "draft");
       if (input.effectiveStatus === "ended") query = query.where("status", "=", "ended");
@@ -890,13 +970,9 @@ class PostgresProductSession implements ProductStoreSession {
       return query;
     };
     const count = await filtered().select(({ fn }) => fn.countAll().as("count")).executeTakeFirstOrThrow();
-    const rows = await filtered()
-      .selectAll()
-      .orderBy("created_at", "desc")
-      .orderBy("id", "desc")
-      .offset(input.offset)
-      .limit(input.limit)
-      .execute();
+    const selected = filtered().selectAll();
+    const ordered = input.afterId !== undefined ? selected.orderBy(sql`id collate "C"`) : selected.orderBy("created_at", "desc").orderBy("id", "desc");
+    const rows = await ordered.offset(input.offset).limit(input.limit).execute();
     return { values: await this.hydrateCampaignRows(rows), total: integer(count.count) };
   }
 
@@ -971,6 +1047,7 @@ class PostgresProductSession implements ProductStoreSession {
       .updateTable("campaigns")
       .set({
         name: campaign.name,
+        push_json: campaign.push ? JSON.stringify(campaign.push) : null,
         goal_id: campaign.goalId,
         pages_json: campaign.pages === null ? null : JSON.stringify(campaign.pages),
         deliver_from: campaign.deliverFrom,

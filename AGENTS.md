@@ -14,6 +14,7 @@ This repository owns the reusable Galinum product.
 - `apps/docs` owns customer documentation, OpenAPI, MCP metadata, and the distributable skill.
 - `packages/contracts` owns generated, mobile-safe installation wire types and schemas.
 - `packages/core` owns product-only rules and adapter contracts.
+- `packages/push` owns server-only push delivery, providers, and host contracts.
 - `packages/server` owns the self-host API, local runtime adapters, and product schema.
 - `packages/dashboard` owns reusable dashboard primitives and generic semantic tokens.
 - `packages/react` owns the React SDK source, tests, and its packed tarball contents.

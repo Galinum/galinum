@@ -51,6 +51,12 @@
             "pages": [
               "sdk/installations"
             ]
+          },
+          {
+            "group": "Push",
+            "pages": [
+              "push"
+            ]
           }
         ]
       },
@@ -166,6 +172,19 @@
               "PUT /api/v1/sdk/installations/{installationId}/token",
               "POST /api/v1/sdk/installations/{installationId}/activity",
               "GET /api/v1/installations"
+            ]
+          },
+          {
+            "group": "Push",
+            "pages": [
+              "PUT /api/v1/push/credentials",
+              "GET /api/v1/push/credentials",
+              "POST /api/v1/push/credentials/validate",
+              "POST /api/v1/campaigns/{id}/push/dispatch",
+              "POST /api/v1/campaigns/{id}/push/test",
+              "GET /api/v1/campaigns/{id}/push/tests/{requestId}",
+              "GET /api/v1/campaigns/{id}/push",
+              "POST /api/v1/sdk/installations/{installationId}/observations"
             ]
           }
         ]

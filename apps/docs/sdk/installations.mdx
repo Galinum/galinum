@@ -4,8 +4,8 @@ description: "Register installations, bind users, and inspect eligibility throug
 ---
 
 The installation API stores app identity, user bindings, native tokens, permission,
-consent, capabilities, and app activity. It does not send push notifications or
-provide a React Native rendering SDK.
+consent, capabilities, and app activity. Use the [push delivery API](/push) to send notifications. This lifecycle API does
+not provide a React Native rendering SDK.
 
 ## Bootstrap and authentication
 
@@ -97,10 +97,12 @@ Only explicit app use records activity. Token refresh, permission synchronizatio
 and other background callbacks must not call the activity endpoint. These routes
 never request OS permission themselves.
 
-Installation request bodies are limited to **131,072 encoded bytes (128 KiB)**,
+Installation request bodies are limited to **262,144 encoded bytes (256 KiB)**,
 including JSON escapes and whitespace. The schema permits 32 unique action IDs
 of up to 64 Unicode characters and 64 unique channel IDs of up to 128 Unicode
-characters. The byte budget accommodates compact JSON at those maxima, including
+characters. Optional `categories` reports up to 16 iOS categories, each with an
+ID (128 code points) and up to four ordered `{ id, title }` action entries
+(64 code points each). The byte budget accommodates compact JSON at those maxima, including
 escaped supplementary Unicode characters. Bodies over the budget return `413`
 without changing state. Character limits count Unicode code points, not UTF-16
 code units.

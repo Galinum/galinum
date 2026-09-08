@@ -20,6 +20,7 @@ services:
       dockerfile: examples/self-host/Dockerfile
     environment:
       DATABASE_URL: postgres://postgres:postgres@postgres:5432/galinum
+      GALINUM_PUSH_ENCRYPTION_KEY: ${GALINUM_PUSH_ENCRYPTION_KEY:-}
       GALINUM_SECRET_KEY: pk_local_compose_secret
       GALINUM_PUBLISHABLE_KEY: pk_pub_local_compose
       GALINUM_MEDIA_DIR: /data/media

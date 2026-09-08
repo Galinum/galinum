@@ -1,0 +1,305 @@
+---
+title: "Push delivery"
+description: "Configure direct APNs and FCM delivery in a self-host server or compose the shared push engine."
+---
+
+The public push engine sends through APNs and FCM using your app's credentials.
+It shares campaign audiences, variants, goals, and delivery windows. Native
+notification rendering and action registration must be integrated in your app;
+provider acceptance does not prove that a notification appeared on screen.
+
+## Configure credentials
+
+For persistent self-host storage, supply `GALINUM_PUSH_ENCRYPTION_KEY` as base64
+encoding of 32 cryptographically random bytes. Keep this key stable, private,
+and backed up separately from the database. Losing it makes stored credentials
+unreadable. Memory-only servers can use a process-lifetime key and lose their
+configuration on restart. Credentials are encrypted with AES-256-GCM and bound to
+the project and credential ID. Reads never return private keys or ciphertext.
+
+Use the project secret for management requests:
+
+```text
+PUT /api/v1/push/credentials
+```
+
+```json
+{
+  "appId": "com.example.app",
+  "platform": "ios",
+  "environment": "production",
+  "expectedRevision": 0,
+  "credential": {
+    "provider": "apns",
+    "teamId": "YOURTEAMID",
+    "keyId": "YOURKEYID0",
+    "topic": "com.example.app",
+    "privateKey": "<your PEM key>"
+  }
+}
+```
+
+For Android, use `platform: "android"` and
+`credential: { provider: "fcm", projectId, clientEmail, privateKey }` from your
+service account. The SDK registers native APNs/FCM tokens rather than Expo relay
+tokens. `GET /api/v1/push/credentials` returns up to 100 IDs, revisions and app metadata.
+Pass its `nextCursor` as `afterId` to read another page.
+Use the current revision to replace credentials; stale writes return `409`.
+Unsent targets captured with an older credential revision are blocked.
+
+`POST /api/v1/push/credentials/validate` accepts `{ credential }`. It validates the
+key and configuration locally and returns `externalAuthentication: "not_checked"`.
+It does not claim that Apple or Google accepted the credential. A selected-device
+test exercises authentication and sending.
+
+## Create and launch
+
+```json
+{
+  "name": "Exports are ready",
+  "channel": "push",
+  "launch": true,
+  "push": {
+    "appId": "com.example.app",
+    "selection": { "kind": "last_active" },
+    "ttlSeconds": 86400,
+    "replacementKey": "exports"
+  },
+  "message": {
+    "title": "Hello {{ user.name | default: \"there\" }}",
+    "body": "Try exports from your workspace.",
+    "destination": { "kind": "app", "url": "example://exports" },
+    "actions": [{ "id": "open_exports", "title": "Try exports" }],
+    "ios": { "categoryId": "exports", "sound": "default", "badge": 1 },
+    "android": { "channelId": "product_updates" }
+  }
+}
+```
+
+Send this body to `POST /api/v1/campaigns`. Existing audience, goal, weighted
+variant, and delivery-window fields work with push. The channel cannot change
+after creation. Selection supports `last_active`, `all`, or `specific` with an
+`installationId`. Permission, consent, app identity and reported capabilities
+must match. Token refresh does not establish app activity.
+
+Personalization supports shallow user-trait lookup with an optional JSON string
+fallback. It applies to title, body, iOS subtitle and action titles. Missing
+traits without a fallback fail the planning request. Website destinations and
+images require HTTPS. Apps own handling of allowed app URL schemes. Custom data
+is a string map; keys beginning with `galinum` are reserved.
+
+## Native actions and content
+
+Apple categories support up to four actions, but the OS may show fewer in compact
+presentations; banners show at most two. Android notifications support up to three
+action buttons. Galinum preserves these limits without removing extra actions:
+content declaring Android settings rejects more than three. iOS-only content can
+use four. Put the most important actions first.
+[Apple category documentation](https://developer.apple.com/library/archive/documentation/NetworkingInternet/Conceptual/RemoteNotificationsPG/SupportingNotificationsinYourApp.html),
+[Android notification documentation](https://developer.android.com/develop/ui/compose/notifications/create-notification).
+
+An iOS client must register the category, then report its exact ordered action
+IDs and titles in installation facts:
+
+```json
+{
+  "actions": ["open_exports"],
+  "channels": [],
+  "richImages": true,
+  "categories": [
+    { "id": "exports", "actions": [{ "id": "open_exports", "title": "Try exports" }] }
+  ]
+}
+```
+
+This is the `capabilities` object in the existing facts mutation. Duplicate
+category/action IDs are rejected. Planning and pre-dispatch validation both
+require the category ID and all ordered IDs/titles to match the rendered push
+content. Personalizing an action title requires an identically registered title.
+A category name alone is insufficient. The registration report is supplied by
+the app; physical-device validation still matters.
+
+APNs uses alert payloads with a `galinum` envelope, category, subtitle, sound,
+badge and optional mutable-content image handling. iOS images need a Notification
+Service Extension. Android receives data-only FCM messages; its native receiver
+must build the notification, channel, image and action PendingIntents. Do not
+replace this path with an automatic carrier that drops the required actions.
+OS background/force-stop restrictions can prevent receipt.
+
+The complete compiled payload must fit 4096 UTF-8 bytes; Galinum reports payload
+failure instead of truncating fields. APNs uses HTTP/2 with ES256 provider JWTs.
+FCM uses service-account OAuth and the HTTP v1 send endpoint.
+[APNs protocol](https://developer.apple.com/library/archive/documentation/NetworkingInternet/Conceptual/RemoteNotificationsPG/CommunicatingwithAPNs.html),
+[FCM HTTP v1](https://firebase.google.com/docs/cloud-messaging/send/v1-api).
+
+## Worker, retries, and expiration
+
+The shipped self-host CLI automatically runs a push worker. After ordinary
+campaign launch, it checks delivery windows and eligibility, freezes device
+selection, and processes due attempts. Polling defaults to 1000 ms; set
+`GALINUM_PUSH_WORKER_INTERVAL_MS` between 100 and 60000 ms to change it. Passes do
+not overlap. SIGTERM/SIGINT stop polling, await the current pass, and close the
+server and provider connections. Library factories remain explicit: a host calls
+`product.push.runDue()` or the individual engine entrypoints.
+
+Each pass scans up to 100 active campaigns and plans a keyset page of 100 users
+per campaign. Persisted cursors continue later passes. An indexed due queue
+processes at most 100 targets per pass. Terminal targets leave that due index.
+
+Each campaign/user keeps a durable variant assignment. A generic delivery is
+created only after at least one selected device has a ready target. Recipient
+discovery continues in bounded keyset rounds, including later audience entrants.
+Waiting recipients expose a safe reason and recheck deadline, with backoff up to
+30 seconds. Fixing traits, credentials or installation facts allows reconciliation.
+
+At admission, the selected fanout becomes fixed. Last-active and specific sends
+never move to another device. All-device sends can finish original slots waiting
+for credentials, but do not add later devices. Each logical slot points directly
+to its active immutable target generation. Known-unsent token, credential or
+content repairs retain the delivery, variant, original expiry and remaining
+budget. Accepted slots never resubmit. After partial acceptance, configuration
+repair can finish original slots; incompatible content, variant, goal or selection
+edits close unsent work. Unknown submission plus identity or content drift closes
+conservatively instead of making a fresh send.
+
+A campaign slot permits three notification-endpoint submissions across all target
+generations. Pre-message preparation and serving-gate failures do not spend them.
+Transient failures and unknown submissions retry with backoff, jitter and
+Retry-After. Each slot exposes its persistent `submissionNotBefore` timestamp.
+Consent or serving holds and target generations never lower this retry floor.
+An incompatible campaign app-ID edit closes original-app slots; it cannot
+redirect their credentials or fanout to another app. Expiry defaults to 24 hours and cannot be extended through recovery.
+Campaign end and replacement are terminal. Provider collapse keys do not promise
+removal of displayed notifications.
+[FCM collapse behavior](https://firebase.google.com/docs/cloud-messaging/customize-messages/collapsible-message-types).
+
+The final campaign, audience, consent, binding, token, capability, credential and
+replacement checks run under the project lock through outcome persistence.
+The default provider uses a total 10-second cancellation budget, including OAuth,
+and awaits underlying transport settlement before releasing that lock. The latest
+campaign end bounds the provider deadline even on direct dispatch. After OAuth,
+the provider rechecks expiry and calculates FCM TTL at notification invocation.
+Expired preparation makes no notification call and spends no message opportunity. An
+injected protocol transport must honor the supplied AbortSignal and settle only
+when its I/O has stopped. A custom provider must enforce the same bounded
+settlement contract. Cancellation scheduling and transport cleanup can add time
+beyond the configured deadline. Already accepted OS notifications cannot be
+recalled; native routing must reject old binding generations.
+
+A cached APNs auth-token rejection or cached FCM 401 permits one fresh-auth retry
+per slot and credential revision. Every notification invocation has a separate
+attempt and outcome and spends the same three-submission budget. OAuth exchanges
+are preparation, not notification submissions. Permanent fresh-auth errors wait
+for credential repair. This does not prove external credential validity.
+
+A slot's `repair` requirement remains independent of temporary eligibility holds.
+Changing consent, pausing a campaign, or restoring capabilities does not retry a
+permanently rejected credential or unchanged rejected payload. Credential repair
+requires a new credential revision. Payload repair requires a changed campaign
+definition or credential revision. Inspection retains the required revision and,
+for payload repair, the rejected campaign fingerprint until the input changes.
+
+An abandoned reservation without an outcome becomes a possible submission
+(`unknown`). A worker that proves it never submitted records
+`reservation_expired`, distinct from delivery expiry. Process failure after a
+send can lose acceptance evidence; retrying unknown can duplicate a notification.
+Exactly-once display is not promised. Receipt observations never manufacture
+provider acceptance. Frequency limits and quiet-hour policies are not implemented.
+
+## Correlated test sends and inspection
+
+Send `POST /api/v1/campaigns/{id}/push/test` with
+`{ installationId, requestId }`. Generate and persist a stable request ID before
+the first call. Retrying the same request returns the same target IDs. A different
+installation with that request ID conflicts. Read the original test through
+`GET /api/v1/campaigns/{id}/push/tests/{requestId}`. A closed serving gate returns 409 before admission; read-back remains 404 and
+the same request ID can be admitted after the gate opens. Admitted tests perform
+at most one notification attempt and do not automatically retry. Use a new request ID only
+when you intend another alert.
+
+`GET /api/v1/campaigns/{id}/push?page=1&perPage=25` returns bounded pages of
+recipient controls, logical device slots, immutable targets, append-only
+attempts/outcomes, observations and conversions. `perPage`
+is 1–100 and applies to each collection independently. `records` contains the
+full count for each collection and `pageCounts` its page count. Exact user/device
+totals cover the whole campaign, not just the page. Items sort by immutable ID.
+`evaluatedAt` identifies the read time; separate pages are not a concurrent snapshot. Test targets
+are separate and never invoke the campaign acceptance hook or convert a campaign.
+`accepted` means a positive provider response. `receiptObserved` means an SDK
+report. `receiptUnknown` counts logical slots with positive acceptance or possible
+submission and no receipt. It excludes known pre-send blocks and permanent
+rejections without unknown evidence. Neither receipt counter proves visible
+presentation. `confirmedSubmissions`, `possibleSubmissions`, `preSendBlocks` and
+`pendingOutcomes` separate message calls, uncertain calls, preparation blocks and
+unsettled reservations. Device totals count logical slots; target counts include
+historical generations. `planning` counts current recipient states.
+
+Positive campaign acceptance transactionally sets the generic delivery's earliest
+`sentAt` and moves queued/sending/retryable state to sent. It preserves later
+conversion state and never creates `deliveredAt` or receipt evidence. This
+user-level projection is distinct from the per-attempt acceptance ledger. Test
+sends update neither generic campaign delivery statistics nor campaign billing.
+
+## Observation order and conversion
+
+The native envelope is `{ version: 1, targetId, attemptId, installationId,
+bindingGeneration, content, test }`. APNs carries an object in `galinum`; FCM
+carries its JSON string in `data.galinum`.
+
+Use the publishable key and installation capability with
+`POST /api/v1/sdk/installations/{installationId}/observations`:
+
+```json
+{
+  "bindingGeneration": 1,
+  "commands": [
+    { "id": "tap-1", "sequence": 1, "kind": "tap", "targetId": "<target>", "attemptId": "<attempt>" },
+    { "id": "event-command-1", "sequence": 2, "kind": "event", "eventId": "export-event-1", "event": "export_created", "props": { "format": "csv", "rows": 12 } }
+  ]
+}
+```
+
+A binding's sequence starts at 1. Persist tap/action before calling the app
+handler, then append later events. Batch up to 32 commands. The server rejects
+sequence gaps, conflicting IDs, old bindings and action IDs absent from the sent
+payload. Exact replays return the acknowledged position. `receipt` commands need
+target/attempt IDs; `action` also needs `actionId`. Events require their event name and stable `eventId`. Optional `props` preserves
+the existing JSON object shape, including nested objects, arrays, strings, finite
+numbers, booleans and null. Its compact JSON size is limited to 4096 bytes.
+The entire observation body is limited to 65536 encoded bytes.
+
+The same project, user, eventId, event name and properties share one business event
+across this endpoint and `/api/v1/track`. Reuse that eventId if an ingestion route
+changes; do not create another ID for fallback. The event ID is project-global: reuse by a different user or with different
+name/properties returns 409. Queue command `id` and business `eventId` serve separate purposes.
+Properties remain available in event reads and audience targeting.
+
+Conversions require a valid tap/action before a target event in server order,
+including when timestamps are equal. A queued pre-tap event cannot convert when
+the queue preserves its original order. Normal `/api/v1/track` requests support a
+stable `eventId` for replay. Unsequenced cross-device/offline events use ingestion
+order: physical occurrence order cannot be recovered without evidence. The SDK
+must preserve its local queue; no customer-managed causal token or backend
+identity proof is required. Existing web feedback cannot forge push conversion.
+
+## Upgrade and host integration
+
+Existing databases first need the installation upgrade if absent, then the
+separate `packages/server/upgrades/push.sql`. Back up and stop API workers before
+applying each required file with `psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -f`.
+Both use transactions. Fresh databases use canonical `schema.sql` and skip these
+one-time upgrades. Do not rerun fresh-volume initialization on existing data.
+
+`@galinum/push` owns providers, payload rules, ordering and delivery. Its host ports
+cover bounded, indexed transactional push storage, narrow installation access, campaign/recipient
+projection, encrypted credentials, serving authorization and provider acceptance.
+The host supplies `recordAcceptance(transaction, fact)` to write its user-period
+ledger and outbox in the same transaction. Acceptance IDs provide idempotency;
+retries and devices must not create duplicate billable users. Self-host has no
+billing ledger. Cloud integration consumes this implementation separately.
+
+Push persistence stores each fact separately. Indexed columns support campaign,
+user, target, engagement and due-time reads. Inspection aggregates run separately
+from record pagination; they do not serialize history payloads. Only small queue,
+clock, cursor and credential control rows are updated. Existing installation
+storage and its upgrade remain separate from the push upgrade.

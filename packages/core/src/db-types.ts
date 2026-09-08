@@ -59,6 +59,7 @@ export interface CampaignExecutionState {
 }
 
 export interface Campaigns {
+  push_json: string | null;
   audience_version_id: string | null;
   channel: Generated<string>;
   created_at: Int8;
@@ -172,7 +173,17 @@ export interface InstallationRequests {
   replay_json: string;
 }
 
+export interface PushRecordsTable {
+  recipient_id: string | null; slot_id: string | null; state_kind: string | null; submission_kind: string | null; is_uncertain: boolean | null;
+  project_id: string; kind: string; id: string; campaign_id: string; body_json: string;
+  user_id: string | null; target_id: string | null; installation_id: string | null;
+  is_test: boolean | null; command_kind: string | null; result_kind: string | null;
+  available_at: Int8 | null; event_order: Int8 | null; goal_event: string | null;
+  replacement_key: string | null; credential_id: string | null;
+}
+
 export interface ProductDB {
+  push_records: PushRecordsTable;
   installations: Installations;
   installation_requests: InstallationRequests;
   agent_runs: AgentRuns;
