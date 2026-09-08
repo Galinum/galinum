@@ -20,7 +20,10 @@ describe("root CI wiring", () => {
   });
 
   it("applies the product schema to Postgres 17", () => {
-    assert.match(workflow, /image: postgres:17@sha256:[0-9a-f]{64}/);
+    assert.match(workflow, /postgres:17@sha256:[0-9a-f]{64}/);
+    assert.match(workflow, /docker run --detach --network host/);
+    assert.match(workflow, /GALINUM_UPGRADE_DATABASE_URL: postgres:\/\/postgres:postgres@127\.0\.0\.1:55432\/postgres/);
+    assert.match(workflow, /if: always\(\)\n        run: docker rm --force galinum-product-postgres/);
     assert.match(workflow, /psql .*packages\/server\/schema\.sql/);
     assert.match(workflow, /RUN_DB_INTEGRATION: "1"/);
     assert.match(workflow, /pnpm --filter @galinum\/server test/);
