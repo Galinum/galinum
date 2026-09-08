@@ -1,3 +1,4 @@
+import { INSTALLATION_REPLAY_LIMIT, type InstallationRecord, type InstallationReplay } from "./installations.js";
 import { randomUUID } from "node:crypto";
 import type {
   AgentRuns,
@@ -391,6 +392,41 @@ class PostgresProductSession implements ProductStoreSession {
     protected readonly database: Database,
     protected readonly projectId: string,
   ) {}
+
+  async lockInstallations() {
+    await sql`select pg_advisory_xact_lock(74102, hashtext(${this.projectId}))`.execute(this.database);
+  }
+  async getInstallation(id: string) {
+    const row = await this.database.selectFrom("installations").select("state_json").where("project_id", "=", this.projectId).where("id", "=", id).executeTakeFirst();
+    return row ? JSON.parse(row.state_json) as InstallationRecord : null;
+  }
+  async listInstallations(userId: string | null, offset: number, limit: number) {
+    let query = this.database.selectFrom("installations").where("project_id", "=", this.projectId);
+    if (userId !== null) query = query.where(sql<string>`state_json::jsonb->>'userId'`, "=", userId);
+    const count = await query.select((eb) => eb.fn.countAll().as("total")).executeTakeFirstOrThrow();
+    const rows = await query.select("state_json").orderBy(sql`id collate "C"`, "asc").offset(offset).limit(limit).execute();
+    return { values: rows.map((row) => JSON.parse(row.state_json) as InstallationRecord), total: Number(count.total) };
+  }
+  async saveInstallation(installation: InstallationRecord) {
+    await this.database.insertInto("installations").values({ project_id: this.projectId, id: installation.id, token_scope: installation.tokenScope, state_json: JSON.stringify(installation) })
+      .onConflict((conflict) => conflict.columns(["project_id", "id"]).doUpdateSet({ token_scope: installation.tokenScope, state_json: JSON.stringify(installation) })).execute();
+  }
+  async getTokenOwner(scope: string) {
+    const row = await this.database.selectFrom("installations").select("state_json").where("project_id", "=", this.projectId).where("token_scope", "=", scope).executeTakeFirst();
+    return row ? JSON.parse(row.state_json) as InstallationRecord : null;
+  }
+  async getInstallationReplay(id: string, requestId: string) {
+    const row = await this.database.selectFrom("installation_requests").select("replay_json").where("project_id", "=", this.projectId).where("installation_id", "=", id).where("request_id", "=", requestId).executeTakeFirst();
+    return row ? JSON.parse(row.replay_json) as InstallationReplay : null;
+  }
+  async saveInstallationReplay(id: string, requestId: string, replay: InstallationReplay) {
+    await this.database.insertInto("installation_requests").values({ project_id: this.projectId, installation_id: id, request_id: requestId, replay_json: JSON.stringify(replay) }).execute();
+    const expired = this.database.selectFrom("installation_requests").select("request_id")
+      .where("project_id", "=", this.projectId).where("installation_id", "=", id)
+      .orderBy(sql`(replay_json::jsonb->'state'->>'revision')::bigint`, "desc").offset(INSTALLATION_REPLAY_LIMIT);
+    await this.database.deleteFrom("installation_requests").where("project_id", "=", this.projectId)
+      .where("installation_id", "=", id).where("request_id", "in", expired).execute();
+  }
 
   async identifyUser(externalId: string, traits: JsonObject, now: number) {
     const row = await this.database
@@ -1670,9 +1706,8 @@ class PostgresProductStore extends PostgresProductSession implements ProductStor
   }
 }
 
-export async function createPostgresProduct(options: PostgresProductOptions) {
+export async function createPostgresProductStore(options: PostgresProductOptions) {
   const projectId = options.projectId ?? "local";
-  const keys = resolveProductKeys(options);
   const database = new Kysely<ServerProductDB>({
     dialect: new PostgresDialect({
       pool: new Pool({ connectionString: options.connectionString }),
@@ -1684,9 +1719,14 @@ export async function createPostgresProduct(options: PostgresProductOptions) {
       .values({ id: projectId, name: projectId, created_at: (options.now ?? Date.now)() })
       .onConflict((conflict) => conflict.column("id").doNothing())
       .execute();
-    return createProduct(new PostgresProductStore(database, projectId), { ...options, ...keys, projectId });
+    return new PostgresProductStore(database, projectId);
   } catch (error) {
     await database.destroy();
     throw error;
   }
+}
+
+export async function createPostgresProduct(options: PostgresProductOptions) {
+  const keys = resolveProductKeys(options);
+  return createProduct(await createPostgresProductStore(options), { ...options, ...keys });
 }

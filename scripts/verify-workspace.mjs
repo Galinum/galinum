@@ -25,6 +25,7 @@ if (!existsSync(join(root, "LICENSE"))) failures.push("root Apache-2.0 license i
 if (existsSync(join(root, "LICENSE.md"))) failures.push("LICENSE.md duplicates the root LICENSE");
 
 const workspacePackages = [
+  { path: "packages/contracts", name: "@galinum/contracts", release: true, node: "24.x", packedLicense: "LICENSE" },
   { path: "apps/docs", name: "@galinum/docs" },
   { path: "packages/core", name: "@galinum/core", release: true, node: "24.x" },
   { path: "packages/dashboard", name: "@galinum/dashboard", release: true, node: "24.x", packedLicense: "LICENSES" },

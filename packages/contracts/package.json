@@ -1,14 +1,14 @@
 {
-  "name": "@galinum/core",
+  "name": "@galinum/contracts",
   "version": "0.17.0",
-  "description": "Galinum product rules and management contracts",
+  "description": "Generated mobile-safe Galinum installation wire contracts",
   "private": true,
   "license": "Apache-2.0",
   "homepage": "https://docs.galinum.com",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Galinum/galinum.git",
-    "directory": "packages/core"
+    "directory": "packages/contracts"
   },
   "bugs": {
     "url": "https://github.com/Galinum/galinum/issues"
@@ -21,19 +21,15 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
-    },
-    "./contract": {
-      "types": "./dist/management-contract.d.ts",
-      "import": "./dist/management-contract.js"
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run"
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
-  "dependencies": {
-    "kysely": "0.29.2",
-    "@galinum/contracts": "workspace:*"
-  }
+  "dependencies": {},
+  "files": [
+    "dist",
+    "LICENSE"
+  ]
 }

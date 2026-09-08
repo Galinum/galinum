@@ -75,7 +75,31 @@ async function createSegment(client: TestClient) {
   return (await response.json()).segment;
 }
 
+async function installationScenario(client: TestClient, operation: string) {
+  const capability = "c".repeat(43);
+  const base = "/api/v1/sdk/installations";
+  await expectJson(await client.call(base, "POST", { installationId: "device", appId: "app", platform: "ios", environment: "development", capability }, true), 200, { installation: { id: "device" } });
+  const headers = { authorization: `Bearer ${client.product.publishableKey}`, "X-Galinum-Installation-Capability": capability, "content-type": "application/json" };
+  const bodies: Record<string, [string, string, object]> = {
+    setInstallationBinding: ["binding", "PUT", { userId: null }],
+    setInstallationFacts: ["facts", "PUT", { permission: "granted", consent: true, capabilities: { actions: [], channels: [], richImages: false } }],
+    setInstallationToken: ["token", "PUT", { token: "native-token", tokenRevision: 0 }],
+    recordInstallationActivity: ["activity", "POST", {}],
+  };
+  const mutation = bodies[operation];
+  if (mutation) await expectJson(await client.app(new Request(`http://local${base}/device/${mutation[0]}`, { method: mutation[1], headers, body: JSON.stringify({ requestId: "request", bindingGeneration: 0, revision: 0, ...mutation[2] }) })), 200, { installation: { revision: 1 } });
+  await expectJson(await client.app(new Request(`http://local${base}/device`, { headers })), 200, { installation: { id: "device" } });
+  if (operation === "listInstallations") await expectJson(await client.call("/api/v1/installations"), 200, { total: 1 });
+}
+
 const scenarios = {
+  bootstrapInstallation: (client: TestClient) => installationScenario(client, "bootstrapInstallation"),
+  getInstallation: (client: TestClient) => installationScenario(client, "getInstallation"),
+  setInstallationBinding: (client: TestClient) => installationScenario(client, "setInstallationBinding"),
+  setInstallationFacts: (client: TestClient) => installationScenario(client, "setInstallationFacts"),
+  setInstallationToken: (client: TestClient) => installationScenario(client, "setInstallationToken"),
+  recordInstallationActivity: (client: TestClient) => installationScenario(client, "recordInstallationActivity"),
+  listInstallations: (client: TestClient) => installationScenario(client, "listInstallations"),
   async identifyUser(client) {
     await expectJson(await client.call("/api/v1/identify", "POST", { userId: "user" }, true), 200, { ok: true });
   },
@@ -297,7 +321,7 @@ describe("runtime operation conformance", () => {
   it("keeps the reviewed product registry complete", () => {
     expect(budget.missing).toEqual([]);
     expect(Object.keys(scenarios).sort()).toEqual(productOperations.map((operation) => operation.operationId).sort());
-    expect(productOperations).toHaveLength(38);
+    expect(productOperations).toHaveLength(45);
   });
 
   for (const operation of productOperations) {

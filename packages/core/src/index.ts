@@ -12,3 +12,5 @@ export * from "./pages.js";
 export * from "./presentation.js";
 export * from "./targeting.js";
 export * from "./traits.js";
+
+export { eligibleInstallation, selectInstallations, type InstallationSelection } from "./installations.js";

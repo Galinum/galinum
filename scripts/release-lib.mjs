@@ -295,3 +295,16 @@ export function releaseManifestFailures(manifest) {
   }
   return failures;
 }
+
+export function materializeReleaseManifest(manifest, versions) {
+  const result = { ...manifest };
+  for (const field of ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]) {
+    if (!manifest[field]) continue;
+    result[field] = Object.fromEntries(Object.entries(manifest[field]).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([name, version]) => {
+      if (!version.startsWith("workspace:")) return [name, version];
+      if (version !== "workspace:*" || !versions.has(name)) throw new Error(`Unsupported release workspace reference: ${name}@${version}`);
+      return [name, versions.get(name)];
+    }));
+  }
+  return result;
+}

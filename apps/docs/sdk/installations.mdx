@@ -1,0 +1,150 @@
+---
+title: "Installation lifecycle"
+description: "Register installations, bind users, and inspect eligibility through the public API."
+---
+
+The installation API stores app identity, user bindings, native tokens, permission,
+consent, capabilities, and app activity. It does not send push notifications or
+provide a React Native rendering SDK.
+
+## Bootstrap and authentication
+
+Generate an installation ID and a cryptographically random capability on the device.
+Persist both before sending a request. Use at least 32 random bytes, encoded as
+base64url, for the capability. Keep it in secure device storage.
+
+Send `POST /api/v1/sdk/installations` with the project publishable key:
+
+```json
+{
+  "installationId": "device_123",
+  "appId": "com.example.app",
+  "platform": "ios",
+  "environment": "production",
+  "capability": "replace_with_your_locally_generated_random_capability"
+}
+```
+
+Replaying this request with the same capability and app identity returns the
+installation. A different capability or app identity returns `409`. The server
+stores a verifier and never returns the capability. IDs are scoped to a project.
+
+For subsequent SDK reads and mutations, supply both headers:
+
+```text
+Authorization: Bearer <project publishable key>
+X-Galinum-Installation-Capability: <installation capability>
+```
+
+`GET /api/v1/sdk/installations/{installationId}` returns current state.
+App ID, platform and environment cannot change after bootstrap.
+
+## Binding and revision guards
+
+First identify the user through `POST /api/v1/identify`. Then send
+`PUT /api/v1/sdk/installations/{installationId}/binding`:
+
+```json
+{
+  "requestId": "request_123",
+  "bindingGeneration": 0,
+  "revision": 0,
+  "userId": "customer_123"
+}
+```
+
+Use the external user ID. Set `userId` to `null` to unbind. A changed binding
+increments its generation, clears consent and clears the previous user's activity.
+The installation retains its token. User identity follows the existing identify
+trust model; the installation capability does not prove the customer's login.
+
+All mutations require a new `requestId` and the current `revision` and
+`bindingGeneration`. Successful mutations increment `revision`. Replaying the same
+operation and body returns its original acknowledgement. A changed replay body or
+stale revision returns `409` without changing state. The server retains only the
+latest 128 successful mutation acknowledgements per installation. Replays do not
+refresh that window. After eviction, replaying the original stale-revision request
+returns `409`; it cannot apply the mutation again. No request tombstone remains
+after eviction. Use fresh request IDs for new operations.
+
+An acknowledgement describes the original result, not current state. This also
+applies after token retirement or an account switch. Always use the GET route for
+current state instead of restoring state from an old acknowledgement.
+
+Persist logout locally before sending the unbind. Keep messaging disabled while
+remote acknowledgement is pending. Capture the binding generation when callbacks
+are created. Never relabel an old callback with the new user's generation.
+
+## Facts, tokens, and app activity
+
+| Endpoint suffix | Additional fields | Behavior |
+| --- | --- | --- |
+| `PUT /facts` | `permission`, `consent`, `capabilities` | Replaces facts without changing binding, token or activity |
+| `PUT /token` | `tokenRevision`, `token` | Replaces the token; null removes it |
+| `POST /activity` | None | Records explicit app use using server time |
+
+Each suffix follows `/api/v1/sdk/installations/{installationId}`. Each body also
+contains the mutation guards above. `permission` is `unknown`, `not_determined`,
+`denied`, `provisional` or `granted`. Consent is a separate boolean. Capabilities
+contain `actions` and `channels` string arrays, plus `richImages` as a boolean.
+
+Token revisions increase independently from binding generations. Native tokens
+are scoped by project, app, environment and provider: APNs for iOS, FCM for Android.
+Registering the same scoped token on another installation atomically removes it
+from the old owner. Captured token revisions fence later invalid-token reports.
+
+Only explicit app use records activity. Token refresh, permission synchronization
+and other background callbacks must not call the activity endpoint. These routes
+never request OS permission themselves.
+
+Installation request bodies are limited to **131,072 encoded bytes (128 KiB)**,
+including JSON escapes and whitespace. The schema permits 32 unique action IDs
+of up to 64 Unicode characters and 64 unique channel IDs of up to 128 Unicode
+characters. The byte budget accommodates compact JSON at those maxima, including
+escaped supplementary Unicode characters. Bodies over the budget return `413`
+without changing state. Character limits count Unicode code points, not UTF-16
+code units.
+
+## Inspection and eligibility
+
+Use a project secret with `GET /api/v1/installations`. Optional query parameters
+are `userId` (external ID), `page` (default 1), and `perPage` (default 25, maximum
+100). Results contain installations, total count and pagination. Neither this
+response nor SDK reads include capabilities' secret, verifier, native token or
+token digest. Reported action/channel capabilities remain visible.
+
+The public `selectInstallations` rule in `@galinum/core` accepts `last_active`,
+`all`, or `specific` selection. Eligibility requires the identified user, a token,
+product consent, and granted or provisional permission. Last-active selection uses
+app activity, then installation ID to break ties. A specific ineligible device
+returns no selection. These rules do not dispatch a campaign.
+
+Wire types and validation schemas are generated from OpenAPI in
+`@galinum/contracts`. This package has no Node imports or server dependencies.
+
+## Upgrade an existing self-host database
+
+Fresh databases use `packages/server/schema.sql`. Existing databases need the
+one-time `packages/server/upgrades/installations.sql` upgrade before the upgraded
+server handles installation requests. Updating the Compose image does not rerun
+fresh-volume initialization.
+
+Back up your database and stop the API workers. From the product repository root,
+run the following with your existing database's DDL connection:
+
+```bash
+psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -f packages/server/upgrades/installations.sql
+```
+
+The SQL file wraps both new tables and the index in one transaction. It leaves
+existing projects, users, campaigns and deliveries unchanged. Restart the server
+only after the command succeeds. Check installation inspection through the
+secret-key `GET /api/v1/installations` route.
+
+Run this upgrade once on a database without the installation tables. It fails
+instead of silently accepting pre-existing or incompatible tables. A failed
+transaction does not leave a partial upgrade. Databases initialized from the
+current `schema.sql` already contain these tables and must skip the upgrade.
+
+`schema.sql` remains canonical. Contributors regenerate this specific upgrade
+with `node scripts/generate-installation-upgrade.mjs`; verification rejects drift.

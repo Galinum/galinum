@@ -1,3 +1,4 @@
+import { INSTALLATION_REPLAY_LIMIT, installationHandlers, INSTALLATION_SDK_OPERATIONS, type InstallationAccess, type InstallationSession, type InstallationRecord, type InstallationReplay } from "./installations.js";
 import { randomBytes, randomUUID } from "node:crypto";
 import {
   deliveredContent,
@@ -291,7 +292,7 @@ export type DeliveryStats = {
 };
 export type CampaignStats = { total: DeliveryStats; variants: Map<string, DeliveryStats> };
 
-export interface ProductStoreAccess {
+export interface ProductStoreAccess extends InstallationAccess {
   identifyUser(externalId: string, traits: JsonObject, now: number): Promise<ProductUser>;
   getUserById(id: string): Promise<ProductUser | null>;
   getUserByExternalId(externalId: string): Promise<ProductUser | null>;
@@ -326,7 +327,7 @@ export interface ProductStoreAccess {
   getSegmentVersion(segmentId: string, version: number): Promise<ProductAudienceVersion | null>;
 }
 
-export interface ProductStoreSession extends ProductStoreAccess {
+export interface ProductStoreSession extends ProductStoreAccess, InstallationSession {
   getGoalForUpdate(id: string): Promise<ProductGoal | null>;
   saveGoal(goal: ProductGoal): Promise<void>;
   insertEvent(event: ProductEvent): Promise<void>;
@@ -374,7 +375,7 @@ const DEFAULT_SDK_RATE_LIMIT = { perMinute: 120, perHour: 2_000 };
 const DEFAULT_MANAGEMENT_RATE_LIMIT = { perMinute: 60, perHour: 1_000 };
 const MAX_MERGED_TRAITS_BYTES = 64 * 1024;
 export class TraitsCapacityError extends Error {}
-const SDK_OPERATIONS = new Set<OperationId>(["identifyUser", "trackEvent", "getMessages", "recordDeliveryEvent"]);
+const SDK_OPERATIONS = new Set<OperationId>(["identifyUser", "trackEvent", "getMessages", "recordDeliveryEvent", ...INSTALLATION_SDK_OPERATIONS]);
 const MANAGEMENT_RESOURCE_GROUP: Partial<Record<OperationId, string>> = {
   uploadCampaignMedia: "media",
   createCampaign: "campaigns",
@@ -2063,6 +2064,7 @@ export function createProduct(store: ProductStore, options: LocalProductOptions 
     },
   };
 
+  Object.assign(rawHandlers, installationHandlers(store, { publishableKey, secretKey, now }));
   const handlers: OperationHandlers = {};
   for (const operationId of Object.keys(rawHandlers) as OperationId[]) {
     const handler = rawHandlers[operationId]!;
@@ -2099,6 +2101,32 @@ export class MemoryProductStore implements ProductStore {
   private readonly segmentByKey = new Map<string, string>();
   private readonly segmentByIdempotencyKey = new Map<string, string>();
   private readonly audienceVersions = new Map<string, ProductAudienceVersion[]>();
+  private readonly installations = new Map<string, InstallationRecord>();
+  private readonly installationReplays = new Map<string, Map<string, InstallationReplay>>();
+  private installationUndo = new Map<string, InstallationRecord | undefined>();
+  private installationReplayUndo = new Map<string, Map<string, InstallationReplay> | undefined>();
+  private installationTransactionActive = false;
+  async lockInstallations() {
+    if (!this.installationTransactionActive) throw new Error("Installation writes require a transaction");
+  }
+  async getInstallation(id: string) { return structuredClone(this.installations.get(id) ?? null); }
+  async listInstallations(userId: string | null, offset: number, limit: number) {
+    const values = [...this.installations.values()].filter((row) => userId === null || row.userId === userId).sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+    return { values: structuredClone(values.slice(offset, offset + limit)), total: values.length };
+  }
+  async saveInstallation(installation: InstallationRecord) {
+    if (!this.installationUndo.has(installation.id)) this.installationUndo.set(installation.id, this.installations.get(installation.id));
+    this.installations.set(installation.id, structuredClone(installation));
+  }
+  async getTokenOwner(scope: string) { return structuredClone([...this.installations.values()].find((row) => row.tokenScope === scope) ?? null); }
+  async getInstallationReplay(id: string, requestId: string) { return structuredClone(this.installationReplays.get(id)?.get(requestId) ?? null); }
+  async saveInstallationReplay(id: string, requestId: string, replay: InstallationReplay) {
+    if (!this.installationReplayUndo.has(id)) this.installationReplayUndo.set(id, this.installationReplays.get(id));
+    const acknowledgements = new Map(this.installationReplays.get(id));
+    acknowledgements.set(requestId, structuredClone(replay));
+    while (acknowledgements.size > INSTALLATION_REPLAY_LIMIT) acknowledgements.delete(acknowledgements.keys().next().value!);
+    this.installationReplays.set(id, acknowledgements);
+  }
   private transactionTail = Promise.resolve();
 
   async transaction<T>(work: (store: ProductStoreSession) => Promise<T>): Promise<T> {
@@ -2108,9 +2136,17 @@ export class MemoryProductStore implements ProductStore {
       release = resolve;
     });
     await previous;
+    this.installationTransactionActive = true;
+    this.installationUndo.clear();
+    this.installationReplayUndo.clear();
     try {
       return await work(this);
+    } catch (error) {
+      for (const [key, value] of this.installationUndo) value === undefined ? this.installations.delete(key) : this.installations.set(key, value);
+      for (const [key, value] of this.installationReplayUndo) value === undefined ? this.installationReplays.delete(key) : this.installationReplays.set(key, value);
+      throw error;
     } finally {
+      this.installationTransactionActive = false;
       release();
     }
   }

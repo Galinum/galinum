@@ -45,6 +45,12 @@
             "pages": [
               "email/domain-setup"
             ]
+          },
+          {
+            "group": "Installation lifecycle",
+            "pages": [
+              "sdk/installations"
+            ]
           }
         ]
       },
@@ -148,6 +154,18 @@
               "GET /api/v1/github/refs/due",
               "POST /api/v1/github/refs/{refId}/claim",
               "POST /api/v1/github/refs/{refId}/reconcile"
+            ]
+          },
+          {
+            "group": "Installations",
+            "pages": [
+              "POST /api/v1/sdk/installations",
+              "GET /api/v1/sdk/installations/{installationId}",
+              "PUT /api/v1/sdk/installations/{installationId}/binding",
+              "PUT /api/v1/sdk/installations/{installationId}/facts",
+              "PUT /api/v1/sdk/installations/{installationId}/token",
+              "POST /api/v1/sdk/installations/{installationId}/activity",
+              "GET /api/v1/installations"
             ]
           }
         ]

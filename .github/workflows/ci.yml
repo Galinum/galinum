@@ -37,6 +37,8 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @galinum/contracts build
+      - run: pnpm verify:mobile-contracts
       - run: pnpm verify:workspace
       - run: pnpm verify:server-operations
       - run: pnpm verify:product-schema

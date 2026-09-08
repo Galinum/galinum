@@ -55,8 +55,13 @@ importers:
         specifier: 5.9.3
         version: 5.9.3
 
+  packages/contracts: {}
+
   packages/core:
     dependencies:
+      '@galinum/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       kysely:
         specifier: 0.29.2
         version: 0.29.2
@@ -130,6 +135,9 @@ importers:
 
   packages/server:
     dependencies:
+      '@galinum/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       '@galinum/core':
         specifier: workspace:*
         version: link:../core

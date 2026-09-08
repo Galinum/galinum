@@ -1,3 +1,4 @@
+import { INSTALLATION_SDK_OPERATIONS } from "./installations.js";
 import { OPERATIONS, type OperationId } from "./operations.js";
 
 export type OperationContext = { params: Record<string, string> };
@@ -11,6 +12,7 @@ export type OperationHandlers = Partial<Record<OperationId, OperationHandler>>;
 // authenticated with the publishable key, never cookies. Management endpoints
 // stay non-CORS so browsers cannot call them with a secret key.
 export const BROWSER_SDK_OPERATIONS = new Set<OperationId>([
+  ...INSTALLATION_SDK_OPERATIONS,
   "identifyUser",
   "trackEvent",
   "getMessages",
@@ -19,7 +21,7 @@ export const BROWSER_SDK_OPERATIONS = new Set<OperationId>([
 
 const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "Authorization, Content-Type",
+  "Access-Control-Allow-Headers": "Authorization, Content-Type, X-Galinum-Installation-Capability",
   "Access-Control-Max-Age": "86400",
 };
 

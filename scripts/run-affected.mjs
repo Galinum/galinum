@@ -6,8 +6,16 @@ const rootPaths = [".github/", "examples/self-host/", "release/", "scripts/", "A
 
 const packageLanes = [
   {
+    name: "contracts",
+    paths: ["packages/contracts/", "apps/docs/openapi.json"],
+    release: true,
+    commands: [["pnpm", "check:contracts"], ["pnpm", "--filter", "@galinum/contracts", "build"]],
+  },
+  {
     name: "core",
     paths: ["packages/core/"],
+    requires: ["contracts"],
+    prerequisites: [["pnpm", "--filter", "@galinum/contracts", "build"]],
     release: true,
     commands: [
       ["pnpm", "--filter", "@galinum/core", "typecheck"],
@@ -18,8 +26,8 @@ const packageLanes = [
   {
     name: "dashboard",
     paths: ["packages/dashboard/"],
-    requires: ["core"],
-    prerequisites: [["pnpm", "--filter", "@galinum/core", "build"]],
+    requires: ["core", "contracts"],
+    prerequisites: [["pnpm", "--filter", "@galinum/contracts", "build"], ["pnpm", "--filter", "@galinum/core", "build"]],
     release: true,
     commands: [
       ["pnpm", "verify:dashboard"],
@@ -57,11 +65,12 @@ const packageLanes = [
   {
     name: "server",
     paths: ["packages/server/", "apps/docs/openapi.json"],
-    requires: ["core"],
-    prerequisites: [["pnpm", "--filter", "@galinum/core", "build"]],
+    requires: ["core", "contracts"],
+    prerequisites: [["pnpm", "--filter", "@galinum/contracts", "build"], ["pnpm", "--filter", "@galinum/core", "build"]],
     release: true,
     commands: [
       ["pnpm", "verify:server-operations"],
+      ["pnpm", "verify:installation-upgrade"],
       ["pnpm", "--filter", "@galinum/server", "typecheck"],
       ["pnpm", "--filter", "@galinum/server", "test"],
       ["pnpm", "--filter", "@galinum/server", "build"],
@@ -98,7 +107,13 @@ export function selectAffected(files) {
 }
 
 export function prerequisiteCommands(lane, selected) {
-  const satisfied = (lane.requires ?? []).every((name) => selected.includes(name));
+  const available = new Set();
+  for (const earlier of packageLanes.slice(0, packageLanes.indexOf(lane))) {
+    if (!selected.includes(earlier.name)) continue;
+    available.add(earlier.name);
+    for (const dependency of earlier.requires ?? []) available.add(dependency);
+  }
+  const satisfied = (lane.requires ?? []).every((name) => available.has(name));
   return satisfied ? [] : (lane.prerequisites ?? []);
 }
 

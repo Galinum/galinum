@@ -8,7 +8,7 @@ const operations = [];
 assert.equal(contract.openapi, "3.1.0");
 assert.equal(contract.info?.title, "Galinum API");
 assert.ok(Object.keys(contract.paths ?? {}).length > 0);
-assert.deepEqual(Object.keys(contract.components?.securitySchemes ?? {}).sort(), ["hostedAgentKey", "publishableKey", "secretKey"]);
+assert.deepEqual(Object.keys(contract.components?.securitySchemes ?? {}).sort(), ["hostedAgentKey", "installationCapability", "publishableKey", "secretKey"]);
 
 for (const item of Object.values(contract.paths)) {
   for (const method of methods) if (item[method]) operations.push(item[method].operationId);

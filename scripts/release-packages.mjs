@@ -20,6 +20,7 @@ import {
   buildReleaseManifest,
   intraReleaseEdges,
   manifestFilename,
+  materializeReleaseManifest,
   orderReleasePackages,
   outputDirectoryEntryFailures,
   outputEntryTypeFailures,
@@ -343,6 +344,10 @@ function main() {
     }
     fail(failures);
 
+    const versions = new Map(manifests.map((manifest) => [manifest.name, manifest.version]));
+    for (const entry of entries) {
+      writeFileSync(resolve(sourceRoot, entry.path, "package.json"), JSON.stringify(materializeReleaseManifest(entry.manifest, versions), null, 2) + "\n");
+    }
     const packed = [];
     for (const name of order) {
       const entry = byName.get(name);

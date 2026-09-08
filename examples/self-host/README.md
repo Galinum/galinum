@@ -51,3 +51,19 @@ Compile the dashboard with Tailwind CSS v4. Import Tailwind and the package styl
 ```
 
 The package stylesheet registers the dashboard's built JavaScript as a Tailwind source and supplies its semantic tokens. Serve the compiled CSS, not the raw imports.
+
+## Upgrade installation lifecycle storage
+
+An existing Postgres volume does not rerun `schema.sql` when the API image changes.
+Back up the database and stop API workers before applying
+`packages/server/upgrades/installations.sql` once, using a DDL-capable connection:
+
+```bash
+psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -f packages/server/upgrades/installations.sql
+```
+
+Run this command from the product repository root. It transactionally adds only
+the installation tables and index. Restart the API after success. Skip this
+upgrade for databases initialized with the current schema. See
+[installation lifecycle](../../apps/docs/sdk/installations.mdx) for replay limits,
+authentication and verification reads.

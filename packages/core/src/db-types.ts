@@ -158,7 +158,23 @@ export interface Variants {
   weight: Generated<number>;
 }
 
+export interface Installations {
+  project_id: string;
+  id: string;
+  token_scope: string | null;
+  state_json: string;
+}
+
+export interface InstallationRequests {
+  project_id: string;
+  installation_id: string;
+  request_id: string;
+  replay_json: string;
+}
+
 export interface ProductDB {
+  installations: Installations;
+  installation_requests: InstallationRequests;
   agent_runs: AgentRuns;
   audience_versions: AudienceVersions;
   campaign_execution_state: CampaignExecutionState;

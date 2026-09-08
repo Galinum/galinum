@@ -298,6 +298,48 @@ export const OPERATIONS = [
     "path": "/api/v1/github/refs/{refId}/reconcile",
     "operationId": "reconcileGithubRef",
     "availability": "galinum_cloud"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/sdk/installations",
+    "operationId": "bootstrapInstallation",
+    "availability": "product"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/sdk/installations/{installationId}",
+    "operationId": "getInstallation",
+    "availability": "product"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/sdk/installations/{installationId}/binding",
+    "operationId": "setInstallationBinding",
+    "availability": "product"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/sdk/installations/{installationId}/facts",
+    "operationId": "setInstallationFacts",
+    "availability": "product"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/sdk/installations/{installationId}/token",
+    "operationId": "setInstallationToken",
+    "availability": "product"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/sdk/installations/{installationId}/activity",
+    "operationId": "recordInstallationActivity",
+    "availability": "product"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/installations",
+    "operationId": "listInstallations",
+    "availability": "product"
   }
 ] as const;
 

@@ -8,8 +8,11 @@ function dashboardLane(selected) {
 }
 
 describe("affected package selection", () => {
+  it("selects all contract consumers for a generated mobile change", () => {
+    assert.deepEqual(selectAffected(["packages/contracts/src/index.ts"]), ["contracts", "core", "dashboard", "server"]);
+  });
   it("runs docs for an unknown base", () => {
-    assert.deepEqual(selectAffected(null), ["core", "dashboard", "docs", "react", "react-example", "server"]);
+    assert.deepEqual(selectAffected(null), ["contracts", "core", "dashboard", "docs", "react", "react-example", "server"]);
   });
 
   it("runs docs for a documentation change", () => {
@@ -17,16 +20,17 @@ describe("affected package selection", () => {
   });
 
   it("runs docs for a shared workspace change", () => {
-    assert.deepEqual(selectAffected(["pnpm-lock.yaml"]), ["core", "dashboard", "docs", "react", "react-example", "server"]);
+    assert.deepEqual(selectAffected(["pnpm-lock.yaml"]), ["contracts", "core", "dashboard", "docs", "react", "react-example", "server"]);
   });
 
   it("runs every package for a release registry change", () => {
-    assert.deepEqual(selectAffected(["release/packages.json"]), ["core", "dashboard", "docs", "react", "react-example", "server"]);
+    assert.deepEqual(selectAffected(["release/packages.json"]), ["contracts", "core", "dashboard", "docs", "react", "react-example", "server"]);
   });
 
   it("runs only dashboard for a dashboard primitive", () => {
     assert.deepEqual(selectAffected(["packages/dashboard/src/ui/button.tsx"]), ["dashboard"]);
     assert.deepEqual(prerequisiteCommands(dashboardLane(["dashboard"]), ["dashboard"]), [
+      ["pnpm", "--filter", "@galinum/contracts", "build"],
       ["pnpm", "--filter", "@galinum/core", "build"],
     ]);
   });
@@ -37,7 +41,7 @@ describe("affected package selection", () => {
   });
 
   it("runs docs and server for the OpenAPI contract", () => {
-    assert.deepEqual(selectAffected(["apps/docs/openapi.json"]), ["docs", "server"]);
+    assert.deepEqual(selectAffected(["apps/docs/openapi.json"]), ["contracts", "core", "dashboard", "docs", "server"]);
   });
 
   it("runs only server for a server change", () => {
@@ -60,6 +64,7 @@ describe("affected package selection", () => {
   it("builds core before checking a server-only change", () => {
     const selected = selectAffected(["packages/server/src/app.ts"]);
     assert.deepEqual(prerequisiteCommands(selectedLanes(selected)[0], selected), [
+      ["pnpm", "--filter", "@galinum/contracts", "build"],
       ["pnpm", "--filter", "@galinum/core", "build"],
     ]);
   });

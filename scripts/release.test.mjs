@@ -1,3 +1,4 @@
+import { materializeReleaseManifest } from "./release-lib.mjs";
 import assert from "node:assert/strict";
 import {
   existsSync,
@@ -45,9 +46,10 @@ describe("release registry", () => {
   });
 
   it("keeps all product packages in one versioned release", () => {
-    assert.deepEqual(registry.packages.map((entry) => entry.name), ["@galinum/core", "@galinum/dashboard", "@galinum/react", "@galinum/server"]);
-    assert.deepEqual(resolveReleaseVersion([corePackage, dashboardPackage, reactPackage, serverPackage]).failures, []);
-    for (const manifest of [corePackage, dashboardPackage, reactPackage, serverPackage]) {
+    assert.deepEqual(registry.packages.map((entry) => entry.name), ["@galinum/contracts", "@galinum/core", "@galinum/dashboard", "@galinum/react", "@galinum/server"]);
+    const manifests = registry.packages.map((entry) => JSON.parse(readFileSync(resolve(root, entry.path, "package.json"), "utf8")));
+    assert.deepEqual(resolveReleaseVersion(manifests).failures, []);
+    for (const manifest of manifests) {
       assert.equal(manifest.version, corePackage.version, manifest.name);
       assert.equal(manifest.private, true, manifest.name);
       assert.equal(manifest.license, "Apache-2.0", manifest.name);
@@ -63,7 +65,7 @@ describe("release registry", () => {
       name: "@galinum/react",
       version: reactPackage.version,
       license: "Apache-2.0",
-      releaseNames: ["@galinum/core", "@galinum/dashboard", "@galinum/react", "@galinum/server"],
+      releaseNames: ["@galinum/contracts", "@galinum/core", "@galinum/dashboard", "@galinum/react", "@galinum/server"],
       requires: [],
     }), []);
   });
@@ -163,11 +165,13 @@ describe("dependency ranges", () => {
 
 describe("build order", () => {
   it("builds core before server", () => {
-    const releaseNames = ["@galinum/core", "@galinum/dashboard", "@galinum/react", "@galinum/server"];
-    const edges = intraReleaseEdges([corePackage, dashboardPackage, reactPackage, serverPackage], releaseNames);
-    assert.deepEqual(edges.get("@galinum/server"), ["@galinum/core"]);
+    const releaseNames = ["@galinum/contracts", "@galinum/core", "@galinum/dashboard", "@galinum/react", "@galinum/server"];
+    const edges = intraReleaseEdges(registry.packages.map((entry) => JSON.parse(readFileSync(resolve(root, entry.path, "package.json"), "utf8"))), releaseNames);
+    assert.deepEqual(edges.get("@galinum/server"), ["@galinum/contracts", "@galinum/core"]);
     assert.deepEqual(edges.get("@galinum/react"), []);
-    assert.deepEqual(orderReleasePackages(edges), ["@galinum/core", "@galinum/react", "@galinum/dashboard", "@galinum/server"]);
+    const ordered = orderReleasePackages(edges);
+    assert.ok(ordered.indexOf("@galinum/contracts") < ordered.indexOf("@galinum/core"));
+    assert.ok(ordered.indexOf("@galinum/core") < ordered.indexOf("@galinum/server"));
   });
 
   it("rejects a dependency cycle", () => {
@@ -434,5 +438,18 @@ describe("release manifest", () => {
 
   it("derives npm tarball filenames", () => {
     assert.equal(tarballFilename("@galinum/core", "0.15.0"), "galinum-core-0.15.0.tgz");
+  });
+});
+
+describe("release workspace materialization", () => {
+  it("resolves dependencies before pnpm can reorder concurrent workspace lookups", () => {
+    const manifest = { dependencies: { "@galinum/core": "workspace:*", pg: "8.23.0", "@galinum/contracts": "workspace:*" }, peerDependencies: { react: ">=18" } };
+    const versions = new Map([["@galinum/core", "0.17.0"], ["@galinum/contracts", "0.17.0"]]);
+    const result = materializeReleaseManifest(manifest, versions);
+    assert.deepEqual(Object.keys(result.dependencies), ["@galinum/contracts", "@galinum/core", "pg"]);
+    assert.equal(result.dependencies["@galinum/core"], "0.17.0");
+    assert.equal(result.peerDependencies.react, ">=18");
+    assert.equal(manifest.dependencies["@galinum/core"], "workspace:*");
+    assert.throws(() => materializeReleaseManifest({ dependencies: { missing: "workspace:*" } }, versions), /Unsupported release workspace reference/);
   });
 });
