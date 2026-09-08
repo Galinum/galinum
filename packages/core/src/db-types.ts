@@ -11,20 +11,6 @@ export type Generated<T> = T extends ColumnType<infer S, infer I, infer U>
 
 export type Int8 = ColumnType<number, number | string, number | string>;
 
-export type Json = JsonValue;
-
-export type JsonArray = JsonValue[];
-
-export type JsonObject = {
-  [x: string]: JsonValue | undefined;
-};
-
-export type JsonPrimitive = boolean | number | string | null;
-
-export type JsonValue = JsonArray | JsonObject | JsonPrimitive;
-
-export type Timestamp = ColumnType<Date, Date | string, Date | string>;
-
 export interface AgentRuns {
   campaign_id: string | null;
   created_at: Int8;
@@ -52,6 +38,16 @@ export interface AudienceVersions {
   segment_version: number | null;
 }
 
+export interface CampaignActivationState {
+  campaign_id: string;
+  launch_json: string | null;
+  mode_override: string | null;
+  monitor_json: string | null;
+  project_id: string;
+  readiness_error: string | null;
+  version: Generated<Int8>;
+}
+
 export interface CampaignExecutionState {
   campaign_id: string;
   last_processed_at: Int8;
@@ -59,7 +55,6 @@ export interface CampaignExecutionState {
 }
 
 export interface Campaigns {
-  push_json: string | null;
   audience_version_id: string | null;
   channel: Generated<string>;
   created_at: Int8;
@@ -73,9 +68,29 @@ export interface Campaigns {
   name: string;
   pages_json: string | null;
   project_id: string;
+  push_json: string | null;
   started_at: Int8 | null;
   status: Generated<string>;
   targeting_json: string | null;
+}
+
+export interface CampaignShippingPreparations {
+  approved_at: Int8 | null;
+  approved_by: string | null;
+  campaign_id: string;
+  changes_json: Generated<string>;
+  project_id: string;
+  reviewed_content_hash: string | null;
+  version: Generated<Int8>;
+}
+
+export interface CampaignShippingWarnings {
+  campaign_id: string;
+  created_at: Int8;
+  id: string;
+  incident_key: string;
+  project_id: string;
+  warning_json: string;
 }
 
 export interface Deliveries {
@@ -124,6 +139,30 @@ export interface Events {
   ts: Int8;
 }
 
+export interface GithubDeploymentMappings {
+  checked_at: Int8 | null;
+  config_version: Generated<Int8>;
+  confirmed_at: Int8;
+  confirmed_by: string;
+  environment: string;
+  generation: Generated<Int8>;
+  id: string;
+  installation_id: Int8;
+  observed_json: string | null;
+  project_id: string;
+  repo_id: Int8;
+  repo_name: string;
+  scope_description: string;
+  snapshot_generation: Int8 | null;
+  snapshot_json: string | null;
+}
+
+export interface GithubDeploymentMappingSources {
+  mapping_id: string;
+  project_id: string;
+  source_id: string;
+}
+
 export interface Goals {
   approval_mode: Generated<string>;
   created_at: Int8;
@@ -134,6 +173,72 @@ export interface Goals {
   project_id: string;
   status: Generated<string>;
   target_event: string | null;
+}
+
+export interface InappFeedback {
+  acknowledged_at: Int8;
+  delivery_id: string;
+  external_id: string;
+  id: string;
+  project_id: string;
+  type: string;
+  user_id: string;
+}
+
+export interface InstallationRequests {
+  installation_id: string;
+  project_id: string;
+  replay_json: string;
+  request_id: string;
+}
+
+export interface Installations {
+  id: string;
+  project_id: string;
+  state_json: string;
+  token_scope: string | null;
+}
+
+export interface ProductSchemaVersions {
+  applied_at: Int8;
+  version: string;
+}
+
+export interface ProjectLaunchSettings {
+  campaign_cursor: Generated<string>;
+  default_mode: Generated<string>;
+  generation: Generated<Int8>;
+  last_error: string | null;
+  lease_expires_at: Int8 | null;
+  lease_generation: Int8 | null;
+  lease_token: string | null;
+  next_attempt_at: Generated<Int8>;
+  policy_version: Generated<Int8>;
+  project_id: string;
+}
+
+export interface PushRecordsTable {
+  available_at: Int8 | null;
+  body_json: string;
+  campaign_id: string;
+  command_kind: string | null;
+  credential_id: string | null;
+  event_order: Int8 | null;
+  goal_event: string | null;
+  id: string;
+  installation_id: string | null;
+  is_test: boolean | null;
+  is_uncertain: boolean | null;
+  kind: string;
+  project_id: string;
+  recipient_id: string | null;
+  replacement_key: string | null;
+  result_kind: string | null;
+  slot_id: string | null;
+  state_kind: string | null;
+  submission_kind: string | null;
+  target_id: string | null;
+  user_id: string | null;
 }
 
 export interface Segments {
@@ -150,6 +255,24 @@ export interface Segments {
   updated_at: Int8;
 }
 
+export interface ShippingProjectControls {
+  paused: Generated<boolean>;
+  project_id: string;
+  version: Generated<Int8>;
+}
+
+export interface ShippingSources {
+  branch: string;
+  enabled: Generated<boolean>;
+  id: string;
+  installation_id: Int8;
+  paused: Generated<boolean>;
+  project_id: string;
+  repo_id: Int8;
+  repo_name: string;
+  version: Generated<Int8>;
+}
+
 export interface Variants {
   campaign_id: string;
   content_json: string;
@@ -159,44 +282,29 @@ export interface Variants {
   weight: Generated<number>;
 }
 
-export interface Installations {
-  project_id: string;
-  id: string;
-  token_scope: string | null;
-  state_json: string;
-}
-
-export interface InstallationRequests {
-  project_id: string;
-  installation_id: string;
-  request_id: string;
-  replay_json: string;
-}
-
-export interface PushRecordsTable {
-  recipient_id: string | null; slot_id: string | null; state_kind: string | null; submission_kind: string | null; is_uncertain: boolean | null;
-  project_id: string; kind: string; id: string; campaign_id: string; body_json: string;
-  user_id: string | null; target_id: string | null; installation_id: string | null;
-  is_test: boolean | null; command_kind: string | null; result_kind: string | null;
-  available_at: Int8 | null; event_order: Int8 | null; goal_event: string | null;
-  replacement_key: string | null; credential_id: string | null;
-}
-
-export interface InAppFeedbackTable { project_id: string; id: string; delivery_id: string; user_id: string; external_id: string; type: string; acknowledged_at: Int8 }
 export interface ProductDB {
-  inapp_feedback: InAppFeedbackTable;
-  push_records: PushRecordsTable;
-  installations: Installations;
-  installation_requests: InstallationRequests;
   agent_runs: AgentRuns;
   audience_versions: AudienceVersions;
+  campaign_activation_state: CampaignActivationState;
   campaign_execution_state: CampaignExecutionState;
+  campaign_shipping_preparations: CampaignShippingPreparations;
+  campaign_shipping_warnings: CampaignShippingWarnings;
   campaigns: Campaigns;
   deliveries: Deliveries;
   email_suppressions: EmailSuppressions;
   end_users: EndUsers;
   events: Events;
+  github_deployment_mapping_sources: GithubDeploymentMappingSources;
+  github_deployment_mappings: GithubDeploymentMappings;
   goals: Goals;
+  inapp_feedback: InappFeedback;
+  installation_requests: InstallationRequests;
+  installations: Installations;
+  product_schema_versions: ProductSchemaVersions;
+  project_launch_settings: ProjectLaunchSettings;
+  push_records: PushRecordsTable;
   segments: Segments;
+  shipping_project_controls: ShippingProjectControls;
+  shipping_sources: ShippingSources;
   variants: Variants;
 }

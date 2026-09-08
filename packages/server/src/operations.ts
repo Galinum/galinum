@@ -388,6 +388,30 @@ export const OPERATIONS = [
     "path": "/api/v1/campaigns/{id}/push/tests/{requestId}",
     "operationId": "getPushTest",
     "availability": "product"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/launch-policy",
+    "operationId": "getLaunchPolicy",
+    "availability": "product"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/launch-policy",
+    "operationId": "setLaunchPolicy",
+    "availability": "product"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/campaigns/{id}/activation",
+    "operationId": "getCampaignActivation",
+    "availability": "product"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/campaigns/{id}/activation",
+    "operationId": "setCampaignActivationMode",
+    "availability": "product"
   }
 ] as const;
 

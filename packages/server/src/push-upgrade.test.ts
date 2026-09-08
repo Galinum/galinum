@@ -41,6 +41,8 @@ integration("push upgrade", () => {
         await planner.query("ROLLBACK");
       } finally { planner.release(); }
       expect((await database.query("SELECT * FROM end_users")).rows).toEqual(before);
+      await expect(createPostgresProduct({ connectionString: url.href })).rejects.toThrow("activation-1.sql");
+      for (const path of ["../upgrades/inapp.sql", "../migrations/activation-1.sql"]) await database.query(readFileSync(new URL(path, import.meta.url), "utf8"));
       product = await createPostgresProduct({ projectId: "preserved", connectionString: url.href, secretKey: "test-secret", publishableKey: "test-publishable" });
       const app = createApp(product.handlers);
       const headers = { authorization: "Bearer test-secret", "content-type": "application/json" };

@@ -79,6 +79,7 @@ export function createRecovery<Tx extends PushTransaction>(host: PushHost<Tx>, t
     let work = await tx.getPushRecord("work", id);
     if (work?.state.kind === "closed") return [];
     if (!work) {
+      if (campaign.readiness?.ok !== true) return [];
       const chosen = pickVariant(user.id, campaign.id, campaign.variants.map((entry) => ({ ...entry, campaign_id: campaign.id, content_json: JSON.stringify(entry.content) })));
       if (!chosen) throw new PushError(409, "No assignable variant");
       work = { id, campaignId: campaign.id, userId: user.id, externalId: user.externalId, variantId: chosen.id, deliveryId: null, inputFingerprint: "", admission: null, state: { kind: "active" }, test: !!test };
@@ -172,6 +173,7 @@ export function createRecovery<Tx extends PushTransaction>(host: PushHost<Tx>, t
         else {
           const auth = await credential(tx, installation);
           if (auth.reason) defer(auth.reason);
+          else if (campaign.readiness?.ok !== true) defer("campaign_not_ready");
           else if (slot.repair?.kind === "payload" && slot.repair.campaignFingerprint === current.admission!.definition && slot.repair.credentialRevision === auth.record!.revision) defer("payload_invalid");
           else if (slot.repair?.kind === "credential" && slot.repair.credentialRevision === auth.record!.revision) defer("credential_repair");
           else {
@@ -196,6 +198,7 @@ export function createRecovery<Tx extends PushTransaction>(host: PushHost<Tx>, t
       const prior = await tx.getPushRecord("test", digest([campaignId, requestId]));
       if (prior) { if (prior.installationId !== testInstallationId) throw new PushError(409, "Test replay conflict"); return prior.targetIds; }
       const campaign = await tx.campaign(campaignId, now()); if (!campaign) throw new PushError(404, "Push campaign not found");
+      if (campaign.readiness?.ok !== true) throw new PushError(409, "Push campaign is not ready");
       const installation = await tx.getInstallation(testInstallationId); const user = installation?.userId ? await tx.recipient(installation.userId) : null;
       if (!user) throw new PushError(409, "Selected installation is not bound");
       if (!await host.maySend(tx, user.id, now())) throw new PushError(409, "serving_gate_closed");
@@ -262,7 +265,7 @@ export function createRecovery<Tx extends PushTransaction>(host: PushHost<Tx>, t
     }
     else if (result.kind === "rejected" && result.code === "auth_refresh" && slot.authRefreshRevision !== target.credentialRevision) { slot.authRefreshRevision = target.credentialRevision; makeReady(slot); }
     else {
-      const reason: WaitReason = result.kind === "rejected" ? result.code === "invalid_token" ? "consent" : result.code === "payload" ? "payload_invalid" : "credential_repair" : result.kind === "blocked" && result.code === "campaign_changed" ? "campaign_paused" : result.kind === "blocked" && result.code === "billing_gate" ? "serving_gate_closed" : result.kind === "blocked" && result.code === "audience_changed" ? "audience" : result.kind === "blocked" && result.code === "capabilities_changed" ? "capability_mismatch" : result.kind === "blocked" && result.code === "credential_changed" ? "credential_repair" : "installation_changed";
+      const reason: WaitReason = result.kind === "blocked" && result.code === "readiness_failed" ? "campaign_not_ready" : result.kind === "rejected" ? result.code === "invalid_token" ? "consent" : result.code === "payload" ? "payload_invalid" : "credential_repair" : result.kind === "blocked" && result.code === "campaign_changed" ? "campaign_paused" : result.kind === "blocked" && result.code === "billing_gate" ? "serving_gate_closed" : result.kind === "blocked" && result.code === "audience_changed" ? "audience" : result.kind === "blocked" && result.code === "capabilities_changed" ? "capability_mismatch" : result.kind === "blocked" && result.code === "credential_changed" ? "credential_repair" : "installation_changed";
       if (result.kind === "rejected" && ["credential", "auth_refresh"].includes(result.code)) {
         slot.authRefreshRevision = target.credentialRevision;
         slot.repair = { kind: "credential", credentialRevision: target.credentialRevision };
@@ -321,6 +324,7 @@ export function createRecovery<Tx extends PushTransaction>(host: PushHost<Tx>, t
       else if (!await host.maySend(tx, target.userId, at)) blocked = "billing_gate";
       else if (!target.test && !(await tx.recipients(campaign, at, target.userId)).length) blocked = "audience_changed";
       else if (target.replacementKey && (await tx.queryPushRecords("target", { installationId: target.installationId, credentialId: target.credentialId, replacementKey: target.replacementKey, createdAfter: target.createdOrder, isTest: false, limit: 1 })).length) blocked = "superseded";
+      if (!blocked && campaign?.readiness?.ok !== true) blocked = "readiness_failed";
       if (blocked) return finish(tx, slot, target, attempt, { kind: "blocked", code: blocked, messageAttempted: false }, "none");
       let secret;
       try { secret = host.vault!.open(auth!.encrypted, scope(auth!.id)); } catch { return finish(tx, slot, target, attempt, { kind: "rejected", code: "credential", messageAttempted: false }, "none"); }

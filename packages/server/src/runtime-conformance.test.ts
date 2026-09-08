@@ -346,6 +346,26 @@ const scenarios = {
       pageCount: 1,
     });
   },
+  async getLaunchPolicy(client) {
+    await expectJson(await client.call("/api/v1/launch-policy"), 200, { defaultMode: "automatic", revision: "0" });
+  },
+  async setLaunchPolicy(client) {
+    await expectJson(await client.call("/api/v1/launch-policy", "PATCH", { defaultMode: "manual", expectedRevision: "0" }), 200, { defaultMode: "manual", revision: "1" });
+    await expectJson(await client.call("/api/v1/launch-policy"), 200, { defaultMode: "manual", revision: "1" });
+  },
+  async getCampaignActivation(client) {
+    const campaign = await createCampaign(client);
+    await expectJson(await client.call(`/api/v1/campaigns/${campaign.id}/activation`), 200, {
+      campaignId: campaign.id, defaultMode: "automatic", effectiveMode: "automatic", revision: "0:0", launch: null,
+    });
+  },
+  async setCampaignActivationMode(client) {
+    const campaign = await createCampaign(client);
+    await expectJson(await client.call(`/api/v1/campaigns/${campaign.id}/activation`, "PATCH", { mode: "manual", expectedRevision: "0:0" }), 200, {
+      campaignId: campaign.id, override: "manual", effectiveMode: "manual", revision: "0:1",
+    });
+    await expectJson(await client.call(`/api/v1/campaigns/${campaign.id}/activation`), 200, { effectiveMode: "manual", revision: "0:1" });
+  },
 } satisfies Record<ProductOperationId, Scenario>;
 
 const productOperations = OPERATIONS.filter((operation) => operation.availability === "product");
@@ -355,7 +375,7 @@ describe("runtime operation conformance", () => {
   it("keeps the reviewed product registry complete", () => {
     expect(budget.missing).toEqual([]);
     expect(Object.keys(scenarios).sort()).toEqual(productOperations.map((operation) => operation.operationId).sort());
-    expect(productOperations).toHaveLength(53);
+    expect(productOperations).toHaveLength(57);
   });
 
   for (const operation of productOperations) {

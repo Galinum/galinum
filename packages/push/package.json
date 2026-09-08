@@ -1,6 +1,6 @@
 {
   "name": "@galinum/push",
-  "version": "0.17.0",
+  "version": "0.19.0",
   "description": "Shared server-side Galinum push providers and delivery engine",
   "private": true,
   "license": "Apache-2.0",

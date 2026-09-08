@@ -18,6 +18,7 @@ const stats = {
 
 const detail = {
   campaign: {
+    sourceChanges: { revision: "0", changes: [] },
     id: "campaign",
     name: "Welcome",
     status: "running" as const,

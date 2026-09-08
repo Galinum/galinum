@@ -1,6 +1,6 @@
 {
   "name": "@galinum/react-native",
-  "version": "0.17.0",
+  "version": "0.19.0",
   "description": "Native Galinum installation, identity and event client",
   "private": true,
   "license": "Apache-2.0",

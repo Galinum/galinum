@@ -19,6 +19,8 @@ if (config.warning) process.stderr.write(`${config.warning}\n`);
 
 const productOptions = {
   pushEncryptionKey: process.env.GALINUM_PUSH_ENCRYPTION_KEY,
+  operatorKey: config.operatorKey,
+  github: config.github,
   secretKey: process.env.GALINUM_SECRET_KEY,
   publishableKey: process.env.GALINUM_PUBLISHABLE_KEY,
   media: config.mediaDirectory
@@ -29,7 +31,8 @@ const product = process.env.DATABASE_URL
   ? await createPostgresProduct({ ...productOptions, connectionString: process.env.DATABASE_URL })
   : createLocalProduct(productOptions);
 const worker = startPushWorker(() => product.push.runDue(), Number(process.env.GALINUM_PUSH_WORKER_INTERVAL_MS ?? 1000), () => process.stderr.write("Push worker could not complete one or more campaigns\n"));
-const server = createServer(nodeAdapter(createApp(product.handlers, product.media)));
+const server = createServer(nodeAdapter(createApp(product.handlers, product.media, product.operatorHandler)));
+product.worker.start();
 server.listen(config.port, config.host, () => {
   const address = server.address();
   const boundPort = typeof address === "object" && address ? address.port : config.port;
@@ -39,13 +42,12 @@ server.listen(config.port, config.host, () => {
   if (!process.env.GALINUM_PUBLISHABLE_KEY) process.stdout.write(`Local publishable key: ${product.publishableKey}\n`);
 });
 
-let closing = false;
+let stopping = false;
 async function shutdown() {
-  if (closing) return;
-  closing = true;
+  if (stopping) return;
+  stopping = true;
   await worker.stop();
-  await new Promise<void>((resolve) => server.close(() => resolve()));
+  await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   await product.close();
 }
-process.on("SIGTERM", () => { void shutdown(); });
-process.on("SIGINT", () => { void shutdown(); });
+for (const signal of ["SIGINT", "SIGTERM"] as const) process.once(signal, () => { void shutdown().catch(() => { process.exitCode = 1; }); });

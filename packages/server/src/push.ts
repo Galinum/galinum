@@ -1,3 +1,4 @@
+import { MemoryMediaStore } from "./local-media-store.js";
 import { installationSchemas, validateSchema } from "@galinum/contracts";
 import { createEncryptedVault, createPushEngine, createPushProvider, PushError, validateCredential, type PushCommand } from "@galinum/push";
 import type { LocalProductOptions, ProductStore } from "./local-product.js";
@@ -7,7 +8,9 @@ import type { OperationHandler, OperationHandlers } from "./router.js";
 import { pushTransaction } from "./communication-push.js";
 export function createServerPush(store: ProductStore, options: LocalProductOptions & { projectId: string; secretKey: string; publishableKey: string; now: () => number }) {
   const provider = options.pushProvider ?? createPushProvider();
-  const engine = createPushEngine({ projectId: options.projectId, store: { transaction: (work) => store.transaction((session) => work(pushTransaction(session, options.communicationEffects))) }, vault: options.pushEncryptionKey ? createEncryptedVault(options.pushEncryptionKey) : null, provider, maySend: options.pushMaySend ?? (async () => true), recordAcceptance: options.pushRecordAcceptance ?? (async () => {}), now: options.now });
+  const vault = options.pushEncryptionKey ? createEncryptedVault(options.pushEncryptionKey) : null;
+  const configuration = { projectId: options.projectId, vault, media: options.media ?? new MemoryMediaStore() };
+  const engine = createPushEngine({ projectId: options.projectId, store: { transaction: (work) => store.transaction((session) => work(pushTransaction(session, options.communicationEffects, configuration))) }, vault, provider, maySend: options.pushMaySend ?? (async () => true), recordAcceptance: options.pushRecordAcceptance ?? (async () => {}), now: options.now });
   const route = (sdk: boolean, work: OperationHandler): OperationHandler => async (request, context) => {
     if (request.headers.get("authorization") !== `Bearer ${sdk ? options.publishableKey : options.secretKey}`) return Response.json({ error: "Unauthorized" }, { status: 401 });
     try { return await work(request, context); }

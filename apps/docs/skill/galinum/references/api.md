@@ -14,12 +14,13 @@ Content-Type: application/json
 ```
 
 They are server-to-server only (not CORS-enabled). These are the **only**
-agent-facing endpoints; nothing else exists (no DELETE anywhere).
+agent-facing endpoints. Separate stock operator HTTP is for setup and review,
+not agent execution. The agent management API has no DELETE endpoints.
 
 The hosted key is deliberately narrower. It can read campaign, goal, delivery,
-event, usage, user, and agent state. It can call the hosted evaluation,
+event, usage, user, agent state, launch policy, and campaign activation state. It can call the hosted evaluation,
 proposal, and GitHub source endpoints below. Ordinary campaign, status, goal,
-segment, and media writes return `403`. Optimization changes use the fenced
+segment, media, launch-policy, and campaign-activation writes return `403`. Optimization changes use the fenced
 `/evaluations/{campaignId}/mutate` endpoint. GitHub changes use the fenced
 `/github/refs/{refId}/reconcile` endpoint and stay unlaunched. Revoking the hosted key does not
 rotate the customer's project secret.
@@ -525,11 +526,45 @@ running campaign before its window opens, `expired` one at/past
 `deliverUntil` to re-open the window, plus the `launch` action if the
 campaign was paused).
 
+### Prepared source declarations
+
+Use optional `sourceChanges` to associate prepared content with GitHub changes.
+This works on the product server, including self-hosted installations, without
+hosted source drafting. Each change is exactly one of:
+
+- `{ sourceId, kind: "commit", sha }`.
+- `{ sourceId, kind: "pull_request", number, shas }`.
+
+`sourceId` names a configured project source (1–128 characters). A commit SHA
+is 40 lowercase hexadecimal characters. PR `number` is a positive integer;
+Ordinary writes accept 1–250 original commit SHAs per PR bundle and at most
+100 changes. Unknown fields and duplicate changes are
+rejected. An empty change set cannot qualify for automatic activation.
+
+Read projections return the complete current associations. Source-managed
+preparations can exceed 100 changes or 250 originals in a PR bundle; these
+write-size limits do not apply to reads. Never truncate either array, including
+when evidence is unknown or manual launch is required.
+
+Create accepts `sourceChanges: { changes }`, without `expectedRevision`.
+PATCH accepts `sourceChanges: { expectedRevision, changes }`, requiring the
+current `sourceChanges.revision` from campaign detail. Omission preserves the
+declaration and approval. Explicit replacement commits atomically with content;
+if either fails, neither changes. Approval survives edits, but launch requires
+coverage for the current declaration and current channel readiness.
+
+Source-managed preparations retain their source-owned associations. Attempting
+to replace them through generic `sourceChanges` returns `409` before any copy
+mutation. Revise those preparations through their existing source workflow.
+A stale declaration revision also returns `409`. Read fresh detail and
+reconsider the complete content/source update before retrying.
+
 ### POST /api/v1/campaigns
 
 Body:
 
 - `name` — required, ≤ 80 chars.
+- `sourceChanges` — optional `{ changes }` as defined above.
 - `channel` — `web_inapp` (default) or `email`.
 - Exactly one of:
   - `message` — a single variant named "A", or
@@ -605,7 +640,10 @@ never widen to everyone).
 
 ### GET /api/v1/campaigns/{id}
 
-Detail = the list shape plus `variants`, each with its own stats:
+Detail = the list shape plus `sourceChanges: { revision, changes }` and
+`variants`, each with its own stats. `sourceChanges.revision` is the opaque
+precondition for replacing the declared changes; an undeclared campaign has
+an empty `changes` array:
 
 ```json
 { "campaign": { …,
@@ -623,6 +661,7 @@ Detail = the list shape plus `variants`, each with its own stats:
 Any subset of:
 
 - `name` — rename.
+- `sourceChanges` — optional `{ expectedRevision, changes }` replacement, as above.
 - `audience` — replace the audience; `null` / `{ "kind": "all" }` clears it
   (back to everyone). A new expression creates a NEW immutable audience
   version pinned by the campaign; a segment reference re-pins to that
@@ -936,6 +975,113 @@ decision makes the same evaluation claimable again with its original
 
 ---
 
+## Launch activation
+
+These four operations are supported by the product server, including self-hosted
+installations. Unconfigured tracking returns waiting blockers, not `501`. GET
+accepts a customer project secret or hosted-agent key. PATCH accepts only a
+customer project secret; a hosted key receives `403`. These endpoints never
+grant approval or deployment configuration authority. An authorized operator
+selects and confirms the repository, exact environment, sources, and scope.
+Stock setup and review use separate operator HTTP, outside agent MCP. Do not
+use the operator key for agent work. Prepared campaigns and your own GitHub App
+are sufficient for self-hosted activation; hosted drafting is not required.
+
+### GET /api/v1/launch-policy
+
+No query or body. Returns `200 { defaultMode, revision }` without an envelope.
+`defaultMode` is `automatic` or `manual`; its initial value is `automatic`.
+`revision` is an opaque string.
+
+### PATCH /api/v1/launch-policy
+
+Send exactly `{ "defaultMode": "automatic", "expectedRevision": "<revision>" }`.
+Both fields are required. `defaultMode` also accepts `manual`. Returns the
+updated policy in the same shape as GET. Changes apply to all unlaunched
+campaigns without an explicit override. Existing explicit overrides stay unchanged.
+
+### GET /api/v1/campaigns/{id}/activation
+
+No query or body. Returns the following fields directly, without an envelope:
+
+| Field | Shape |
+| --- | --- |
+| `campaignId`, `revision` | Strings; `revision` is the mode-write precondition |
+| `defaultMode`, `effectiveMode` | `automatic` or `manual` |
+| `override` | `automatic`, `manual`, or `null` to inherit the project default |
+| `approval` | `approved`, `pending`, or `unavailable` |
+| `assessment` | `{ state: "not_initial" \| "waiting" \| "eligible", blockers: ActivationBlocker[] }` |
+| `requirements` | `{ id, sourceId, label, mappingIds: string[] }[]` |
+| `coverage` | `{ requirementId, mappingId, state, evidence, reason?, mappingLabel? }[]` |
+| `lastCheckedAt` | Epoch milliseconds or `null` |
+| `launch` | `{ mode, startedAt, contentHash, requirementsDigest, evidence: ActivationEvidence[] }` or `null` |
+| `warnings` | `{ id, reason, createdAt, mappingId, mappingLabel, requirementIds: string[], evidence: ActivationEvidence }[]` |
+
+`ActivationEvidence` is `{ id, provider, label, url, revision, reportedAt }`.
+All fields are strings except `reportedAt`, which is epoch milliseconds.
+`startedAt` and `createdAt` also use epoch milliseconds. Receipt `mode` is
+`automatic` or `manual`. Coverage `state` is `present`, `absent`, `reverted`,
+`unknown`, or `pending`; its `evidence` is `ActivationEvidence` or `null`.
+Optional `reason` is a string. Optional `mappingLabel` is a display string
+identifying the deployment repository and environment; use it instead of an
+opaque mapping ID when available. Warning `reason` is `rollback` or `revert`.
+
+`ActivationBlocker` contains required `code` and optional string fields
+`sourceId`, `requirementId`, `mappingId`, and `detail`. Codes are `manual`,
+`approval`, `no_sources`, `mapping`, `source_pending`, `source_paused`,
+`source_unavailable`, `project_paused`, `withdrawn`, `deployment`,
+`evidence_unknown`, `reverted`, `expired`, and `readiness`.
+
+### PATCH /api/v1/campaigns/{id}/activation
+
+Send exactly `{ "mode": null, "expectedRevision": "<revision>" }`.
+Both fields are required. `mode` accepts `automatic`, `manual`, or `null`.
+Null clears the override; it does not mean manual. Returns the current
+activation view in the same shape as GET. Launch modes use these dedicated
+controls. Source declarations use ordinary campaign create/PATCH and detail.
+
+Both PATCH endpoints reject unknown fields with `400` and stale revisions
+with `409`. After a conflict or uncertain response, GET the current state
+and reconsider before retrying. Do not attach a fresh revision to an outdated
+decision. Ordinary `401`, `429`, and server error handling applies; a campaign
+outside the project returns `404`. Honor `Retry-After` on rate limits.
+
+### Eligibility and evidence
+
+Automatic activation requires human approval and current coverage for every
+associated change across all required mappings. Approval after deployment can
+make a campaign eligible without another deployment if its changes remain
+deployed. Source edits retain approval; activation uses the latest content and
+its current source requirements. Configuring tracking also evaluates existing
+approved drafts. Explicit manual overrides remain manual.
+
+Project/source pauses, source readiness, withdrawal, campaign readiness, and
+expiry still block activation. Current channel readiness is checked at the
+launch attempt. Missing, malformed, failed, or throwing readiness blocks launch;
+an earlier inspection is not permission to launch. Future `deliverFrom` delays delivery but does
+not block activation. Manual launch retains its existing lifecycle/readiness
+checks and does not require deployment coverage. Use manual mode for feature
+flags, gradual rollouts, or unclear mappings until the audience has access.
+
+Only successful deployments in the exact confirmed scope establish coverage.
+A failed or pending attempt cannot add coverage or erase previously deployed
+code. Current direct commit ancestry and complete merged PR bundles support
+merge, squash, and rebase. Missing or ambiguous identity, incomplete history,
+provider errors, and bounded page/request/byte limits leave coverage unknown.
+Unknown is neither positive coverage nor proof of rollback. Periodic retries
+recover temporary failures and missed signals. Duplicate, delayed, and
+out-of-order events cannot restore stale coverage or duplicate initial launch;
+started, paused, and ended campaigns never restart from replayed signals.
+
+Explicit rollback exclusions and deployed identifiable full-SHA reverts remove
+coverage. Causal revert-of-revert evidence can restore it; independent reverts
+do not cancel each other. There is no model judgment of arbitrary feature
+removal. After any launch, including manual launch, deterministic coverage loss
+creates a campaign warning and dashboard activity entry with evidence. It does
+not automatically pause delivery, change delivery windows, or send email.
+
+---
+
 ## GitHub source work
 
 These operations are available in Galinum Cloud. They accept the project's
@@ -1038,7 +1184,8 @@ Only existing text fields can be revised through this source operation.
 
 Use the current draft's `contentHash` as `baseContentHash`. The server checks
 it under the campaign lock. Preserve unrelated customer edits and paused
-source contributions. A revision keeps existing approval and never launches.
+source contributions. A revision keeps existing approval. Reconciliation does
+not launch; separate automatic activation checks the latest associated changes.
 
 Success is `200 { ok: true, campaigns: [{ campaignId, created }],
 reconciledSha, replayed }`. Campaign changes, source coverage, review metadata,

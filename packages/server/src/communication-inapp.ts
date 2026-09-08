@@ -1,3 +1,4 @@
+import { campaignReadiness } from "./campaign-readiness.js";
 import { matchesPages } from "@galinum/contracts/entry";
 import { InAppError, LIMITS, referencedVocabulary, type AudienceExpression, type DeliveryFeedback, type InAppTransaction, type MediaStore } from "@galinum/core";
 import { randomUUID } from "node:crypto";
@@ -57,7 +58,7 @@ export function inAppTransaction<Data extends CommunicationData>(tx: Data, media
           if (!user) return [];
           const eligible = [];
           for (const campaign of page.values) {
-            if (!matchesPages(campaign.pages, path)) continue;
+            if (!matchesPages(campaign.pages, path) || !(await campaignReadiness(tx, campaign, media, projectId)).ok) continue;
             let events: ProductEvent[] = [];
             if (campaign.audience.kind !== "all" && campaign.audience.kind !== "invalid") {
               const names = referencedVocabulary((JSON.parse(campaign.audience.expressionJson) as AudienceExpression).root).events;

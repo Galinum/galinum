@@ -37,7 +37,9 @@ const pushStore = {
     database.transaction().execute(async (executor) => {
       const data = new AppTransaction(executor, authorizedProjectId);
       await data.lockInstallations();
-      return work(pushTransaction(data, effects));
+      return work(pushTransaction(data, effects, {
+        projectId: authorizedProjectId, vault, media,
+      }));
     }),
 };
 ```
@@ -92,3 +94,35 @@ This storage boundary does not supply an HTTP authentication facade, activation
 integration, or a deadline-aware worker scheduler. Keep those responsibilities
 explicit in the embedding application. Existing self-host HTTP contracts remain
 unchanged.
+
+## Activation and raw readiness
+
+`@galinum/server/activation` exports `createPostgresActivationSessionData` and
+`ActivationSessionDB` for activation persistence and campaign preparation. This
+view requires six real tables: project launch settings, deployment mappings and
+their source bindings, campaign activation state, campaign shipping warnings, and
+campaign shipping preparations. It does not require stock shipping sources or
+project controls. Pass a concrete transaction's
+`$pickTables<keyof ActivationSessionDB>()` view and retain that original transaction
+for host effects. `createPostgresActivationData` remains the complete stock helper.
+
+Both activation and communication exports expose `lockProject`. All writable
+views of the same project must acquire it before row locks. It rejects a plain
+database executor and uses the same advisory fence as provider phase two.
+
+`campaignDefinitionReadiness` accepts raw variant `contentJson` and, for push,
+raw campaign `pushJson` from the stored `push_json` column. Missing, malformed or
+invalid push settings fail readiness. Supply project-scoped goal, audience, media
+and channel facts. The helper owns content, settings, allocation and resource
+validation. Web CTAs use typed destinations; email retains its HTTP CTA contract.
+
+The stock push readiness check requires persistent encryption and a locally
+usable matching credential for each positive-weight variant's supported platform.
+It does not require an installation to exist or claim successful external
+authentication. Device consent, registered actions/categories/channels and
+credential revisions remain dispatch-time checks. Changed or unavailable
+readiness blocks later delivery and reports `campaign_not_ready`.
+
+`pushTransaction` receives `{ projectId, vault, media }` as its third argument.
+Omitting it leaves push readiness unverified and blocks delivery. `inAppTransaction`
+also checks current definition and media readiness before selecting candidates.

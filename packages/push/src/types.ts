@@ -2,7 +2,7 @@ import type { InstallationRecord, InstallationSession } from "@galinum/core";
 import type { PushContent, PushSettings, PushCredential, PushCommand, PushEnvelope } from "@galinum/contracts";
 export type { PushContent, PushSettings, PushCredential, PushCommand, PushEnvelope } from "@galinum/contracts";
 export interface CredentialRecord { id: string; appId: string; platform: "ios" | "android"; environment: "development" | "production"; revision: number; encrypted: string; validation: "local_valid" }
-export interface PushCampaign { id: string; active: boolean; ended: boolean; goalId: string | null; from: number | null; until: number | null; fingerprint: string; settings: PushSettings; goalEvent: string | null; variants: { id: string; weight: number; content: PushContent }[] }
+export interface PushCampaign { readiness: { ok: true } | { ok: false; error: string }; id: string; active: boolean; ended: boolean; goalId: string | null; from: number | null; until: number | null; fingerprint: string; settings: PushSettings; goalEvent: string | null; variants: { id: string; weight: number; content: PushContent }[] }
 export interface Recipient { id: string; externalId: string; traits: Record<string, unknown> }
 export interface UserPush { id: string; campaignId: string; userId: string; externalId: string; variantId: string; goalEvent: string | null; test: boolean }
 export interface DeviceTarget {
@@ -16,7 +16,7 @@ export interface AttemptOutcome { slotId: string; submission: "none" | "confirme
 export interface Observation { slotId: string | null; id: string; campaignId: string; installationId: string; bindingGeneration: number; sequence: number; command: PushCommand; digest: string; userId: string; order: number; receivedAt: number }
 export interface PushConversion { id: string; campaignId: string; deliveryId: string; userId: string; eventId: string; engagementId: string; order: number; convertedAt: number }
 export interface PushEvent { productEventId: string; fingerprint: string; id: string; campaignId: string; userId: string; name: string; order: number; receivedAt: number }
-export type WaitReason = "campaign_paused" | "not_started" | "audience" | "consent" | "no_eligible_installation" | "personalization" | "credential_missing" | "credential_repair" | "capability_mismatch" | "assigned_variant_unavailable" | "payload_invalid" | "reservation_pending" | "installation_changed" | "serving_gate_closed";
+export type WaitReason = "campaign_not_ready" | "campaign_paused" | "not_started" | "audience" | "consent" | "no_eligible_installation" | "personalization" | "credential_missing" | "credential_repair" | "capability_mismatch" | "assigned_variant_unavailable" | "payload_invalid" | "reservation_pending" | "installation_changed" | "serving_gate_closed";
 export type WorkState = { kind: "waiting"; reason: WaitReason; checkedAt: number; recheckAt: number; delayMs: number } | { kind: "active" } | { kind: "closed"; reason: string };
 export interface RecipientWork {
   id: string; campaignId: string; userId: string; externalId: string; variantId: string;

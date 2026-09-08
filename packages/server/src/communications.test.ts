@@ -67,7 +67,8 @@ async function fixture() {
   const projectId = "communication_" + randomUUID();
   let now = 1_770_000_000_000; let failing = "";
   const period = () => Math.floor(now / 86400000);
-  const product = await createPostgresProduct({ connectionString: url.href, projectId, now: () => now });
+  const encryptionKey = randomBytes(32).toString("base64");
+  const product = await createPostgresProduct({ connectionString: url.href, projectId, now: () => now, pushEncryptionKey: encryptionKey });
   cleanup.push(() => product.close());
   const app = createApp(product.handlers);
   async function call(path: string, body?: object, sdk = false, method = body ? "POST" : "GET") {
@@ -104,9 +105,9 @@ async function fixture() {
   const sent: PushEnvelope[] = [];
   type PushTx = ReturnType<typeof pushTransaction<FixtureData>>;
   const host: PushHost<PushTx> = {
-    projectId, now: () => now, vault: createEncryptedVault(randomBytes(32).toString("base64")),
+    projectId, now: () => now, vault: createEncryptedVault(encryptionKey),
     provider: { send: async (_credential, _installation, envelope) => { sent.push(envelope); return { kind: "accepted", providerId: "fixture-only" }; } },
-    store: { transaction: (work) => withData((data) => work(pushTransaction(data, effects))) },
+    store: { transaction: (work) => withData((data) => work(pushTransaction(data, effects, { projectId, vault: host.vault, media: product.media }))) },
     maySend: async (tx) => { expect(tx.data.executor.isTransaction).toBe(true); return true; },
     recordAcceptance: async (tx, value) => {
       expect(await tx.data.executor.selectFrom("push_records").select("id").where("project_id", "=", projectId).where("kind", "=", "outcome").where("id", "=", value.id).executeTakeFirst()).toBeDefined();

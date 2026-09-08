@@ -1,3 +1,6 @@
+import { assertCommunicationSchema } from "./schema-readiness.js";
+import { lockProject } from "./project-fence.js";
+import { createPostgresActivationData } from "./activation/postgres.js";
 import type {
   AgentRuns,
   AudienceVersions,
@@ -108,7 +111,16 @@ export type PostgresProductOptions = LocalProductOptions & {
 import { PostgresCommunicationData, type CommunicationDB } from "./postgres-communications.js";
 import { agentRunFromRow, audienceVersionFromRow, campaignAudienceColumns, containsPattern, deliveryFromRow, eventFromRow, goalFromRow, integer, segmentFromRow, userFromRow } from "./postgres-product-rows.js";
 class PostgresProductSession extends PostgresCommunicationData implements ProductStoreSession {
-  constructor(protected readonly productDatabase: Database, projectId: string) { super(productDatabase.$pickTables<keyof CommunicationDB>(), projectId); }
+  readonly activation: ReturnType<typeof createPostgresActivationData>;
+  constructor(protected readonly productDatabase: Database, projectId: string) {
+    super(productDatabase.$pickTables<keyof CommunicationDB>(), projectId);
+    this.activation = createPostgresActivationData(productDatabase.$pickTables<keyof ProductDB>(), projectId);
+  }
+  async listActivationCampaignIds(after: string, limit: number) {
+    const rows = await this.productDatabase.selectFrom("campaigns").select("id").where("project_id", "=", this.projectId)
+      .where("id", ">", after).orderBy("id").limit(limit).execute();
+    return rows.map((row) => row.id);
+  }
   async queryUsers(input: UserQuery) {
     const filtered = () => {
       let query = this.productDatabase.selectFrom("end_users").where("project_id", "=", this.projectId);
@@ -1042,16 +1054,7 @@ class PostgresProductSession extends PostgresCommunicationData implements Produc
     return rows.map(audienceVersionFromRow);
   }
 
-  async getSegmentVersion(segmentId: string, version: number) {
-    const row = await this.productDatabase
-      .selectFrom("audience_versions")
-      .selectAll()
-      .where("project_id", "=", this.projectId)
-      .where("segment_id", "=", segmentId)
-      .where("segment_version", "=", version)
-      .executeTakeFirst();
-    return row ? audienceVersionFromRow(row) : null;
-  }
+
 }
 
 class PostgresProductStore extends PostgresProductSession implements ProductStore {
@@ -1063,7 +1066,10 @@ class PostgresProductStore extends PostgresProductSession implements ProductStor
   }
 
   async transaction<T>(work: (store: ProductStoreSession) => Promise<T>) {
-    return this.rootDatabase.transaction().execute((transaction) => work(new PostgresProductSession(transaction, this.projectId)));
+    return this.rootDatabase.transaction().execute(async (transaction) => {
+      await lockProject(transaction, this.projectId);
+      return work(new PostgresProductSession(transaction, this.projectId));
+    });
   }
 
   async withReadSnapshot<T>(work: (store: ProductStoreAccess) => Promise<T>) {
@@ -1086,6 +1092,13 @@ export async function createPostgresProductStore(options: PostgresProductOptions
     }),
   });
   try {
+    try {
+      const versions = await database.selectFrom("product_schema_versions").select("version").execute();
+      if (versions.length !== 1 || versions[0].version !== "activation-1") throw new Error("Unsupported schema version");
+    } catch {
+      throw new Error("Unsupported product schema. Apply packages/server/migrations/activation-1.sql before starting the server.");
+    }
+    await assertCommunicationSchema(database);
     await database
       .insertInto("projects")
       .values({ id: projectId, name: projectId, created_at: (options.now ?? Date.now)() })

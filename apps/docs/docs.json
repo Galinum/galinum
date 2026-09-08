@@ -64,6 +64,12 @@
             "pages": [
               "communication-transactions"
             ]
+          },
+          {
+            "group": "Self-host activation",
+            "pages": [
+              "self-host/activation"
+            ]
           }
         ]
       },

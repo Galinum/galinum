@@ -31,6 +31,13 @@ export class MemoryPushRecords implements PushPersistence {
   private readonly projections = new Map<string, Projection>();
   private readonly indices = new Map<string, Set<string>>();
   private readonly undo = new Map<string, { kind: RecordKind; record: unknown }>();
+  clone(): MemoryPushRecords {
+    const copy = new MemoryPushRecords();
+    for (const [key, record] of this.records) copy.records.set(key, record);
+    for (const [key, projection] of this.projections) copy.projections.set(key, projection);
+    for (const [key, ids] of this.indices) copy.indices.set(key, new Set(ids));
+    return copy;
+  }
   begin() { this.undo.clear(); }
   commit() { this.undo.clear(); }
   rollback() { for (const [key, old] of this.undo) this.set(key, old.kind, old.record as PushRecords[RecordKind] | undefined); this.undo.clear(); }

@@ -1,0 +1,233 @@
+---
+title: "Self-hosted deployment activation"
+description: "Configure your GitHub App, declare prepared changes, and review campaigns through the stock operator HTTP controls."
+---
+
+The stock server can launch approved, prepared web in-app campaigns from GitHub
+Deployments. It supplies the same workflow with in-memory or Postgres storage.
+You do not need hosted automatic drafting, a custom activation callback, or
+another dashboard. Your agent prepares campaigns through the management API;
+a separate operator configures sources and scope and records approval.
+
+## Upgrade an existing database
+
+Before starting the server against a database created with the previous schema,
+apply each missing packaged upgrade in order. From a source checkout without
+installation, push, in-app or activation tables:
+
+```sh
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f packages/server/upgrades/installations.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f packages/server/upgrades/push.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f packages/server/upgrades/inapp.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f packages/server/migrations/activation-1.sql
+```
+
+The server package tarball includes `migrations/activation-1.sql` alongside
+`schema.sql`. For a packaged installation, use that extracted migration path.
+The migration records schema version `activation-1`; the server checks this
+version and the required communication tables, constraints and indexes before startup.
+Apply only missing steps; do not rerun an already-applied upgrade or manually stamp the version.
+A version row alone does not install the communication schema.
+
+A fresh database initialized with the current `schema.sql` already includes
+`activation-1`. Do not apply the migration twice. Existing Compose database
+volumes need the upgrade; initialization scripts do not update them.
+
+The upgrade preserves existing campaigns, deliveries, and lifecycle timestamps.
+It creates no synthetic approvals, source associations, or launch receipts,
+and it does not launch campaigns. From a source checkout, run
+`pnpm verify:activation-upgrade` to rehearse the upgrade with disposable databases.
+
+## Configure the server
+
+Create and install your own GitHub App on the repositories you will track.
+Grant **Contents: read-only**, **Pull requests: read-only**, and
+**Deployments: read-only** repository permissions. Existing installations must
+accept requested permission updates before the new access takes effect.
+
+Configure these server environment variables through your service's secret
+configuration. Do not print them or commit their values.
+
+| Variable | Value |
+| --- | --- |
+| `GALINUM_OPERATOR_KEY` | A separate operator bearer secret, different from both management and publishable keys |
+| `GALINUM_GITHUB_APP_ID` | Your GitHub App's numeric App ID |
+| `GALINUM_GITHUB_CLIENT_ID` | Your GitHub App's client ID |
+| `GALINUM_GITHUB_PRIVATE_KEY` | Your GitHub App's PEM private key |
+
+Set all three GitHub variables together. The server rejects an operator key
+that equals a management or publishable key. It never derives or prints the
+operator key. Keep that key out of the agent environment and MCP configuration.
+
+Start the stock server with your chosen memory or Postgres configuration.
+Its worker polls GitHub and repairs missed deployment observations. No webhook
+registration is required.
+
+The examples use `$GALINUM_API_BASE` for your server origin,
+`$GALINUM_SECRET_KEY` for management, and `$GALINUM_OPERATOR_KEY` for operator
+HTTP. Operator controls are separate from agent MCP and the agent management API.
+
+## Register a source
+
+Inspect safe settings with `GET /operator/shipping`. It accepts either operator
+or management bearer authentication. The response contains `sources`, `mappings`,
+and project `controls: { paused, revision }`, plus the launch policy.
+Credentials are not included.
+
+```bash
+curl "$GALINUM_API_BASE/operator/shipping" \
+  -H "Authorization: Bearer $GALINUM_OPERATOR_KEY"
+```
+
+Choose a project-scoped source ID and register its repository and branch.
+Before automatic launch, Galinum verifies that each commit belongs to that
+branch and each pull request targets it. A deployment alone cannot establish
+the source association. Branch changes after launch do not erase the recorded
+requirements or hide a later verified deployment rollback.
+`installationId` and `repositoryId` are GitHub numeric IDs, not names.
+Use revision `"0"` for a new source; use its returned `revision` for updates.
+
+```bash
+curl -X PUT "$GALINUM_API_BASE/operator/sources/product-main" \
+  -H "Authorization: Bearer $GALINUM_OPERATOR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "expectedRevision": "0",
+    "installationId": 123,
+    "repositoryId": 456,
+    "owner": "example",
+    "name": "product",
+    "branch": "main",
+    "enabled": true,
+    "paused": false
+  }'
+```
+
+Replace the example IDs and repository with your installation. Enabling or
+rebinding a source verifies repository and branch access. It does not crawl
+changes or draft campaigns.
+
+## Confirm a deployment scope
+
+Create a mapping with `POST /operator/mappings`. The operator must select the
+exact environment, source set, and scope. `repositoryId` is a string here.
+Use `null` for both `id` and `expectedVersion` on creation.
+
+```bash
+curl -X POST "$GALINUM_API_BASE/operator/mappings" \
+  -H "Authorization: Bearer $GALINUM_OPERATOR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": null,
+    "expectedVersion": null,
+    "repositoryId": "456",
+    "environment": "production",
+    "sourceIds": ["product-main"],
+    "scopeDescription": "The production web application served to all customers",
+    "confirmed": true
+  }'
+```
+
+The response is the mapping ID as a JSON string. Inspect `/operator/shipping`
+for its version before editing. Changes require its current `id` and
+`expectedVersion`. Confirmation time and actor are assigned by the server;
+request fields cannot manufacture them. Saving a mapping can make existing
+approved automatic drafts eligible.
+
+## Declare prepared changes
+
+Create the campaign through ordinary management HTTP. Content and source
+associations are one atomic write. This example declares a direct commit;
+replace its SHA with the actual full lowercase commit SHA.
+
+```bash
+curl -X POST "$GALINUM_API_BASE/api/v1/campaigns" \
+  -H "Authorization: Bearer $GALINUM_SECRET_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "CSV export",
+    "message": { "title": "CSV export is ready", "presentation": "toast" },
+    "sourceChanges": {
+      "changes": [{
+        "sourceId": "product-main",
+        "kind": "commit",
+        "sha": "0123456789abcdef0123456789abcdef01234567"
+      }]
+    }
+  }'
+```
+
+For a PR bundle, use `{ "sourceId": "product-main", "kind": "pull_request",
+"number": 42, "shas": ["<full-original-commit-sha>"] }` instead. Supply every
+required original commit SHA, up to 250 per PR bundle. The provider verifies the merged bundle and
+its deployed representation, including merge, squash, and rebase results.
+
+Campaign detail returns complete `sourceChanges: { revision, changes }` arrays.
+Read projections do not apply the ordinary write-size limits or truncate source
+associations. To replace the
+declaration, send `{ "expectedRevision": "<current-source-revision>",
+"changes": [...] }` in PATCH `sourceChanges`, alongside the content changes.
+Omission preserves the declaration. Empty changes block automatic launch.
+Source-managed preparations reject generic association replacement with `409`
+before changing copy; use their existing source workflow.
+
+## Review and approve
+
+Read `GET /operator/campaigns/{id}/review` with the operator key. It returns
+`{ campaignId, definition, requirements, sources, approval, revision }` as one
+current review snapshot. Inspect both content and associated sources.
+
+Approve exactly that review revision:
+
+```bash
+curl -X POST "$GALINUM_API_BASE/operator/campaigns/$CAMPAIGN_ID/approve" \
+  -H "Authorization: Bearer $GALINUM_OPERATOR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "expectedRevision": "<review-revision>" }'
+```
+
+Approval returns the current review snapshot. A changed review returns `409`;
+read and assess the new snapshot before approving. Review, source declaration,
+mode, source configuration, and mapping revisions are separate preconditions.
+Never substitute one for another.
+
+Approval records operator authority, not proof that a human personally sent the
+request. Bodies cannot supply approval actors or timestamps. Ordinary management
+and hosted-agent credentials cannot approve. Later content/source edits retain
+approval; launch still requires current deployment coverage and channel readiness.
+
+## Observe activation and control automation
+
+Read `/api/v1/launch-policy` and `/api/v1/campaigns/{id}/activation` through
+management HTTP. The project default starts as `automatic`; a `null` campaign
+override inherits it. Mode PATCH requests keep their existing revision checks.
+See the [activation API reference](/api/overview#prepared-campaigns-and-deployment-activation).
+
+Current channel readiness must succeed at launch. Missing or failed readiness
+blocks activation. The stock web in-app channel checks current campaign content,
+variants, and audience. An earlier readiness inspection is not a launch permit.
+Once all required mapped changes are deployed and approval is present, the worker
+can launch the campaign. A future delivery window delays delivery, not activation.
+
+| Operator request | Strict body and result |
+| --- | --- |
+| `PATCH /operator/shipping` | `{ expectedRevision: string, paused: boolean }`; returns updated project controls |
+| `PUT /operator/sources/{id}` | The complete source body above, with current revision; use `paused` to pause that source |
+| `POST /operator/mappings` | The complete mapping body above; returns a mapping-ID JSON string |
+| `DELETE /operator/mappings/{id}` | `{ expectedVersion: string }`; removes the active mapping and returns `204`, retaining historical evidence |
+| `GET /operator/campaigns/{id}/review` | No body; returns the current review snapshot |
+| `POST /operator/campaigns/{id}/approve` | `{ expectedRevision: string }`; returns the reviewed snapshot |
+
+All these controls require the configured operator bearer. Bodies reject unknown
+fields, including supplied actors and timestamps. Stale preconditions return
+`409`; malformed input returns `400`, wrong credentials `401`, and temporary
+provider failures can return `503`. Read current state after an
+uncertain write before deciding whether to retry.
+
+Use manual mode for feature flags, gradual rollouts, and unclear mappings.
+Manual launch retains its readiness and lifecycle checks without deployment
+coverage or automatic approval gates. Rollback/revert warnings appear on the
+campaign and in agent activity after deterministic coverage loss, including
+after manual launch. They do not pause delivery or send email. Unknown evidence
+remains unresolved; it is not proof of rollback. See [GitHub integration](/github)
+for complete coverage, retry, and warning behavior.

@@ -22,8 +22,8 @@ async function database(connectionString = process.env.DATABASE_URL!) {
   expect(["127.0.0.1", "::1"]).toContain(target.rows[0].address);
   return { url, pool };
 }
-async function fixture(mode: "memory" | "postgres", settings: { capability?: string; connectionString?: string } = {}) {
-  const projectId = `installation_${randomUUID()}`;
+async function fixture(mode: "memory" | "postgres", settings: { capability?: string; connectionString?: string; projectId?: string } = {}) {
+  const projectId = settings.projectId ?? `installation_${randomUUID()}`;
   let clock = 1000;
   const options = { projectId, secretKey: `secret_${randomUUID()}`, publishableKey: `pub_${randomUUID()}`, now: () => clock, sdkRateLimit: { perMinute: 5000, perHour: 10000 } };
   let store;
@@ -310,9 +310,10 @@ postgresUpgrade("installation upgrade", () => {
     cleanup.push(() => legacy.end());
     const schema = readFileSync(new URL("../schema.sql", import.meta.url), "utf8");
     const upgrade = readFileSync(new URL("../upgrades/installations.sql", import.meta.url), "utf8");
-    await legacy.query(schema.slice(0, schema.indexOf("CREATE TABLE installations (")));
-    const f = await fixture("postgres", { connectionString: url.href });
-    await f.identify("existing-user");
+    await legacy.query(schema.slice(0, schema.indexOf("CREATE TABLE installations (")).replace("  push_json text,\n", ""));
+    const projectId = `preserved_${randomUUID()}`;
+    await legacy.query("INSERT INTO projects(id,name,created_at) VALUES ($1,'Preserved',1)", [projectId]);
+    await legacy.query("INSERT INTO end_users(id,project_id,external_user_id,traits_json,first_seen_at,last_seen_at) VALUES ('existing',$1,'existing-user','{}',1,1)", [projectId]);
     const before = await legacy.query("SELECT * FROM end_users ORDER BY id");
     const projectsBefore = await legacy.query("SELECT * FROM projects ORDER BY id");
     const client = await legacy.connect();
@@ -324,6 +325,9 @@ postgresUpgrade("installation upgrade", () => {
     await legacy.query(upgrade);
     expect((await legacy.query("SELECT * FROM end_users ORDER BY id")).rows).toEqual(before.rows);
     expect((await legacy.query("SELECT * FROM projects ORDER BY id")).rows).toEqual(projectsBefore.rows);
+    await expect(createPostgresProductStore({ connectionString: url.href, projectId })).rejects.toThrow("activation-1.sql");
+    for (const path of ["../upgrades/push.sql", "../upgrades/inapp.sql", "../migrations/activation-1.sql"]) await legacy.query(readFileSync(new URL(path, import.meta.url), "utf8"));
+    const f = await fixture("postgres", { connectionString: url.href, projectId });
     let { state } = await f.create();
     state = await f.mutate(state, "binding", { userId: "existing-user" });
     state = await f.mutate(state, "token", { token: "upgraded-token", tokenRevision: 0 });

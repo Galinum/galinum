@@ -15,7 +15,8 @@ describe("self-host example", () => {
 
   it("initializes only the product schema", () => {
     assert.match(compose, /packages\/server\/schema\.sql/);
-    assert.doesNotMatch(compose, /galinum-cloud|org_billing|STRIPE_|RESEND_|R2_/);
+    const initializationScripts = [...compose.matchAll(/([^\s:]+\.sql):\/docker-entrypoint-initdb.d\//g)].map(match => match[1]);
+    assert.deepEqual(initializationScripts, ["../../packages/server/schema.sql"]);
   });
 
   it("keeps the published media origin aligned with the bound port", () => {
@@ -36,6 +37,23 @@ describe("self-host example", () => {
     }
     for (const path of ["package.json", "pnpm-lock.yaml", "packages/core/src/index.ts", "packages/server/schema.sql", "packages/server/src/cli.ts"]) {
       assert.equal(allowed.has(path), true, path);
+    }
+  });
+
+  it("includes every workspace dependency manifest needed to build the server", () => {
+    const registry = JSON.parse(readFileSync(new URL("../release/packages.json", import.meta.url), "utf8"));
+    const packages = new Map(registry.packages.map(entry => {
+      const manifest = JSON.parse(readFileSync(new URL(`../${entry.path}/package.json`, import.meta.url), "utf8"));
+      return [manifest.name, { ...entry, manifest }];
+    }));
+    const required = new Set(["@galinum/server"]);
+    const allowed = new Set(dockerignore.trim().split("\n"));
+    for (const name of required) {
+      const entry = packages.get(name);
+      assert.ok(entry, name);
+      assert.ok(allowed.has(`!${entry.path}/package.json`), `${name} package manifest is missing from the Docker context`);
+      const dependencies = { ...entry.manifest.dependencies, ...entry.manifest.devDependencies, ...entry.manifest.optionalDependencies };
+      for (const [dependency, version] of Object.entries(dependencies)) if (version.startsWith("workspace:")) required.add(dependency);
     }
   });
 

@@ -5,7 +5,7 @@ export type CommunicationData = Pick<ProductStoreSession,
   "insertPushRecord" | "savePushControl" | "pushTotals" | "lockInstallations" | "getInstallation" |
   "listInstallations" | "saveInstallation" | "getTokenOwner" | "getInstallationReplay" | "saveInstallationReplay" |
   "identifyUser" | "touchUser" | "getUserById" | "getUserByExternalId" | "insertEvent" | "loadAudienceFacts" |
-  "listConversionCandidatesForUpdate" | "getGoal" | "getCampaign" | "queryCampaigns" | "getOrCreateDelivery" |
+  "listConversionCandidatesForUpdate" | "getGoal" | "getSegmentVersion" | "getCampaign" | "queryCampaigns" | "getOrCreateDelivery" |
   "getDeliveryForUpdate" | "saveDelivery" | "findFirstEventAtOrAfter"
 >;
 export type ActivityFact =

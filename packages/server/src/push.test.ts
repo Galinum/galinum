@@ -139,7 +139,7 @@ for (const postgres of [false, true]) {
       const engine = createPushEngine({ projectId: f.product.projectId, vault: createEncryptedVault(f.options.pushEncryptionKey), now: f.options.now, maySend: f.options.pushMaySend, recordAcceptance: f.options.pushRecordAcceptance,
         provider: { async send(_credential, _installation, _envelope, expiry) { deadlines.push(expiry); return { kind: "accepted", providerId: "fixture" }; } },
         store: { async transaction(work) {
-          const result = await f.store.transaction((session) => work(pushTransaction(session)));
+          const result = await f.store.transaction((session) => work(pushTransaction(session, {}, { projectId: f.product.projectId, vault: createEncryptedVault(f.options.pushEncryptionKey), media: f.product.media })));
           if (++phases === 1) expect((await f.call(`/api/v1/campaigns/${c.id}`, "PATCH", { deliverUntil: until })).status).toBe(200);
           return result;
         } },
@@ -288,7 +288,7 @@ for (const postgres of [false, true]) {
       const f = await fixture(postgres); await f.install(); const c = await f.campaign();
       const [id] = await f.product.push.plan(c.id); let calls = 0;
       const engine = createPushEngine({ projectId: f.product.projectId, vault: createEncryptedVault(f.options.pushEncryptionKey), provider: f.options.pushProvider, now: f.options.now, maySend: f.options.pushMaySend, recordAcceptance: f.options.pushRecordAcceptance,
-        store: { async transaction(work) { if (++calls === 2) throw new Error("worker lost"); return f.store.transaction((session) => work(pushTransaction(session))); } },
+        store: { async transaction(work) { if (++calls === 2) throw new Error("worker lost"); return f.store.transaction((session) => work(pushTransaction(session, {}, { projectId: f.product.projectId, vault: createEncryptedVault(f.options.pushEncryptionKey), media: f.product.media }))); } },
       });
       await expect(engine.dispatch(id)).rejects.toThrow("worker lost");
       expect((await f.inspect(c.id)).devices).toMatchObject({ pendingOutcomes: 1, receiptUnknown: 0 });
@@ -475,7 +475,7 @@ for (const postgres of [false, true]) {
       const [targetId] = await f.product.push.plan(campaign.id);
       let calls = 0;
       const engine = createPushEngine({ projectId: f.product.projectId, vault: createEncryptedVault(f.options.pushEncryptionKey), provider: f.options.pushProvider, now: f.options.now, maySend: f.options.pushMaySend, recordAcceptance: f.options.pushRecordAcceptance,
-        store: { async transaction(work) { const result = await f.store.transaction((session) => work(pushTransaction(session))); if (++calls === 1) f.advance(31000); return result; } },
+        store: { async transaction(work) { const result = await f.store.transaction((session) => work(pushTransaction(session, {}, { projectId: f.product.projectId, vault: createEncryptedVault(f.options.pushEncryptionKey), media: f.product.media }))); if (++calls === 1) f.advance(31000); return result; } },
       });
       await engine.dispatch(targetId);
       const stale = await f.inspect(campaign.id);

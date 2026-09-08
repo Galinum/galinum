@@ -1,3 +1,6 @@
+import type { CredentialVault } from "@galinum/push";
+import type { MediaStore } from "@galinum/core";
+import { campaignReadiness } from "./campaign-readiness.js";
 import { LIMITS, referencedVocabulary, type AudienceExpression } from "@galinum/core";
 import { digest, recordPushEvent, type PushContent, type PushTransaction, type Recipient } from "@galinum/push";
 import { randomUUID } from "node:crypto";
@@ -5,7 +8,7 @@ import { campaignMatches } from "./audience.js";
 import type { JsonObject } from "./local-product.js";
 
 import type { CommunicationData, CommunicationEffects } from "./communication-data.js";
-export function pushTransaction<Data extends CommunicationData>(session: Data, effects: CommunicationEffects<Data> = {}) {
+export function pushTransaction<Data extends CommunicationData>(session: Data, effects: CommunicationEffects<Data> = {}, configuration?: { projectId: string; vault: CredentialVault | null; media: MediaStore }) {
   const adapter: PushTransaction & { data: Data } = {
     data: session,
     lockInstallations: () => session.lockInstallations(),
@@ -23,7 +26,8 @@ export function pushTransaction<Data extends CommunicationData>(session: Data, e
       const campaign = await session.getCampaign(id);
       if (campaign?.channel !== "push" || !campaign.push) return null;
       const goal = campaign.goalId ? await session.getGoal(campaign.goalId) : null;
-      return { id, ended: campaign.status === "ended", goalId: campaign.goalId, active: campaign.status === "running" && (campaign.deliverFrom === null || campaign.deliverFrom <= now) && (campaign.deliverUntil === null || campaign.deliverUntil > now), from: campaign.deliverFrom, until: campaign.deliverUntil, fingerprint: digest({ variants: campaign.variants, push: campaign.push, audience: campaign.audience, goal: campaign.goalId, from: campaign.deliverFrom, until: campaign.deliverUntil }), settings: campaign.push, goalEvent: goal?.targetEvent ?? null, variants: campaign.variants.map((variant) => ({ id: variant.id, weight: variant.weight, content: JSON.parse(variant.content_json) as PushContent })) };
+      const readiness = configuration ? await campaignReadiness(session, campaign, configuration.media, configuration.projectId, configuration.vault) : { ok: false as const, error: "Push readiness configuration is required." };
+      return { id, readiness, ended: campaign.status === "ended", goalId: campaign.goalId, active: campaign.status === "running" && (campaign.deliverFrom === null || campaign.deliverFrom <= now) && (campaign.deliverUntil === null || campaign.deliverUntil > now), from: campaign.deliverFrom, until: campaign.deliverUntil, fingerprint: digest({ variants: campaign.variants, push: campaign.push, audience: campaign.audience, goal: campaign.goalId, from: campaign.deliverFrom, until: campaign.deliverUntil }), settings: campaign.push, goalEvent: goal?.targetEvent ?? null, variants: campaign.variants.map((variant) => ({ id: variant.id, weight: variant.weight, content: JSON.parse(variant.content_json) as PushContent })) };
     },
     async recipients(campaign, now, userId) {
       const source = await session.getCampaign(campaign.id);

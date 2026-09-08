@@ -1,4 +1,4 @@
-import { validateExpression } from "@galinum/core";
+import { validateExpression, type CampaignSourceChange, type CampaignSourceChanges } from "@galinum/core";
 import type {
   ActivityItem,
   ActivityListInput,
@@ -467,11 +467,29 @@ function campaignAudience(value: unknown): CampaignAudience | null {
     : null;
 }
 
+function campaignSources(value: unknown): CampaignSourceChanges | null {
+  const item = record(value);
+  if (!item || typeof item.revision !== "string" || !item.revision || !Array.isArray(item.changes)) return null;
+  const changes: CampaignSourceChange[] = [];
+  for (const value of item.changes) {
+    const change = record(value);
+    if (!change || typeof change.sourceId !== "string" || !change.sourceId || change.sourceId.length > 128) return null;
+    if (change.kind === "commit" && typeof change.sha === "string" && /^[a-f0-9]{40}$/.test(change.sha)) {
+      changes.push({ sourceId: change.sourceId, kind: "commit", sha: change.sha });
+    } else if (change.kind === "pull_request" && integer(change.number) && change.number > 0 && Array.isArray(change.shas)
+      && change.shas.length > 0 && change.shas.every(sha => typeof sha === "string" && /^[a-f0-9]{40}$/.test(sha))) {
+      changes.push({ sourceId: change.sourceId, kind: "pull_request", number: change.number, shas: change.shas });
+    } else return null;
+  }
+  return { revision: item.revision, changes };
+}
+
 function campaignDetail(value: unknown): CampaignDetail | null {
   const item = record(value);
   const summary = campaignSummary(value);
   const audience = campaignAudience(item?.audience);
-  if (!item || !summary || !audience || !Array.isArray(item.variants)) return null;
+  const sourceChanges = campaignSources(item?.sourceChanges);
+  if (!item || !summary || !audience || !sourceChanges || !Array.isArray(item.variants)) return null;
   const targeting = item.targeting === null ? null : record(item.targeting);
   if (targeting === null && item.targeting !== null) return null;
   if (item.pages !== null && (!Array.isArray(item.pages) || item.pages.some((entry) => typeof entry !== "string"))) return null;
@@ -501,6 +519,7 @@ function campaignDetail(value: unknown): CampaignDetail | null {
     ? null
     : {
         ...summary,
+        sourceChanges,
         audience,
         targeting,
         pages: item.pages as string[] | null,

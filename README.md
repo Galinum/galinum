@@ -5,8 +5,7 @@ the management API and distributable skill to create, target, launch, and
 measure timely messages.
 
 This monorepo owns the reusable product, public contracts, and a
-single-project self-host server. Galinum Cloud consumes exact product releases
-and owns its own billing, tenancy, and operations.
+single-project self-host server.
 
 ## Repository map
 
@@ -68,7 +67,7 @@ docker compose -f examples/self-host/compose.yaml up --build
 ```
 
 The current self-host path supports web in-app campaigns, push delivery, and the installation
-lifecycle API documented in `apps/docs/sdk/installations.mdx`. It does not include Galinum Cloud organizations, billing, managed email delivery, hosted-agent scheduling, backups, or operations.
+lifecycle API documented in `apps/docs/sdk/installations.mdx`. It does not provide managed hosting, email delivery, backups, or organization billing.
 
 ## License
 

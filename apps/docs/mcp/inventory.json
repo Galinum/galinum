@@ -32,6 +32,10 @@
     { "name": "set_campaign_status", "operationId": "setCampaignStatus", "readOnlyHint": false, "destructiveHint": true, "idempotentHint": false, "openWorldHint": true },
     { "name": "update_goal", "operationId": "updateGoal", "readOnlyHint": false, "destructiveHint": true, "idempotentHint": false, "openWorldHint": true },
     { "name": "update_segment", "operationId": "updateSegment", "readOnlyHint": false, "destructiveHint": true, "idempotentHint": false, "openWorldHint": true },
-    { "name": "archive_segment", "operationId": "archiveSegment", "readOnlyHint": false, "destructiveHint": true, "idempotentHint": false, "openWorldHint": true }
+    { "name": "archive_segment", "operationId": "archiveSegment", "readOnlyHint": false, "destructiveHint": true, "idempotentHint": false, "openWorldHint": true },
+    { "name": "get_launch_policy", "operationId": "getLaunchPolicy", "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": true },
+    { "name": "set_launch_policy", "operationId": "setLaunchPolicy", "readOnlyHint": false, "destructiveHint": true, "idempotentHint": false, "openWorldHint": true },
+    { "name": "get_campaign_activation", "operationId": "getCampaignActivation", "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": true },
+    { "name": "set_campaign_activation_mode", "operationId": "setCampaignActivationMode", "readOnlyHint": false, "destructiveHint": true, "idempotentHint": false, "openWorldHint": true }
   ]
 }

@@ -1,3 +1,5 @@
+import { posix } from "node:path";
+
 const allowedImports = [
   "react",
   "@galinum/core",
@@ -34,9 +36,6 @@ function matchesPrefix(specifier, values) {
 export function dashboardBoundaryFailures(name, contents, clientDirective) {
   const failures = [];
   if (/@\//.test(contents)) failures.push(name + " contains a cloud alias");
-  if (/galinum-cloud|app\/(?:cloud|lib)\//.test(contents)) {
-    failures.push(name + " contains a cloud source path");
-  }
   if (/\bprocess\.env\b|\bimport\.meta\.env\b/.test(contents)) {
     failures.push(name + " reads the environment");
   }
@@ -50,7 +49,11 @@ export function dashboardBoundaryFailures(name, contents, clientDirective) {
     failures.push(name + " is missing its client directive");
   }
   for (const specifier of importSpecifiers(contents)) {
-    if (specifier.startsWith(".")) continue;
+    if (specifier.startsWith(".")) {
+      const target = posix.normalize(posix.join(posix.dirname(name), specifier));
+      if (!target.startsWith("packages/dashboard/")) failures.push(name + " imports outside the dashboard package " + specifier);
+      continue;
+    }
     if (matchesPrefix(specifier, providerImports)) {
       failures.push(name + " imports provider package " + specifier);
     } else if (matchesPrefix(specifier, databaseImports)) {

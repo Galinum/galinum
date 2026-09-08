@@ -1,12 +1,26 @@
+import { campaignReadiness } from "./campaign-readiness.js";
+import { campaignAudienceView } from "./campaign-audience-view.js";
+import { createEncryptedVault, type CredentialVault } from "@galinum/push";
+import { configuredPushReadiness } from "./push-readiness.js";
 import { installationSchemas, validateSchema } from "@galinum/contracts";
 import { destinationUrl } from "@galinum/contracts/entry";
+import { campaignDefinitionReadiness } from "./activation/readiness.js";
+import { campaignContent } from "./activation/requirements.js";
+import type { ProductActivationData } from "./activation/store.js";
+import { MemoryActivationData } from "./activation/memory.js";
+import { createActivationService, ActivationError } from "./activation/service.js";
+import { createStockRepository, createStockSession, saveSourceChanges, preparedSources, invalidateStockDefinition } from "./activation/stock.js";
+import { createActivationWorker } from "./activation/worker.js";
+import { createOperatorHandler, validateOperatorKey } from "./activation/operator.js";
+import { createGitHubProvider, createGithubShippingProvider, type ShippingProvider } from "./github/index.js";
 import {
   createInAppService, deliveredContent,
   evaluateExpression, InAppError, legacyTargetingToExpression,
   LIMITS, referencedVocabulary, validatePages,
   validateTargeting,
   type AudienceExpression,
-  type DeliveryFeedback, type InAppFeedbackRecord, type InAppHost, type InAppPersistence, type MediaStore
+  type DeliveryFeedback, type InAppFeedbackRecord, type InAppHost, type InAppPersistence, type MediaStore,
+  type LaunchReadiness, type CampaignSourceChanges,
 } from "@galinum/core";
 import { MemoryPushRecords, PushError, validatePushContent, validatePushSettings, type AcceptanceFact, type PushPersistence, type PushProvider, type PushQuery, type PushRecords, type PushSettings, type PushTransaction, type RecordKind } from "@galinum/push";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -298,6 +312,8 @@ export type CampaignStats = { total: DeliveryStats; variants: Map<string, Delive
 
 export interface ProductStoreAccess extends InstallationAccess, PushPersistence, InAppPersistence {
   queryPushUsers(afterId: string | null, limit: number): Promise<ProductUser[]>;
+  activation: ProductActivationData;
+  listActivationCampaignIds(after: string, limit: number): Promise<string[]>;
   identifyUser(externalId: string, traits: JsonObject, now: number): Promise<ProductUser>;
   getUserById(id: string): Promise<ProductUser | null>;
   getUserByExternalId(externalId: string): Promise<ProductUser | null>;
@@ -363,6 +379,12 @@ export interface ProductStore extends ProductStoreAccess {
   close(): Promise<void>;
 }
 
+type CampaignDefinitionSnapshot = { campaign: ProductCampaign; sourceChanges: CampaignSourceChanges };
+
+async function captureCampaignDefinition(session: ProductStoreAccess, campaign: ProductCampaign): Promise<CampaignDefinitionSnapshot> {
+  return { campaign, sourceChanges: await preparedSources(session.activation, campaign.id) };
+}
+
 export type LocalProductOptions = {
   communicationEffects?: CommunicationEffects<ProductStoreSession>;
   inAppMayServe?: InAppHost["mayServe"];
@@ -371,6 +393,10 @@ export type LocalProductOptions = {
   pushProvider?: PushProvider;
   pushMaySend?: (transaction: PushTransaction, userId: string, now: number) => Promise<boolean>;
   pushRecordAcceptance?: (transaction: PushTransaction, fact: AcceptanceFact) => Promise<void>;
+  operatorKey?: string;
+  github?: Parameters<typeof createGitHubProvider>[0];
+  activationProvider?: ShippingProvider;
+  activationWorkerIntervalMs?: number;
   projectId?: string;
   secretKey?: string;
   publishableKey?: string;
@@ -611,28 +637,6 @@ function segmentDetailView(segment: ProductSegment, version: ProductAudienceVers
   };
 }
 
-function campaignAudienceView(audience: ProductCampaignAudience) {
-  if (audience.kind === "all") return audience;
-  if (audience.kind === "invalid") return { kind: audience.kind, audienceVersionId: audience.audienceVersionId };
-  const expression = JSON.parse(audience.expressionJson) as AudienceExpression;
-  return {
-    kind: audience.kind === "legacy" ? "expression" : audience.kind,
-    audienceVersionId: audience.audienceVersionId,
-    ...(audience.kind === "segment"
-      ? {
-          segmentId: audience.segmentId,
-          segmentKey: audience.segmentKey,
-          segmentVersion: audience.segmentVersion,
-        }
-      : {}),
-    schemaVersion: audience.schemaVersion,
-    expression,
-    expressionHash: audience.expressionHash,
-    summary: audience.summary,
-    reason: audience.reason,
-    ...(audience.kind === "expression" || audience.kind === "legacy" ? { legacy: audience.kind === "legacy" } : {}),
-  };
-}
 
 
 function deliveryView(delivery: ProductDelivery, user: ProductUser, variant: ProductVariant) {
@@ -702,32 +706,11 @@ function countDelivery(stats: DeliveryStats, delivery: ProductDelivery) {
 }
 
 export type CampaignEffectiveStatus = "draft" | "scheduled" | "running" | "paused" | "expired" | "ended";
-type CampaignAction = "launch" | "pause" | "end";
 
 function effectiveStatus(campaign: ProductCampaign, now: number): CampaignEffectiveStatus {
   if ((campaign.status === "running" || campaign.status === "paused") && campaign.deliverUntil !== null && campaign.deliverUntil <= now) return "expired";
   if (campaign.status === "running" && campaign.deliverFrom !== null && campaign.deliverFrom > now) return "scheduled";
   return campaign.status;
-}
-
-const CAMPAIGN_TRANSITIONS: Record<CampaignEffectiveStatus, Partial<Record<CampaignAction, ProductCampaign["status"]>>> = {
-  draft: { launch: "running", end: "ended" },
-  scheduled: { pause: "paused", end: "ended" },
-  running: { pause: "paused", end: "ended" },
-  paused: { launch: "running", end: "ended" },
-  expired: { end: "ended" },
-  ended: {},
-};
-
-function transitionCampaign(campaign: ProductCampaign, action: CampaignAction, transitionedAt: number) {
-  const status = CAMPAIGN_TRANSITIONS[effectiveStatus(campaign, transitionedAt)][action];
-  if (!status) return null;
-  return {
-    ...campaign,
-    status,
-    startedAt: action === "launch" ? campaign.startedAt ?? transitionedAt : campaign.startedAt,
-    endedAt: action === "end" ? transitionedAt : campaign.endedAt,
-  };
 }
 
 const deliveryStates = new Set<ProductDelivery["state"]>([
@@ -810,11 +793,31 @@ function validCtaUrl(value: string) {
   }
 }
 
+export function stockDefinition(campaign: ProductCampaign) {
+  return campaignContent({ name: campaign.name, channel: campaign.channel, goalId: campaign.goalId,
+    ...(campaign.channel === "push" ? { push: campaign.push } : {}),
+    deliverFrom: campaign.deliverFrom, deliverUntil: campaign.deliverUntil, pages: campaign.pages,
+    audience: campaignAudienceView(campaign.audience), targeting: campaign.audience.kind === "legacy" ? JSON.parse(campaign.audience.targetingJson) : null,
+    variants: campaign.variants.map(({ id, name, content_json, weight, isControl }) => ({ id, name, content: JSON.parse(content_json), weight, isControl })) });
+}
+
+export { campaignReadiness as stockWebReadiness } from "./campaign-readiness.js";
+
 export function createProduct(store: ProductStore, options: LocalProductOptions = {}) {
   const projectId = options.projectId ?? "local";
   const { secretKey, publishableKey } = resolveProductKeys(options);
   const now = options.now ?? Date.now;
   const media = options.media ?? new MemoryMediaStore();
+  validateOperatorKey(options.operatorKey, secretKey, publishableKey);
+  const github = options.github ? createGitHubProvider(options.github) : undefined;
+  const provider = options.activationProvider ?? (github ? createGithubShippingProvider(github) : undefined);
+  const pushVault = options.pushEncryptionKey ? createEncryptedVault(options.pushEncryptionKey) : null;
+  const stockOptions = { definition: stockDefinition, operatorSubject: "stock-operator", providerConfigured: Boolean(provider),
+    readiness: (session: ProductStoreAccess, campaign: ProductCampaign) => campaignReadiness(session, campaign, media, projectId, pushVault) };
+  const repository = createStockRepository(store, projectId, stockOptions);
+  const activation = createActivationService(repository, { provider, now });
+  const worker = createActivationWorker(repository, activation, { now, intervalMs: options.activationWorkerIntervalMs });
+  const operatorHandler = createOperatorHandler(store, activation, { ...stockOptions, projectId, operatorKey: options.operatorKey, secretKey, github });
   const sdkRateLimit = options.sdkRateLimit ?? DEFAULT_SDK_RATE_LIMIT;
   const managementRateLimit = options.managementRateLimit ?? DEFAULT_MANAGEMENT_RATE_LIMIT;
   const audienceUserBatchSize = options.audienceUserBatchSize ?? 200;
@@ -833,10 +836,11 @@ export function createProduct(store: ProductStore, options: LocalProductOptions 
     rateLimitRequests.set(bucket, recent);
     return { allowed: true as const };
   };
-  const campaignView = (campaign: ProductCampaign, stats: CampaignStats | undefined, evaluatedAt: number) => {
+  const campaignView = ({ campaign, sourceChanges }: CampaignDefinitionSnapshot, stats: CampaignStats | undefined, evaluatedAt: number) => {
     const campaignStats = stats?.total ?? emptyDeliveryStats();
     return {
       id: campaign.id,
+      sourceChanges,
       name: campaign.name,
       status: campaign.status,
       effectiveStatus: effectiveStatus(campaign, evaluatedAt),
@@ -1579,12 +1583,12 @@ export function createProduct(store: ProductStore, options: LocalProductOptions 
         const campaign: ProductCampaign = {
           id,
           name: input.name as string,
-          status: input.launch === true ? "running" : "draft",
+          status: "draft",
           channel: input.channel === "push" ? "push" : "web_inapp",
           ...(input.channel === "push" ? { push: input.push as PushSettings } : {}),
           goalId,
           createdAt,
-          startedAt: input.launch === true ? createdAt : null,
+          startedAt: null,
           endedAt: null,
           deliverFrom,
           deliverUntil,
@@ -1593,12 +1597,19 @@ export function createProduct(store: ProductStore, options: LocalProductOptions 
           variants,
         };
         await transaction.createCampaign(campaign);
-        return { ok: true as const, campaign };
+        await saveSourceChanges(transaction.activation, campaign.id, input.sourceChanges, { create: true, owner: "stock" });
+        await invalidateStockDefinition(transaction, stockOptions);
+        if (input.launch === true) {
+          const plan = await activation.transitionCampaign(createStockSession(transaction, stockOptions), campaign.id, "launch");
+          if (!plan.ok) throw new ActivationError(409, plan.error);
+          Object.assign(campaign, plan.lifecycle);
+        }
+        return { ok: true as const, ...await captureCampaignDefinition(transaction, campaign) };
       });
       if (!result.ok) return json({ error: result.error }, result.status);
       const evaluatedAt = now();
       const stats = await store.campaignStatsForCampaigns([result.campaign.id]);
-      return json({ campaign: campaignView(result.campaign, stats.get(result.campaign.id), evaluatedAt) }, 201);
+      return json({ campaign: campaignView(result, stats.get(result.campaign.id), evaluatedAt) }, 201);
     },
 
     async listCampaigns(request) {
@@ -1612,16 +1623,19 @@ export function createProduct(store: ProductStore, options: LocalProductOptions 
       const query = searchQuery(url);
       if (query === undefined) return json({ error: "Invalid q" }, 400);
       const evaluatedAt = now();
-      const page = await store.queryCampaigns({
-        effectiveStatus: status as CampaignEffectiveStatus | null,
-        query,
-        evaluatedAt,
-        offset: (pagination.page - 1) * pagination.perPage,
-        limit: pagination.perPage,
+      const page = await store.withReadSnapshot(async (snapshot) => {
+        const page = await snapshot.queryCampaigns({
+          effectiveStatus: status as CampaignEffectiveStatus | null,
+          query,
+          evaluatedAt,
+          offset: (pagination.page - 1) * pagination.perPage,
+          limit: pagination.perPage,
+        });
+        return { ...page, values: await Promise.all(page.values.map((campaign) => captureCampaignDefinition(snapshot, campaign))) };
       });
-      const stats = await store.campaignStatsForCampaigns(page.values.map((campaign) => campaign.id));
+      const stats = await store.campaignStatsForCampaigns(page.values.map(({ campaign }) => campaign.id));
       return json({
-        campaigns: page.values.map((campaign) => campaignView(campaign, stats.get(campaign.id), evaluatedAt)),
+        campaigns: page.values.map((captured) => campaignView(captured, stats.get(captured.campaign.id), evaluatedAt)),
         total: page.total,
         page: pagination.page,
         pageCount: pageCountFor(page.total, pagination.perPage),
@@ -1631,11 +1645,14 @@ export function createProduct(store: ProductStore, options: LocalProductOptions 
 
     async getCampaign(request, { params }) {
       if (!requireKey(request, secretKey)) return json({ error: "Unauthorized" }, 401);
-      const campaign = await store.getCampaign(params.id);
-      if (!campaign) return json({ error: "Campaign not found" }, 404);
+      const captured = await store.withReadSnapshot(async (snapshot) => {
+        const campaign = await snapshot.getCampaign(params.id);
+        return campaign ? captureCampaignDefinition(snapshot, campaign) : null;
+      });
+      if (!captured) return json({ error: "Campaign not found" }, 404);
       const evaluatedAt = now();
-      const stats = await store.campaignStatsForCampaigns([campaign.id]);
-      return json({ campaign: campaignView(campaign, stats.get(campaign.id), evaluatedAt), evaluatedAt });
+      const stats = await store.campaignStatsForCampaigns([captured.campaign.id]);
+      return json({ campaign: campaignView(captured, stats.get(captured.campaign.id), evaluatedAt), evaluatedAt });
     },
 
     async updateCampaign(request, { params }) {
@@ -1697,13 +1714,15 @@ export function createProduct(store: ProductStore, options: LocalProductOptions 
           const applied = applyVariantPatches(campaign, variantPatches.patches);
           if (!applied.ok) return { ok: false as const, status: 400, error: applied.error };
         }
+        await saveSourceChanges(transaction.activation, campaign.id, input.sourceChanges, { create: false, owner: "stock" });
         await transaction.saveCampaignContent(campaign);
-        return { ok: true as const, campaign };
+        await invalidateStockDefinition(transaction, stockOptions);
+        return { ok: true as const, ...await captureCampaignDefinition(transaction, campaign) };
       });
       if (!result.ok) return json({ error: result.error }, result.status);
       const evaluatedAt = now();
       const stats = await store.campaignStatsForCampaigns([result.campaign.id]);
-      return json({ campaign: campaignView(result.campaign, stats.get(result.campaign.id), evaluatedAt) });
+      return json({ campaign: campaignView(result, stats.get(result.campaign.id), evaluatedAt) });
     },
 
     async setCampaignStatus(request, { params }) {
@@ -1716,14 +1735,9 @@ export function createProduct(store: ProductStore, options: LocalProductOptions 
         await transaction.lockInstallations();
         const current = await transaction.getCampaignForUpdate(params.id);
         if (!current) return null;
-        const transitionedAt = now();
-        const status = effectiveStatus(current, transitionedAt);
-        const transitioned = action === "launch" && current.deliverUntil !== null && current.deliverUntil <= transitionedAt
-          ? null
-          : transitionCampaign(current, action, transitionedAt);
-        if (!transitioned) return { error: `Cannot ${action} a ${status} campaign.` } as const;
-        await transaction.saveCampaignLifecycle(transitioned);
-        return transitioned;
+        const plan = await activation.transitionCampaign(createStockSession(transaction, stockOptions), current.id, action);
+        if (!plan.ok) return { error: plan.error } as const;
+        return { ...current, ...plan.lifecycle };
       });
       if (!campaign) return json({ error: "Campaign not found" }, 404);
       if ("error" in campaign) return json({ error: campaign.error }, 409);
@@ -1981,6 +1995,22 @@ export function createProduct(store: ProductStore, options: LocalProductOptions 
   const push = createServerPush(store, { ...options, projectId, secretKey, publishableKey, now });
   Object.assign(rawHandlers, push.handlers);
   Object.assign(rawHandlers, installationHandlers(store, { publishableKey, secretKey, now }));
+  Object.assign(rawHandlers, {
+    getLaunchPolicy: async (request: Request) => requireKey(request, secretKey) ? json(await activation.getLaunchPolicy(projectId)) : json({ error: "Unauthorized" }, 401),
+    setLaunchPolicy: async (request: Request) => {
+      if (!requireKey(request, secretKey)) return json({ error: "Unauthorized" }, 401);
+      const parsed = await body(request);
+      return parsed.ok ? json(await activation.setLaunchPolicy(projectId, parsed.value)) : bodyError(parsed.status);
+    },
+    getCampaignActivation: async (request: Request, { params }: { params: Record<string, string> }) => requireKey(request, secretKey)
+      ? json(await activation.getCampaignActivation(projectId, params.id)) : json({ error: "Unauthorized" }, 401),
+    setCampaignActivationMode: async (request: Request, { params }: { params: Record<string, string> }) => {
+      if (!requireKey(request, secretKey)) return json({ error: "Unauthorized" }, 401);
+      const parsed = await body(request);
+      return parsed.ok ? json(await activation.setCampaignActivation(projectId, params.id, parsed.value)) : bodyError(parsed.status);
+    },
+  });
+
   const handlers: OperationHandlers = {};
   for (const operationId of Object.keys(rawHandlers) as OperationId[]) {
     const handler = rawHandlers[operationId]!;
@@ -1996,14 +2026,38 @@ export function createProduct(store: ProductStore, options: LocalProductOptions 
           { status: 429, headers: { "Retry-After": String(result.retryAfter) } },
         );
       }
-      return handler(request, context);
+      try { return await handler(request, context); }
+      catch (error) {
+        if (error instanceof ActivationError) return json({ error: error.message }, error.status);
+        throw error;
+      }
     };
   }
 
-  return { projectId, secretKey, publishableKey, handlers, media, push: push.engine, close: async () => { push.close(); await store.close(); } };
+  return { projectId, secretKey, publishableKey, handlers, media, push: push.engine, operatorHandler, activation, worker, close: async () => { await worker.stop(); push.close(); await store.close(); } };
 }
 
 export class MemoryProductStore implements ProductStore {
+  private activationData = new MemoryActivationData();
+  readonly activation: ProductActivationData = {
+    settings: () => this.activationData.settings(),
+    saveSettings: (value) => this.transaction((session) => session.activation.saveSettings(value)),
+    controls: () => this.activationData.controls(),
+    saveControls: (value) => this.transaction((session) => session.activation.saveControls(value)),
+    mappings: () => this.activationData.mappings(),
+    saveMapping: (value) => this.transaction((session) => session.activation.saveMapping(value)),
+    deleteMapping: (id) => this.transaction((session) => session.activation.deleteMapping(id)),
+    state: (id) => this.activationData.state(id),
+    saveState: (id, value) => this.transaction((session) => session.activation.saveState(id, value)),
+    warnings: (id) => this.activationData.warnings(id),
+    insertWarning: (id, value) => this.transaction((session) => session.activation.insertWarning(id, value)),
+    sources: () => this.activationData.sources(),
+    saveSource: (value) => this.transaction((session) => session.activation.saveSource(value)),
+    preparation: (id) => this.activationData.preparation(id),
+    savePreparation: (id, value) => this.transaction((session) => session.activation.savePreparation(id, value)),
+    preparationCampaignIds: (after, limit) => this.activationData.preparationCampaignIds(after, limit),
+  };
+  private staged = false;
   private readonly userUndo = new Map<string, ProductUser | undefined>();
   private readonly users = new Map<string, ProductUser>();
   private readonly usersById = new Map<string, ProductUser>();
@@ -2072,7 +2126,7 @@ export class MemoryProductStore implements ProductStore {
     });
     await previous;
     this.installationTransactionActive = true;
-    this.pushRecords.begin();
+
     this.userUndo.clear();
     this.deliveryUndo.clear();
     this.inAppFeedbackUndo.clear();
@@ -2080,36 +2134,43 @@ export class MemoryProductStore implements ProductStore {
     this.installationUndo.clear();
     this.installationReplayUndo.clear();
     try {
-      return await work(this);
-    } catch (error) {
-      this.events.splice(eventCount);
-      for (const id of this.inAppFeedbackUndo) this.inAppFeedback.delete(id);
-      for (const [externalId, user] of this.userUndo) {
-        const current = this.users.get(externalId);
-        if (user) { this.users.set(externalId, user); this.usersById.set(user.id, user); }
-        else { this.users.delete(externalId); if (current) this.usersById.delete(current.id); }
+      const staged = Object.create(Object.getPrototypeOf(this)) as MemoryProductStore;
+      Object.assign(staged, this);
+      staged.staged = true;
+      staged.activationData = this.activationData.clone();
+      Object.assign(staged, { pushRecords: this.pushRecords.clone() });
+      Object.assign(staged, { activation: staged.activationData });
+      for (const key of Object.keys(this) as (keyof this)[]) {
+        const value = this[key];
+        if (value instanceof Map) Object.assign(staged, { [key]: new Map(value) });
+        else if (Array.isArray(value)) Object.assign(staged, { [key]: [...value] });
       }
-      for (const [key, value] of this.deliveryUndo) {
-        const current = this.deliveries.get(key);
-        if (value) this.deliveries.set(key, value);
-        else { this.deliveries.delete(key); if (current) this.deliveryByCampaignUser.delete(`${current.campaignId}:${current.userId}`); }
+      const result = await work(staged);
+      for (const key of Object.keys(staged)) {
+        if (key !== "transactionTail" && key !== "staged" && key !== "activation") Object.assign(this, { [key]: (staged as unknown as Record<string, unknown>)[key] });
       }
-      this.pushRecords.rollback();
-      for (const [key, value] of this.installationUndo) value === undefined ? this.installations.delete(key) : this.installations.set(key, value);
-      for (const [key, value] of this.installationReplayUndo) value === undefined ? this.installationReplays.delete(key) : this.installationReplays.set(key, value);
-      throw error;
+      staged.pushRecords.commit();
+      return result;
     } finally {
-      this.pushRecords.commit();
       this.installationTransactionActive = false;
       release();
     }
   }
 
   async withReadSnapshot<T>(work: (store: ProductStoreAccess) => Promise<T>) {
-    return this.transaction(work);
+    const snapshot = Object.create(Object.getPrototypeOf(this)) as MemoryProductStore;
+    Object.assign(snapshot, this);
+    snapshot.activationData = this.activationData.clone();
+    Object.assign(snapshot, { activation: snapshot.activationData });
+    return work(snapshot);
   }
 
-  async identifyUser(externalId: string, traits: JsonObject, now: number) {
+  async listActivationCampaignIds(after: string, limit: number) {
+    return [...this.campaigns.keys()].filter((id) => id > after).sort().slice(0, limit);
+  }
+
+  async identifyUser(externalId: string, traits: JsonObject, now: number): Promise<ProductUser> {
+    if (!this.staged) return this.transaction((session) => session.identifyUser(externalId, traits, now));
     const previous = this.users.get(externalId);
     const user: ProductUser = {
       id: previous?.id ?? `eu_${randomUUID()}`,
@@ -2145,7 +2206,8 @@ export class MemoryProductStore implements ProductStore {
     this.usersById.set(id, user);
   }
 
-  async insertEvent(event: ProductEvent) {
+  async insertEvent(event: ProductEvent): Promise<void> {
+    if (!this.staged) return this.transaction((session) => session.insertEvent(event));
     this.events.push(structuredClone(event));
   }
 
@@ -2256,7 +2318,8 @@ export class MemoryProductStore implements ProductStore {
     return candidates;
   }
 
-  async createGoal(goal: ProductGoal) {
+  async createGoal(goal: ProductGoal): Promise<void> {
+    if (!this.staged) return this.transaction((session) => session.createGoal(goal));
     this.goals.set(goal.id, structuredClone(goal));
   }
 
@@ -2277,11 +2340,13 @@ export class MemoryProductStore implements ProductStore {
     return structuredClone(values);
   }
 
-  async saveGoal(goal: ProductGoal) {
+  async saveGoal(goal: ProductGoal): Promise<void> {
+    if (!this.staged) return this.transaction((session) => session.saveGoal(goal));
     this.goals.set(goal.id, structuredClone(goal));
   }
 
-  async createCampaign(campaign: ProductCampaign) {
+  async createCampaign(campaign: ProductCampaign): Promise<void> {
+    if (!this.staged) return this.transaction((session) => session.createCampaign(campaign));
     this.campaigns.set(campaign.id, structuredClone(campaign));
   }
 
@@ -2328,7 +2393,8 @@ export class MemoryProductStore implements ProductStore {
     return result;
   }
 
-  async saveCampaignContent(campaign: ProductCampaign) {
+  async saveCampaignContent(campaign: ProductCampaign): Promise<void> {
+    if (!this.staged) return this.transaction((session) => session.saveCampaignContent(campaign));
     const current = this.campaigns.get(campaign.id);
     if (!current) return;
     this.campaigns.set(campaign.id, structuredClone({
@@ -2339,7 +2405,8 @@ export class MemoryProductStore implements ProductStore {
     }));
   }
 
-  async saveCampaignLifecycle(campaign: ProductCampaign) {
+  async saveCampaignLifecycle(campaign: ProductCampaign): Promise<void> {
+    if (!this.staged) return this.transaction((session) => session.saveCampaignLifecycle(campaign));
     const current = this.campaigns.get(campaign.id);
     if (!current) return;
     this.campaigns.set(campaign.id, structuredClone({
@@ -2350,7 +2417,8 @@ export class MemoryProductStore implements ProductStore {
     }));
   }
 
-  async getOrCreateDelivery(delivery: ProductDelivery) {
+  async getOrCreateDelivery(delivery: ProductDelivery): Promise<ProductDelivery> {
+    if (!this.staged) return this.transaction((session) => session.getOrCreateDelivery(delivery));
     const key = `${delivery.campaignId}:${delivery.userId}`;
     const existingId = this.deliveryByCampaignUser.get(key);
     if (existingId) return structuredClone(this.deliveries.get(existingId)!);
@@ -2365,7 +2433,8 @@ export class MemoryProductStore implements ProductStore {
     return delivery ? structuredClone(delivery) : null;
   }
 
-  async saveDelivery(delivery: ProductDelivery) {
+  async saveDelivery(delivery: ProductDelivery): Promise<void> {
+    if (!this.staged) return this.transaction((session) => session.saveDelivery(delivery));
     if (!this.deliveryUndo.has(delivery.id)) this.deliveryUndo.set(delivery.id, this.deliveries.get(delivery.id));
     this.deliveries.set(delivery.id, structuredClone(delivery));
   }
@@ -2585,7 +2654,8 @@ export class MemoryProductStore implements ProductStore {
     };
   }
 
-  async getOrCreateAgentRun(run: ProductAgentRun) {
+  async getOrCreateAgentRun(run: ProductAgentRun): Promise<{ run: ProductAgentRun; created: boolean }> {
+    if (!this.staged) return this.transaction((session) => session.getOrCreateAgentRun(run));
     if (run.idempotencyKey) {
       const existing = this.agentRunByIdempotencyKey.get(run.idempotencyKey);
       if (existing) return { run: structuredClone(existing), created: false };
@@ -2595,7 +2665,8 @@ export class MemoryProductStore implements ProductStore {
     return { run: structuredClone(run), created: true };
   }
 
-  async createSegment(segment: ProductSegment, version: ProductAudienceVersion) {
+  async createSegment(segment: ProductSegment, version: ProductAudienceVersion): ReturnType<ProductStoreSession["createSegment"]> {
+    if (!this.staged) return this.transaction((session) => session.createSegment(segment, version));
     if (segment.idempotencyKey !== null) {
       const existingId = this.segmentByIdempotencyKey.get(segment.idempotencyKey);
       if (existingId) {
@@ -2637,6 +2708,7 @@ export class MemoryProductStore implements ProductStore {
   }
 
   async reviseSegment(idOrKey: string, revision: SegmentRevision): Promise<SegmentMutationResult> {
+    if (!this.staged) return this.transaction((session) => session.reviseSegment(idOrKey, revision));
     const segment = await this.getSegment(idOrKey);
     if (!segment) return { kind: "not_found" };
     if (revision.version && segment.status === "archived") {
@@ -2665,7 +2737,8 @@ export class MemoryProductStore implements ProductStore {
     return { kind: "updated", segment: structuredClone(updated), version: structuredClone(version) };
   }
 
-  async archiveSegment(idOrKey: string, updatedAt: number) {
+  async archiveSegment(idOrKey: string, updatedAt: number): ReturnType<ProductStoreSession["archiveSegment"]> {
+    if (!this.staged) return this.transaction((session) => session.archiveSegment(idOrKey, updatedAt));
     const segment = await this.getSegment(idOrKey);
     if (!segment) return { kind: "not_found" as const };
     if (segment.status === "archived") return { kind: "already_archived" as const };

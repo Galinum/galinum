@@ -1,3 +1,5 @@
+import { audienceVersionFromRow } from "./postgres-product-rows.js";
+import { lockProject } from "./project-fence.js";
 import type { Transaction } from "kysely";
 import type {
   AgentRuns,
@@ -147,7 +149,7 @@ export class PostgresCommunicationData implements CommunicationData {
   }
 
   async lockInstallations() {
-    await sql`select pg_advisory_xact_lock(74102, hashtext(${this.projectId}))`.execute(this.database);
+    await lockProject(this.database, this.projectId);
   }
   async getInstallation(id: string) {
     const row = await this.database.selectFrom("installations").select("state_json").where("project_id", "=", this.projectId).where("id", "=", id).executeTakeFirst();
@@ -492,7 +494,16 @@ export class PostgresCommunicationData implements CommunicationData {
     return row ? eventFromRow(row, row.external_user_id) : null;
   }
 
-  async touchUser(id: string, now: number) {
+  async getSegmentVersion(segmentId: string, version: number) {
+    const row = await this.database
+      .selectFrom("audience_versions")
+      .selectAll()
+      .where("project_id", "=", this.projectId)
+      .where("segment_id", "=", segmentId)
+      .where("segment_version", "=", version)
+      .executeTakeFirst();
+    return row ? audienceVersionFromRow(row) : null;
+  }  async touchUser(id: string, now: number) {
     await this.database.updateTable("end_users").set({ last_seen_at: now }).where("project_id", "=", this.projectId).where("id", "=", id).execute();
   }
 }

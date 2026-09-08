@@ -56,12 +56,23 @@ project state, check audiences, log work, and claim bounded work. Optimization
 uses fenced evaluation mutations and exact-payload approval proposals.
 GitHub work uses fenced source reconciliation to prepare unlaunched drafts.
 
-It cannot use ordinary campaign, status, goal, segment, or media writes. Those
-routes return `403`. Optimization writes use the claimed evaluation's
+It can read launch policy and campaign activation state. It cannot use ordinary
+campaign, status, goal, segment, media, launch-policy, or campaign-activation
+writes. Those routes return `403`. These reads grant no approval or deployment
+configuration authority. Optimization writes use the claimed evaluation's
 `/evaluations/{campaignId}/mutate` route. GitHub writes use the claimed source's
 `/github/refs/{refId}/reconcile` route, which cannot launch or modify live
 campaigns. Revoking this key stops hosted access
 without rotating your project secret.
+
+## Self-hosted operator credential
+
+The stock server uses a separately configured `GALINUM_OPERATOR_KEY` for
+[operator setup and review](/self-host/activation). It must differ from management
+and publishable keys. Keep it out of agent environments and MCP configuration.
+The operator HTTP surface can confirm deployment scope and approve a current
+review snapshot. Management and hosted-agent keys cannot perform those actions.
+Only safe shipping-settings inspection also accepts the management key.
 
 ## Authentication errors
 
