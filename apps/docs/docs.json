@@ -99,6 +99,15 @@
             ]
           },
           {
+            "group": "Launch activation",
+            "pages": [
+              "GET /api/v1/launch-policy",
+              "PATCH /api/v1/launch-policy",
+              "GET /api/v1/campaigns/{id}/activation",
+              "PATCH /api/v1/campaigns/{id}/activation"
+            ]
+          },
+          {
             "group": "Users & events",
             "pages": [
               "GET /api/v1/users",

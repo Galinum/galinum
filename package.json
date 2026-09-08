@@ -37,7 +37,7 @@
     "check:contract": "node scripts/check-contract.mjs",
     "check:mcp": "pnpm --filter @galinum/docs check:mcp",
     "check:skill": "pnpm --filter @galinum/docs check:skill",
-    "check:docs": "pnpm --filter @galinum/docs check:links",
+    "check:docs": "pnpm --filter @galinum/docs check:links && pnpm --filter @galinum/docs check:activation",
     "check:core": "pnpm --filter @galinum/core typecheck",
     "check:dashboard": "pnpm --filter @galinum/dashboard typecheck",
     "check:react": "pnpm --filter @galinum/react typecheck",

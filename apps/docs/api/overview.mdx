@@ -37,6 +37,8 @@ logging its decisions — server-to-server:
 | `POST /api/v1/campaigns/{id}/status` | Launch, pause, or end a campaign |
 | `GET /api/v1/campaigns/{id}/deliveries` | Per-user delivery feed for a campaign |
 | `GET /api/v1/campaigns/{id}/conversions` | Exact event conversions by variant |
+| `GET /api/v1/launch-policy` / `PATCH /api/v1/launch-policy` | Read / change the project launch default (Cloud only) |
+| `GET /api/v1/campaigns/{id}/activation` / `PATCH /api/v1/campaigns/{id}/activation` | Inspect activation evidence / change the campaign mode override (Cloud only) |
 | `POST /api/v1/goals` / `GET /api/v1/goals` | Create / list business goals (optimized loop only) |
 | `GET /api/v1/goals/{id}` / `PATCH /api/v1/goals/{id}` | Goal detail / edits |
 | `POST /api/v1/agent-runs` / `GET /api/v1/agent-runs` | Log / browse agent decisions |
@@ -50,7 +52,9 @@ logging its decisions — server-to-server:
 Customer-owned management calls use your project's **secret key**. Galinum's
 hosted evaluator uses a separate scoped `pk_agent_…` key for required reads and
 the lease-fenced hosted-loop routes. It cannot use ordinary campaign, status,
-goal, segment, or media writes. Management endpoints are not CORS-enabled, so
+goal, segment, media, launch-policy, or campaign-activation writes. Those writes
+return `403`. Launch-policy and campaign-activation GET requests remain available.
+Management endpoints are not CORS-enabled, so
 call them from an agent or backend, never the browser. See
 [Authentication](/api/authentication) for the exact key boundaries. There is
 no DELETE anywhere: campaigns end, variants retire with `weight: 0`, and goals

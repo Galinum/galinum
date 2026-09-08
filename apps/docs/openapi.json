@@ -5973,7 +5973,7 @@
         },
         "x-mcp": {
           "exposed": false,
-          "reason": "not-exposed"
+          "reason": "hosted-agent"
         }
       }
     },
@@ -6078,7 +6078,7 @@
         },
         "x-mcp": {
           "exposed": false,
-          "reason": "not-exposed"
+          "reason": "hosted-agent"
         },
         "requestBody": {
           "required": true,
@@ -6193,7 +6193,7 @@
         },
         "x-mcp": {
           "exposed": false,
-          "reason": "not-exposed"
+          "reason": "hosted-agent"
         },
         "requestBody": {
           "required": true,
@@ -6598,7 +6598,7 @@
       "hostedAgentKey": {
         "type": "http",
         "scheme": "bearer",
-        "description": "Galinum's scoped hosted-agent key (pk_agent_...). It can read required project state and use fenced evaluation or GitHub source operations. Ordinary campaign, status, goal, segment, and media writes return 403."
+        "description": "Galinum's scoped hosted-agent key (pk_agent_...). It can read required project state, including launch policy and campaign activation, and use fenced evaluation or GitHub source operations. Ordinary campaign, status, goal, segment, media, launch-policy, and campaign-activation writes return 403. Reads grant no approval or deployment configuration authority."
       }
     },
     "schemas": {
@@ -10260,6 +10260,10 @@
           },
           "reason": {
             "type": "string"
+          },
+          "mappingLabel": {
+            "type": "string",
+            "description": "Display label identifying the deployment repository and environment."
           }
         }
       },

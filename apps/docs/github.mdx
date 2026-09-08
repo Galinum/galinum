@@ -16,8 +16,8 @@ GitHub reports a successful production deployment within your confirmed scope.
 4. Select a repository and its target branch, usually `main`.
 5. Add project instructions for the agent's audience, tone, and announcement priorities.
 
-The App reads repository contents, pull requests, and deployment evidence. It does not write code,
-comment on PRs, or block merges and deployments.
+The App reads repository contents, pull requests, and deployment evidence.
+It does not write code, comment on PRs, or block merges and deployments.
 
 Galinum starts from the branch's current state when you connect it. Later
 pushes become new input. It does not announce the repository's full history.
@@ -58,6 +58,14 @@ uses its current content and preserves unrelated edits. Approval survives
 these revisions. Refresh the preview to inspect the latest content.
 
 ## Configure deployment tracking
+
+Deployment tracking requires the GitHub App's **Deployments: read-only**
+repository permission and its **Deployment status** (`deployment_status`)
+webhook subscription. For an existing installation, accept the requested
+permission update in GitHub before enabling tracking. Until GitHub grants
+that access, deployment evidence remains unavailable and cannot authorize launch.
+Galinum requests deployment permission for deployment operations; drafting
+retains its existing access.
 
 In **Settings → GitHub**, select a repository, its exact production environment,
 and the sources that this deployment ships. Describe the deployment scope and

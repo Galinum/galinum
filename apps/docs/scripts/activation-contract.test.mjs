@@ -47,6 +47,8 @@ test("activation response preserves the settled fields, states, and nullable evi
     "campaignId", "revision", "defaultMode", "override", "effectiveMode", "approval",
     "assessment", "requirements", "coverage", "lastCheckedAt", "launch", "warnings",
   ]);
+  assert.deepEqual(schemas.ActivationCoverage.required, ["requirementId", "mappingId", "state", "evidence"]);
+  assert.equal(schemas.ActivationCoverage.properties.mappingLabel.type, "string");
   assert.deepEqual(schemas.LaunchPolicy.required, ["defaultMode", "revision"]);
   assert.deepEqual(schemas.LaunchMode.enum, ["automatic", "manual"]);
   assert.deepEqual(schemas.ActivationCoverage.properties.state.enum, ["present", "absent", "reverted", "unknown", "pending"]);

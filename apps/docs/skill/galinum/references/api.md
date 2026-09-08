@@ -970,7 +970,7 @@ No query or body. Returns the following fields directly, without an envelope:
 | `approval` | `approved`, `pending`, or `unavailable` |
 | `assessment` | `{ state: "not_initial" \| "waiting" \| "eligible", blockers: ActivationBlocker[] }` |
 | `requirements` | `{ id, sourceId, label, mappingIds: string[] }[]` |
-| `coverage` | `{ requirementId, mappingId, state, evidence, reason? }[]` |
+| `coverage` | `{ requirementId, mappingId, state, evidence, reason?, mappingLabel? }[]` |
 | `lastCheckedAt` | Epoch milliseconds or `null` |
 | `launch` | `{ mode, startedAt, contentHash, requirementsDigest, evidence: ActivationEvidence[] }` or `null` |
 | `warnings` | `{ id, reason, createdAt, mappingId, mappingLabel, requirementIds: string[], evidence: ActivationEvidence }[]` |
@@ -980,7 +980,9 @@ All fields are strings except `reportedAt`, which is epoch milliseconds.
 `startedAt` and `createdAt` also use epoch milliseconds. Receipt `mode` is
 `automatic` or `manual`. Coverage `state` is `present`, `absent`, `reverted`,
 `unknown`, or `pending`; its `evidence` is `ActivationEvidence` or `null`.
-Optional `reason` is a string. Warning `reason` is `rollback` or `revert`.
+Optional `reason` is a string. Optional `mappingLabel` is a display string
+identifying the deployment repository and environment; use it instead of an
+opaque mapping ID when available. Warning `reason` is `rollback` or `revert`.
 
 `ActivationBlocker` contains required `code` and optional string fields
 `sourceId`, `requirementId`, `mappingId`, and `detail`. Codes are `manual`,

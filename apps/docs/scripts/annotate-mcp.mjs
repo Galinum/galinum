@@ -92,7 +92,7 @@ for (const [path, methods] of Object.entries(openapi.paths)) {
 function describeExclusion(op, path) {
   const schemes = (op.security || openapi.security || []).map((s) => Object.keys(s)[0]);
   if (schemes.includes("publishableKey")) return "browser-sdk";
-  if (path.startsWith("/api/v1/evaluations") || path.startsWith("/api/v1/agent/")) return "hosted-agent";
+  if (path.startsWith("/api/v1/evaluations") || path.startsWith("/api/v1/agent/") || path.startsWith("/api/v1/github/refs/")) return "hosted-agent";
   return "not-exposed";
 }
 

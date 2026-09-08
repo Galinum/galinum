@@ -1,6 +1,6 @@
 export type LaunchMode = "automatic" | "manual";
 export type ActivationEvidence = { id: string; provider: string; label: string; url: string; revision: string; reportedAt: number };
-export type ActivationCoverage = { requirementId: string; mappingId: string; state: "present" | "absent" | "reverted" | "unknown" | "pending"; evidence: ActivationEvidence | null; reason?: string };
+export type ActivationCoverage = { requirementId: string; mappingId: string; mappingLabel?: string; state: "present" | "absent" | "reverted" | "unknown" | "pending"; evidence: ActivationEvidence | null; reason?: string };
 export type ActivationRequirement = { id: string; sourceId: string; label: string; mappingIds: string[] };
 export type ActivationBlockerCode = "manual" | "approval" | "no_sources" | "mapping" | "source_pending" | "source_paused" | "source_unavailable" | "project_paused" | "withdrawn" | "deployment" | "evidence_unknown" | "reverted" | "expired" | "readiness";
 export type ActivationBlocker = { code: ActivationBlockerCode; sourceId?: string; requirementId?: string; mappingId?: string; detail?: string };
