@@ -24,9 +24,9 @@ export async function recordPushEvent(tx: PushTransaction, userId: string, name:
 
   return true;
 }
-export function createPushEngine(host: PushHost) {
+export function createPushEngine<Tx extends PushTransaction>(host: PushHost<Tx>) {
   const now = host.now ?? Date.now;
-  const transaction = <T>(work: (tx: PushTransaction) => Promise<T>) => host.store.transaction(async (tx) => { await tx.lockInstallations(); return work(tx); });
+  const transaction = <T>(work: (tx: Tx) => Promise<T>) => host.store.transaction(async (tx) => { await tx.lockInstallations(); return work(tx); });
   const scope = (id: string) => `${host.projectId}:${id}`;
   async function configure(input: { appId: string; platform: "ios" | "android"; environment: "development" | "production"; expectedRevision: number; credential: PushCredential }) {
     if (!host.vault) throw new PushError(503, "Configure persistent push encryption first");

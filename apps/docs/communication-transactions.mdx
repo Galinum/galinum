@@ -1,0 +1,94 @@
+---
+title: "Communication transactions"
+description: "Compose shared push and in-app storage with transactional host effects."
+---
+
+`@galinum/server/communications` exports the PostgreSQL communication transaction,
+shared push and in-app projections, and canonical event ingestion. The self-host
+runtime uses these same SQL queries and projection rules.
+
+The adapter borrows an existing transaction. It does not create a pool, initialize
+a project, migrate a schema, commit, or close the caller's connection. Supply an
+authorized project ID and the canonical product tables. `CommunicationDB` selects
+users, events, campaigns, variants, goals, audience versions, segments, deliveries,
+installations, installation requests, push records and in-app feedback. Segments
+are needed to validate pinned audience references.
+
+## Concrete transaction access
+
+Keep the host's concrete transaction alongside the projected product view:
+
+```ts
+import type { Transaction } from "kysely";
+import {
+  PostgresCommunicationTransaction,
+  pushTransaction,
+  type CommunicationDB,
+} from "@galinum/server/communications";
+
+class AppTransaction extends PostgresCommunicationTransaction {
+  constructor(readonly executor: Transaction<AppDatabase>, projectId: string) {
+    super(executor.$pickTables<keyof CommunicationDB>(), projectId);
+  }
+}
+
+const pushStore = {
+  transaction: <T>(work: (tx: ReturnType<typeof pushTransaction<AppTransaction>>) => Promise<T>) =>
+    database.transaction().execute(async (executor) => {
+      const data = new AppTransaction(executor, authorizedProjectId);
+      await data.lockInstallations();
+      return work(pushTransaction(data, effects));
+    }),
+};
+```
+
+`AppDatabase` must contain the real product columns, plus any host-owned tables.
+Do not assert an incompatible schema into this type. The public tests include a
+concrete extended schema with ledger, first-delivery marker and outbox tables.
+
+Pass `pushStore` to `createPushEngine`. Its `maySend` and `recordAcceptance`
+callbacks retain the concrete adapter type: `tx.data.executor` remains the host
+transaction. Use `inAppTransaction(data, media, projectId, effects)` with
+`createInAppService`; its serving and exposure callbacks retain the same data
+object. Hold the project fence around every borrowed in-app or event operation.
+All eligibility writers must participate in that fence.
+
+## Facts and effects
+
+`CommunicationEffects<Data>` provides two optional transactional effects:
+
+- `recordActivity(data, fact)` runs for a fresh canonical event. Explicit self-host
+  identify also emits an identify fact. Internal event activity updates do not
+  emit an identify fact.
+- `recordFirstDelivery(data, fact)` runs at the first generic push acceptance or
+  first generic in-app shown transition. It is separate from per-attempt
+  acceptance and per-feedback-ID exposure effects.
+
+`recordServerEvent` returns an `inserted` or `replay` result with the original
+canonical event-row ID and ingestion time. Exact project-scoped eventId replay
+preserves properties and causes no activity refresh, new effect, or conversion
+rerun. Conflicting user, event name or properties rejects the transaction.
+
+A first-seen shown feedback ID invokes `recordExposure` with its first receipt
+time. Exact replay returns that receipt without invoking the effect again.
+A distinct shown ID may invoke exposure in another period while the generic
+shown timestamp remains unchanged. Each distinct accepted campaign attempt
+invokes `recordAcceptance`; selected-device tests do not invoke it.
+
+Effects must await their database writes through the supplied transaction.
+Throwing rolls back source facts and effect rows together. Do not make external
+meter calls within these effects. Write a durable first-delivery marker and
+outbox in the same transaction. A process-local callback is not a recovery queue.
+Drain committed outbox records separately, using stable external idempotency IDs.
+A failed drain must not change the committed SDK acknowledgement or resend push.
+The application owns scheduling and external dispatch for its outbox.
+
+Provider submission cannot commit atomically with PostgreSQL. If a provider
+accepts and a local effect fails, local acceptance rolls back and the durable
+reservation remains. Recovery records an uncertain outcome. Do not automatically
+retry the transaction or resubmit the notification to recover an effect.
+
+This storage boundary does not supply an HTTP authentication facade, activation
+integration, or a deadline-aware worker scheduler. Keep those responsibilities
+explicit in the embedding application. Existing self-host HTTP contracts remain
+unchanged.

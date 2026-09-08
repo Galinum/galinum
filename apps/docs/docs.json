@@ -58,6 +58,12 @@
             "pages": [
               "push"
             ]
+          },
+          {
+            "group": "Server composition",
+            "pages": [
+              "communication-transactions"
+            ]
           }
         ]
       },

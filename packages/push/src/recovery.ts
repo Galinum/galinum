@@ -5,7 +5,7 @@ import { compilePayload } from "./providers.js";
 import { digest, nextOrder, PushError } from "./identity.js";
 import type { PushHost, PushTransaction, PushCampaign, Recipient, RecipientWork, SlotWork, WaitReason, CredentialRecord, DeviceTarget, PushAttempt, ProviderOutcome, AttemptOutcome, PushEnvelope, PushContent } from "./types.js";
 
-type Transaction = <T>(work: (tx: PushTransaction) => Promise<T>) => Promise<T>;
+type Transaction<Tx extends PushTransaction> = <T>(work: (tx: Tx) => Promise<T>) => Promise<T>;
 function definition(campaign: PushCampaign, variantId: string) {
   const variant = campaign.variants.find((entry) => entry.id === variantId);
   return digest({ variant: variant ? { id: variant.id, content: variant.content } : null, goalId: campaign.goalId, goalEvent: campaign.goalEvent, appId: campaign.settings.appId, selection: campaign.settings.selection, replacementKey: campaign.settings.replacementKey ?? null });
@@ -18,24 +18,24 @@ function wait(work: RecipientWork, reason: WaitReason, at: number, fingerprint: 
 function retryDelay(attempt: PushAttempt, result: ProviderOutcome) {
   return Math.max(1000 * 2 ** Math.min(attempt.ordinal - 1, 5) + parseInt(digest(attempt.id).slice(0, 4), 16) % 250, result.kind === "rejected" ? result.retryAfterMs ?? 0 : 0);
 }
-export function createRecovery(host: PushHost, transaction: Transaction) {
+export function createRecovery<Tx extends PushTransaction>(host: PushHost<Tx>, transaction: Transaction<Tx>) {
   const now = host.now ?? Date.now;
   const scope = (id: string) => `${host.projectId}:${id}`;
-  async function credential(tx: PushTransaction, installation: InstallationRecord) {
+  async function credential(tx: Tx, installation: InstallationRecord) {
     const record = await tx.getPushRecord("credential", digest([installation.appId, installation.platform, installation.environment]));
     if (!record) return { record: null, reason: "credential_missing" as const };
     try { host.vault?.open(record.encrypted, scope(record.id)); if (!host.vault) throw new Error(); }
     catch { return { record, reason: "credential_repair" as const }; }
     return { record, reason: null };
   }
-  async function installations(tx: PushTransaction, externalId: string, visit: (installation: InstallationRecord) => Promise<void>) {
+  async function installations(tx: Tx, externalId: string, visit: (installation: InstallationRecord) => Promise<void>) {
     for (let offset = 0; ; offset += 100) {
       const page = await tx.listInstallations(externalId, offset, 100);
       for (const installation of page.values) await visit(installation);
       if (offset + page.values.length >= page.total) break;
     }
   }
-  async function slots(tx: PushTransaction, recipientId: string, visit: (slot: SlotWork) => Promise<void>) {
+  async function slots(tx: Tx, recipientId: string, visit: (slot: SlotWork) => Promise<void>) {
     let afterId: string | undefined;
     for (;;) {
       const page = await tx.queryPushRecords("queue", { recipientId, afterId, limit: 100 });
@@ -44,14 +44,14 @@ export function createRecovery(host: PushHost, transaction: Transaction) {
       afterId = page.at(-1)!.id;
     }
   }
-  async function hold(tx: PushTransaction, work: RecipientWork, reason: WaitReason, at: number) {
+  async function hold(tx: Tx, work: RecipientWork, reason: WaitReason, at: number) {
     await slots(tx, work.id, async (slot) => {
       if (["accepted", "closed", "reserved"].includes(slot.state.kind)) return;
       slot.state = { kind: "waiting", reason, recheckAt: at + 1000 }; slot.revision++;
       await tx.savePushControl("queue", slot);
     });
   }
-  async function close(tx: PushTransaction, work: RecipientWork, reason: string) {
+  async function close(tx: Tx, work: RecipientWork, reason: string) {
     work.state = { kind: "closed", reason };
     await slots(tx, work.id, async (slot) => {
       if (["accepted", "closed", "reserved"].includes(slot.state.kind)) return;
@@ -62,7 +62,7 @@ export function createRecovery(host: PushHost, transaction: Transaction) {
   function makeReady(slot: SlotWork) {
     slot.state = { kind: "ready", at: Math.min(slot.expiresAt, Math.max(now(), slot.submissionNotBefore)) };
   }
-  async function snapshot(tx: PushTransaction, work: RecipientWork, slot: SlotWork, installation: InstallationRecord, auth: CredentialRecord) {
+  async function snapshot(tx: Tx, work: RecipientWork, slot: SlotWork, installation: InstallationRecord, auth: CredentialRecord) {
     const old = slot.targetId ? await tx.getPushRecord("target", slot.targetId) : null;
     const changedIdentity = !!old && (old.bindingGeneration !== installation.bindingGeneration || old.tokenRevision !== installation.tokenRevision || old.tokenScope !== installation.tokenScope);
     const changedContent = !!old && old.campaignFingerprint !== work.admission!.definition;
@@ -74,7 +74,7 @@ export function createRecovery(host: PushHost, transaction: Transaction) {
     }
     makeReady(slot);
   }
-  async function reconcile(tx: PushTransaction, campaign: PushCampaign, user: Recipient, test?: { installationId: string; requestId: string }) {
+  async function reconcile(tx: Tx, campaign: PushCampaign, user: Recipient, test?: { installationId: string; requestId: string }) {
     const at = now(); const id = test ? digest(["test-work", campaign.id, test.requestId]) : digest(["recipient", campaign.id, user.id]);
     let work = await tx.getPushRecord("work", id);
     if (work?.state.kind === "closed") return [];
@@ -242,7 +242,7 @@ export function createRecovery(host: PushHost, transaction: Transaction) {
       else await close(tx, row, "recipient_or_campaign_removed");
     });
   }
-  async function finish(tx: PushTransaction, slot: SlotWork, target: DeviceTarget, attempt: PushAttempt, result: ProviderOutcome, submission: AttemptOutcome["submission"]) {
+  async function finish(tx: Tx, slot: SlotWork, target: DeviceTarget, attempt: PushAttempt, result: ProviderOutcome, submission: AttemptOutcome["submission"]) {
     const outcome: AttemptOutcome = { id: attempt.id, slotId: slot.id, campaignId: target.campaignId, attemptId: attempt.id, targetId: target.id, observedAt: now(), result: (({ messageAttempted, ...value }) => value)(result), submission };
     await tx.insertPushRecord("outcome", outcome);
     if (submission !== "none") slot.submissionsUsed++;

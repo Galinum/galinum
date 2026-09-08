@@ -1,38 +1,27 @@
-import { matchesPages, destinationUrl } from "@galinum/contracts/entry";
-import { createInAppService, InAppError, type InAppHost, type InAppPersistence, type InAppFeedbackRecord, type InAppTransaction } from "@galinum/core";
-import { validateSchema, installationSchemas } from "@galinum/contracts";
-import { createServerPush, pushTransaction, recordServerEvent } from "./push.js";
-import { PushError, validatePushContent, validatePushSettings, type PushSettings, type PushProvider, type PushPersistence, type PushRecords, type RecordKind, type PushQuery, MemoryPushRecords, type AcceptanceFact, type PushTransaction } from "@galinum/push";
-import { INSTALLATION_REPLAY_LIMIT, installationHandlers, INSTALLATION_SDK_OPERATIONS, type InstallationAccess, type InstallationSession, type InstallationRecord, type InstallationReplay } from "./installations.js";
-import { randomBytes, randomUUID } from "node:crypto";
+import { installationSchemas, validateSchema } from "@galinum/contracts";
+import { destinationUrl } from "@galinum/contracts/entry";
 import {
-  deliveredContent,
-  evaluateExpression,
-  legacyTargetingToExpression,
-  LIMITS,
-  pickVariant,
-  referencedVocabulary,
-  sortByPresentation,
-  validatePages,
+  createInAppService, deliveredContent,
+  evaluateExpression, InAppError, legacyTargetingToExpression,
+  LIMITS, referencedVocabulary, validatePages,
   validateTargeting,
   type AudienceExpression,
-  type DeliveryFeedback,
-  type MediaStore,
+  type DeliveryFeedback, type InAppFeedbackRecord, type InAppHost, type InAppPersistence, type MediaStore
 } from "@galinum/core";
+import { MemoryPushRecords, PushError, validatePushContent, validatePushSettings, type AcceptanceFact, type PushPersistence, type PushProvider, type PushQuery, type PushRecords, type PushSettings, type PushTransaction, type RecordKind } from "@galinum/push";
+import { randomBytes, randomUUID } from "node:crypto";
 import {
-  campaignMatches,
   audienceCapabilities,
   audienceDiagnosticsFromPresence,
   explainPreparedAudience,
   factsForUser,
   prepareAudience,
-  type AudienceCapabilities,
+  type AudienceCapabilities
 } from "./audience.js";
+import type { CommunicationEffects } from "./communication-data.js";
+import { inAppTransaction, publicMessageContent } from "./communication-inapp.js";
+import { INSTALLATION_REPLAY_LIMIT, INSTALLATION_SDK_OPERATIONS, installationHandlers, type InstallationAccess, type InstallationRecord, type InstallationReplay, type InstallationSession } from "./installations.js";
 import { MemoryMediaStore } from "./local-media-store.js";
-import { createUploadCampaignMediaHandler } from "./media-handler.js";
-import { readJsonObject, type BodyReadResult } from "./request-body.js";
-import type { OperationHandlers } from "./router.js";
-import type { OperationId } from "./operations.js";
 import {
   ACTIVITY_LIMIT_DEFAULT,
   ACTIVITY_LIMIT_MAX,
@@ -44,8 +33,8 @@ import {
   emptyMetricTotals,
   encodeActivityCursor,
   isAfterCursor,
-  METRICS_RANGES,
   METRICS_RANGE_DEFAULT,
+  METRICS_RANGES,
   metricsQuery,
   metricsResponse,
   pageCountFor,
@@ -66,6 +55,12 @@ import {
   type UserDeliveryQuery,
   type UserSummaryResponse,
 } from "./management-contract.js";
+import { createUploadCampaignMediaHandler } from "./media-handler.js";
+import type { OperationId } from "./operations.js";
+import { createServerPush } from "./push.js";
+import { recordServerEvent } from "./communication-push.js";
+import { readJsonObject, type BodyReadResult } from "./request-body.js";
+import type { OperationHandlers } from "./router.js";
 
 export type JsonObject = Record<string, unknown>;
 export type ProductUser = {
@@ -338,6 +333,7 @@ export interface ProductStoreAccess extends InstallationAccess, PushPersistence,
 }
 
 export interface ProductStoreSession extends ProductStoreAccess, InstallationSession {
+  touchUser(id: string, now: number): Promise<void>;
   getGoalForUpdate(id: string): Promise<ProductGoal | null>;
   saveGoal(goal: ProductGoal): Promise<void>;
   insertEvent(event: ProductEvent): Promise<void>;
@@ -368,6 +364,7 @@ export interface ProductStore extends ProductStoreAccess {
 }
 
 export type LocalProductOptions = {
+  communicationEffects?: CommunicationEffects<ProductStoreSession>;
   inAppMayServe?: InAppHost["mayServe"];
   inAppRecordExposure?: InAppHost["recordExposure"];
   pushEncryptionKey?: string;
@@ -455,32 +452,6 @@ function bodyError(status: 400 | 413) {
 function bearer(request: Request) {
   const value = request.headers.get("authorization");
   return value?.startsWith("Bearer ") ? value.slice(7) : null;
-}
-
-const DELIVERY_STATE_PRECEDENCE: Record<ProductDelivery["state"], number> = {
-  queued: 0,
-  sending: 1,
-  retryable: 1,
-  sent: 2,
-  delivered: 3,
-  shown: 4,
-  opened: 5,
-  clicked: 6,
-  dismissed: 7,
-  frequency_capped: 7,
-  bounced: 7,
-  complained: 7,
-  unsubscribed: 7,
-  failed: 7,
-  converted: 8,
-};
-
-function applyDeliveryFeedback(delivery: ProductDelivery, type: DeliveryFeedback, now: number) {
-  if (type === "shown") delivery.shownAt ??= now;
-  if (type === "clicked") delivery.clickedAt ??= now;
-  if (type === "dismissed") delivery.dismissedAt ??= now;
-  if (type === "converted") delivery.convertedAt ??= now;
-  if (DELIVERY_STATE_PRECEDENCE[type] > DELIVERY_STATE_PRECEDENCE[delivery.state]) delivery.state = type;
 }
 
 function pageRequest(url: URL, defaultPerPage = 50): { page: number; perPage: number } | null {
@@ -828,20 +799,6 @@ async function parseMessage(
   return { ok: true, content: deliveredContent(normalizedMedia ? { ...message, media: normalizedMedia } : message) as JsonObject };
 }
 
-function publicMessageContent(value: unknown, media: MediaStore, projectId: string) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
-  const content = value as JsonObject;
-  if (!content.media || typeof content.media !== "object" || Array.isArray(content.media)) return content;
-  const object = content.media as JsonObject;
-  const reference = typeof object.url === "string" ? media.resolve(projectId, object.url) : null;
-  if (!reference) {
-    const safe = { ...content };
-    delete safe.media;
-    return safe;
-  }
-  return { ...content, media: { ...object, url: media.publicUrl(reference.path) } };
-}
-
 function validCtaUrl(value: string) {
   if (value.startsWith("/") && !value.startsWith("//")) return true;
   if (value.startsWith("mailto:")) return value.length > "mailto:".length;
@@ -1088,55 +1045,7 @@ export function createProduct(store: ProductStore, options: LocalProductOptions 
     recordExposure: options.inAppRecordExposure ?? (async () => {}),
     transaction: (work) => store.transaction(async (tx) => {
       await tx.lockInstallations();
-      const adapter: InAppTransaction = {
-        getInAppFeedback: (id) => tx.getInAppFeedback(id),
-        insertInAppFeedback: (record) => tx.insertInAppFeedback(record),
-        user: (externalId) => tx.getUserByExternalId(externalId),
-        async candidates(userId, path, evaluatedAt) {
-          const page = await tx.queryCampaigns({ channel: "web_inapp", effectiveStatus: "running", query: null, evaluatedAt, offset: 0, limit: 101 });
-          if (page.values.length > 100) throw new InAppError(503, "Too many eligible campaigns");
-          const user = await tx.getUserById(userId);
-          if (!user) return [];
-          const eligible = [];
-          for (const campaign of page.values) {
-            if (!matchesPages(campaign.pages, path)) continue;
-            let events: ProductEvent[] = [];
-            if (campaign.audience.kind !== "all" && campaign.audience.kind !== "invalid") {
-              const names = referencedVocabulary((JSON.parse(campaign.audience.expressionJson) as AudienceExpression).root).events;
-              if (names.size) {
-                const facts = await tx.loadAudienceFacts({ userId, afterUserId: null, limit: 1, traitKeys: [], eventNames: [...names], evaluatedAt, maxOccurrences: LIMITS.maxEvaluatedEventOccurrences, eventRowBudget: names.size * LIMITS.maxEvaluatedEventOccurrences });
-                if (facts.overflow) throw new InAppError(503, "Audience facts unavailable");
-                events = facts.eventsByUser.get(userId) ?? [];
-              }
-            }
-            if (campaignMatches(campaign, user, events, evaluatedAt)) eligible.push(campaign);
-          }
-          return eligible;
-        },
-        delivery: (campaign, userId, variantId, queuedAt) => tx.getOrCreateDelivery({
-          id: "del_" + randomUUID(), campaignId: campaign.id, userId, variantId, state: "queued", queuedAt,
-          sentAt: null, deliveredAt: null, shownAt: null, openedAt: null, clickedAt: null, dismissedAt: null,
-          bouncedAt: null, complainedAt: null, unsubscribedAt: null, convertedAt: null,
-        }),
-        getDelivery: (id) => tx.getDeliveryForUpdate(id),
-        isInApp: async (id) => (await tx.getCampaign(id))?.channel === "web_inapp",
-        content: (value) => publicMessageContent(JSON.parse(value), media, projectId),
-        async saveFeedback(id, type, timestamp) {
-          const delivery = await tx.getDeliveryForUpdate(id);
-          if (!delivery) throw new InAppError(404, "Delivery not found");
-          const firstExposure = delivery.shownAt === null;
-          applyDeliveryFeedback(delivery, type, timestamp);
-          if (type === "shown" && firstExposure) {
-            const campaign = await tx.getCampaign(delivery.campaignId);
-            const goal = campaign?.goalId ? await tx.getGoal(campaign.goalId) : null;
-            if (goal?.targetEvent) {
-              const event = await tx.findFirstEventAtOrAfter(delivery.userId, goal.targetEvent, timestamp);
-              if (event) { delivery.state = "converted"; delivery.convertedAt = event.occurredAt; }
-            }
-          }
-          await tx.saveDelivery(delivery);
-        },
-      };
+      const adapter = inAppTransaction(tx, media, projectId, options.communicationEffects);
       return work(adapter);
     }),
   });
@@ -1159,7 +1068,7 @@ export function createProduct(store: ProductStore, options: LocalProductOptions 
       const traits = input.traits === undefined ? {} : input.traits as JsonObject;
       if (Buffer.byteLength(JSON.stringify(traits)) > 4096) return json({ error: "Invalid traits" }, 400);
       try {
-        await store.transaction(async (transaction) => { await transaction.lockInstallations(); await transaction.identifyUser(userId, traits, now()); });
+        await store.transaction(async (transaction) => { await transaction.lockInstallations(); const at = now(); const user = await transaction.identifyUser(userId, traits, at); await options.communicationEffects?.recordActivity?.(transaction, { kind: "identify", userId: user.id, occurredAt: at }); });
       } catch (error) {
         if (error instanceof TraitsCapacityError) return json({ error: "Merged traits are too large" }, 413);
         throw error;
@@ -1186,7 +1095,7 @@ export function createProduct(store: ProductStore, options: LocalProductOptions 
           let user = await transaction.getUserByExternalId(userId);
           if (!user && typeof input.eventId === "string" && await transaction.getPushRecord("event", input.eventId)) throw new PushError(409, "Event replay conflict");
           user ??= await transaction.identifyUser(userId, {}, occurredAt);
-          await recordServerEvent(transaction, user, eventName, typeof input.eventId === "string" ? input.eventId : `evt_${randomUUID()}`, occurredAt, props);
+          await recordServerEvent(transaction, user, eventName, typeof input.eventId === "string" ? input.eventId : `evt_${randomUUID()}`, occurredAt, props, options.communicationEffects);
         });
       } catch (error) {
         if (error instanceof PushError) return json({ error: error.message }, error.status);
@@ -2225,6 +2134,15 @@ export class MemoryProductStore implements ProductStore {
   async getUserByExternalId(externalId: string) {
     const user = this.users.get(externalId);
     return user ? structuredClone(user) : null;
+  }
+
+  async touchUser(id: string, now: number) {
+    const previous = this.usersById.get(id);
+    if (!previous) return;
+    if (!this.userUndo.has(previous.externalId)) this.userUndo.set(previous.externalId, previous);
+    const user = { ...previous, lastSeenAt: now };
+    this.users.set(user.externalId, user);
+    this.usersById.set(id, user);
   }
 
   async insertEvent(event: ProductEvent) {

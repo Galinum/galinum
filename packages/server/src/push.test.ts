@@ -1,4 +1,4 @@
-import { pushTransaction } from "./push.js";
+import { pushTransaction } from "./communications.js";
 import { startPushWorker } from "./push-worker.js";
 import { generateKeyPairSync, randomBytes, randomUUID } from "node:crypto";
 import { createServer } from "node:http";

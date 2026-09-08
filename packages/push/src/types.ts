@@ -78,15 +78,15 @@ export interface PushTransaction extends Pick<InstallationSession, "lockInstalla
   accepted(deliveryId: string, now: number): Promise<void>;
   converted(deliveryId: string, now: number): Promise<void>;
 }
-export interface PushStore { transaction<T>(work: (session: PushTransaction) => Promise<T>): Promise<T> }
+export interface PushStore<Tx extends PushTransaction = PushTransaction> { transaction<T>(work: (session: Tx) => Promise<T>): Promise<T> }
 export interface AcceptanceFact { id: string; projectId: string; userId: string; deliveryId: string; attemptId: string; acceptedAt: number }
-export interface PushHost {
+export interface PushHost<Tx extends PushTransaction = PushTransaction> {
   projectId: string;
-  store: PushStore;
+  store: PushStore<Tx>;
   vault: CredentialVault | null;
   provider: PushProvider;
-  maySend(transaction: PushTransaction, userId: string, now: number): Promise<boolean>;
-  recordAcceptance(transaction: PushTransaction, fact: AcceptanceFact): Promise<void>;
+  maySend(transaction: Tx, userId: string, now: number): Promise<boolean>;
+  recordAcceptance(transaction: Tx, fact: AcceptanceFact): Promise<void>;
   now?: () => number;
 }
 export interface CredentialVault { seal(credential: PushCredential, scope: string): string; open(encrypted: string, scope: string): PushCredential }
