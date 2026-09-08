@@ -1,3 +1,4 @@
+import type { JournalPort } from './journal.js';
 import type { InstallationState } from "@galinum/contracts";
 
 export type Permission = InstallationState["permission"];
@@ -5,6 +6,7 @@ export type JsonValue = null | boolean | number | string | JsonValue[] | { [key:
 export type Properties = { [key: string]: JsonValue };
 export type KeyValueStore = { get(key: string): Promise<string | null>; set(key: string, value: string): Promise<void> };
 export type NativeAdapter = {
+  journal: JournalPort;
   secrets: KeyValueStore;
   storage: KeyValueStore;
   randomBytes(length: number): Promise<Uint8Array>;

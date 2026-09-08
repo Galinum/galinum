@@ -1,3 +1,4 @@
+import { createNativeJournal } from './journal-native.js';
 import * as Crypto from "expo-crypto";
 import * as Notifications from "expo-notifications";
 import * as SecureStore from "expo-secure-store";
@@ -17,6 +18,7 @@ export function createExpoAdapter(options: { androidChannel: { id: string; name:
     set: (key: string, value: string) => SecureStore.setItemAsync(key, value, { keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY }),
   };
   return {
+    journal: createNativeJournal(),
     secrets,
     storage: createProtectedStore(secrets, Crypto.getRandomBytesAsync),
     randomBytes: length => Crypto.getRandomBytesAsync(length),

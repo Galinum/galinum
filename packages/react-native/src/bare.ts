@@ -1,3 +1,4 @@
+import { createNativeJournal } from './journal-native.js';
 import "react-native-get-random-values";
 import { Platform } from "react-native";
 import { getGenericPassword, setGenericPassword, ACCESSIBLE } from "react-native-keychain";
@@ -32,6 +33,7 @@ export function createBareAdapter(): NativeAdapter {
   };
   const randomBytes = async (length: number) => globalThis.crypto.getRandomValues(new Uint8Array(length));
   return {
+    journal: createNativeJournal(),
     secrets,
     storage: createProtectedStore(secrets, randomBytes),
     randomBytes,

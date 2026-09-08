@@ -61,6 +61,7 @@ for (const initialUser of [null, "B"]) {
       expect(saved.session.userId).toBe(initialUser);
       expect(saved.acknowledgedBindingRevision).not.toBe(saved.bindingRevision);
       f.client.dispose();
+      await f.journalReleased();
       f.allowFence();
       const restarted = f.create({ fetch: f.transport });
       await restarted.start();
@@ -86,6 +87,7 @@ it("retains a fence after its mutation applied but both acknowledgement response
     expect(saved.acknowledgedBindingRevision).not.toBe(saved.bindingRevision);
     expect((await f.inspect())[0].userId).toBeNull();
     f.client.dispose();
+      await f.journalReleased();
     f.allowFence();
     const restarted = f.create({ fetch: f.transport });
     await restarted.start();
@@ -124,6 +126,7 @@ it("missing binding intent counters fail before network work", async () => {
   await previous.setConsent(true);
   const before = (await f.inspect())[0];
   previous.dispose();
+  await f.journalReleased();
   const saved = JSON.parse(f.storage.get(f.config.storageKey)!);
   delete saved.bindingRevision;
   delete saved.acknowledgedBindingRevision;

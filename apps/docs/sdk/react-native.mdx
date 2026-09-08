@@ -5,7 +5,7 @@ description: "Identify native users and synchronize installation permission, con
 
 `@galinum/react-native` provides a client, `GalinumProvider`, `useGalinum`,
 `useGalinumClient` and `useGalinumSnapshot`. It uses the public
-[installation lifecycle](/sdk/installations) and identify/track APIs.
+[installation lifecycle](/sdk/installations) and identify/ordered observation APIs.
 
 Create one client outside React renders with your API origin, publishable key,
 app ID, platform, environment, unique secure-storage key and native adapter.
@@ -19,8 +19,7 @@ exercises each foundation operation.
 
 ## Identity and safety
 
-Call `identify(userId, traits?)` before user-specific operations. `track(event,
-props?)` sends an event for that session. `reset()` immediately invalidates old
+Call `identify(userId, traits?)` before user-specific operations. `track(event, props?, { eventId }?)` durably queues an event for that session. `reset()` immediately invalidates old
 session callbacks, then persists anonymous intent, unbinds the user and clears the
 server token. Switching users clears product consent and prior-user activity.
 Installation credentials remain durable across reset. A saved user's consent and
@@ -46,7 +45,7 @@ The SDK owns bootstrap credentials, mutation request IDs, acknowledgements and
 revision conflicts. It securely persists pending installation writes and reads
 current state after each acknowledgement. Callers do not manage revisions.
 Snapshots are immutable and contain no capabilities used for authentication or
-native token values. Errors expose sanitized codes and HTTP status only.
+native token values. Errors expose sanitized codes and HTTP status; uncertain event admission also retains its business event ID.
 
 ## Permission, consent and activity
 
@@ -60,9 +59,30 @@ server token revision. Passive synchronization does not supersede permission pro
 Call `recordForegroundActivity()` only for actual foreground use. Initialization,
 identify, track, permission checks and token callbacks do not record activity.
 
+## Durable events
+
+The Expo and bare adapters include a SQLCipher-backed native journal. Rebuild the
+application after installing the SDK; Expo Go does not include this module.
+Autolinking and React Native Codegen register it on Android and iOS.
+
+`track` reserves invocation order before initialization or storage waits. It then
+resolves the captured identity and commits a contiguous binding sequence. Its
+receipt contains `eventId` and `state: "queued"` or `"acknowledged"`. A queued receipt
+confirms local persistence. `await client.flush()` waits for server acknowledgements
+through its captured watermark. Events do not require push consent.
+
+Retain a business event ID and reuse it with identical event data after uncertainty.
+The native sender keeps exact uncertain batches across restart. Reset also waits
+for durable native gate closure. Stored identity alone does not authorize automatic
+application handlers; application identity confirmation remains explicit.
+
+The journal uses an indexed encrypted database, not a lifetime JSON snapshot.
+SecureStore/Keychain holds its small separate key. Missing keys and storage pressure
+fail visibly without clearing existing rows or resetting sequence cursors.
+
 ## Foundation boundary
 
-The SDK has no push envelope parser, observation reporting, tap/action routing,
+The SDK has no push envelope parser, automatic notification receipt reporting, tap/action routing,
 background handler or in-app renderer. It advertises empty rendering capabilities.
 The Expo adapter uses native APNs/FCM tokens, not Expo Push Service tokens. The bare
 adapter uses APNs on iOS and Firebase Messaging on Android.

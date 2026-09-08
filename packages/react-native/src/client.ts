@@ -1,8 +1,10 @@
-import type { InstallationState } from "@galinum/contracts";
+import { JournalController, EventAdmissionError, type EventReceipt, type IngressTicket } from './journal.js';
+import type { InstallationState, PushObservationBatch } from "@galinum/contracts";
 import { GalinumError, type NativeConfig, type NativeSnapshot, type Permission, type Properties } from "./types.js";
 import { copyJson, digest, freeze, parseInstallation } from "./wire.js";
 import { bounded, InstallationStorage, type Pending } from "./storage.js";
 
+type JournalIntent = { version: number; userId: string | null | undefined; confirmed: boolean; redirect?: JournalIntent };
 type Context = { epoch: number };
 const emptyCapabilities = { actions: [], channels: [], richImages: false };
 const eligible = (permission: Permission) => permission === "granted" || permission === "provisional";
@@ -13,6 +15,10 @@ export class GalinumClient {
   private readonly config: NativeConfig;
   private readonly storage: InstallationStorage;
   private state: InstallationState | null = null;
+  private readonly journal: JournalController;
+  private journalInitialResolved = false;
+  private journalIntent: JournalIntent = { version: 0, userId: undefined, confirmed: false };
+  private sender: Promise<void> | undefined;
   private epoch = 0;
   private cancellation = new AbortController();
   private tokenSequence = 0;
@@ -33,6 +39,8 @@ export class GalinumClient {
     if (url.protocol !== "https:" && !(url.protocol === "http:" && insecureDevelopment) || url.username || url.password || url.search || url.hash || url.pathname !== "/" || !config.publishableKey || !config.appId || !/^[\w.-]+$/.test(config.storageKey) || [config.requestTimeoutMs, config.nativeTimeoutMs, config.storageTimeoutMs].some(value => value !== undefined && (!Number.isFinite(value) || value <= 0))) throw new GalinumError("invalid_config");
     this.config = { ...config, apiBase: url.origin };
     this.storage = new InstallationStorage(this.config);
+    if (!config.adapter.journal) throw new GalinumError("journal_required");
+    this.journal = new JournalController(config.adapter.journal, digest(JSON.stringify([url.origin, config.publishableKey, config.appId, config.platform, config.environment, config.storageKey])), config.adapter.secrets, config.adapter.randomBytes, config.storageTimeoutMs ?? 10000);
   }
 
   getSnapshot = (): NativeSnapshot => this.snapshot;
@@ -229,6 +237,34 @@ export class GalinumClient {
     });
   }
 
+  private journalIdentity(userId: string | null, reset: boolean) {
+    const previous = this.journalIntent;
+    const unresolved = !this.journalInitialResolved && previous.version === 0 && previous.userId === undefined;
+    if (reset || this.journalIntent.userId !== userId) {
+      this.journalIntent = { version: this.journalIntent.version + 1, userId, confirmed: true };
+      this.journal.intent(this.journalIntent.version);
+    } else this.journalIntent.confirmed = true;
+    const capture = this.journalIntent;
+    const savedUser = !unresolved ? Promise.resolve(null) : this.storage.local ? Promise.resolve(this.storage.local.session.userId) : this.storage.load().then(() => this.storage.local!.session.userId);
+    const resolution = unresolved ? savedUser.then(storedUser => {
+      if (this.journalInitialResolved) return;
+      const same = !reset && capture === this.journalIntent && storedUser === userId;
+      if (same) previous.redirect = capture;
+      this.journal.resolveInitial(same ? capture.version : -1);
+      this.journalInitialResolved = true;
+    }) : Promise.resolve();
+    const closed = Promise.all([resolution, this.journal.close(capture.version)]).then(() => {});
+    void closed.catch(() => {});
+    return closed;
+  }
+  private async publishJournal() {
+    const intent = this.journalIntent;
+    if (!this.journalInitialResolved) { this.journal.resolveInitial(intent.version === 0 ? 0 : -1); this.journalInitialResolved = true; }
+    if (intent.userId === undefined) intent.userId = this.storage.local!.session.userId;
+    if (intent.userId !== this.state!.userId) throw new GalinumError('superseded');
+    await this.journal.publish(intent.version, this.state!, this.storage.local!.bindingRevision, this.storage.local!.acknowledgedBindingRevision!, intent.confirmed);
+  }
+
   private async bind(userId: string | null, epoch?: number, traits?: Properties, force = false) {
     if (epoch !== undefined) this.assertCurrent(epoch);
     if (userId !== null) await this.retry(() => this.request("/api/v1/identify", "POST", { userId, ...(traits === undefined ? {} : { traits }) }, false));
@@ -279,28 +315,37 @@ export class GalinumClient {
       this.assertCurrent(context.epoch);
       await this.bind(this.storage.local!.session.userId, context.epoch);
       if (!this.storage.local!.session.consent) await this.token(null, context.epoch);
+      await this.publishJournal();
       await this.sync(context.epoch);
       this.publish();
+      this.scheduleFlush();
     }, context);
   };
 
   identify = (userId: string, traits?: Properties): Promise<void> => {
+    if (this.disposed) return Promise.reject(new GalinumError("disposed"));
     if (typeof userId !== "string" || Array.from(userId).length < 1 || Array.from(userId).length > 256) return Promise.reject(new GalinumError("invalid_user"));
     const input = traits === undefined ? undefined : copyJson(traits);
+    const nativeClosed = this.journalIdentity(userId, false);
     const context = { epoch: this.epoch };
     const durable = this.identity(userId, false, context);
     return this.enqueue(async () => {
       await durable;
       this.assertCurrent(context.epoch);
       await this.initialize();
+      await nativeClosed;
       await this.bind(userId, context.epoch, input);
       if (!this.storage.local!.session.consent) await this.token(null, context.epoch);
+      await this.publishJournal();
       await this.sync(context.epoch);
       this.publish();
+      this.scheduleFlush();
     }, context);
   };
 
   reset = (): Promise<void> => {
+    if (this.disposed) return Promise.reject(new GalinumError("disposed"));
+    const nativeClosed = this.journalIdentity(null, true);
     const context = { epoch: this.epoch };
     const durable = this.identity(null, true, context);
     return this.enqueue(async () => {
@@ -308,11 +353,12 @@ export class GalinumClient {
       await this.initialize();
       await this.bind(null, undefined, undefined, true);
       await this.token(null);
+      await nativeClosed;
       if (context.epoch === this.epoch) this.publish();
     }, context);
   };
 
-  track = (event: string, props?: Properties): Promise<void> => this.session().track(event, props);
+  track = (event: string, props?: Properties, options?: { eventId?: string }): Promise<EventReceipt> => this.session().track(event, props, options);
   setConsent = (consent: boolean): Promise<void> => this.session().setConsent(consent);
   requestPermission = (): Promise<void> => this.session().requestPermission();
   syncDevice = (): Promise<void> => this.session().syncDevice();
@@ -320,6 +366,7 @@ export class GalinumClient {
 
   session() {
     const context = { epoch: this.epoch };
+    const capturedIntent = this.journalIntent;
     const run = (operation: () => Promise<void>) => this.enqueue(async () => {
       this.assertCurrent(context.epoch);
       await this.initialize();
@@ -330,15 +377,7 @@ export class GalinumClient {
       this.publish();
     }, context);
     return Object.freeze({
-      track: (event: string, props?: Properties) => {
-        const body = copyJson({ event, ...(props === undefined ? {} : { props }) });
-        return run(async () => {
-          const userId = this.storage.local!.session.userId;
-          if (!userId) throw new GalinumError("identify_required");
-          if (!event || Array.from(event).length > 80) throw new GalinumError("invalid_event");
-          await this.request("/api/v1/track", "POST", { ...body, userId }, false);
-        });
-      },
+      track: (event: string, props?: Properties, options?: { eventId?: string }): Promise<EventReceipt> => this.orderedTrack(capturedIntent, event, props, options),
       setConsent: (consent: boolean) => run(async () => {
         if (typeof consent !== "boolean") throw new GalinumError("invalid_consent");
         if (!this.storage.local!.session.userId && consent) throw new GalinumError("identify_required");
@@ -370,13 +409,109 @@ export class GalinumClient {
     });
   }
 
+
+  private orderedTrack(capture: typeof this.journalIntent, event: string, props: Properties | undefined, options?: { eventId?: string }): Promise<EventReceipt> {
+    let ticket: IngressTicket;
+    try { ticket = this.journal.reserve((capture.redirect ?? capture).version, options?.eventId); } catch (error) { return Promise.reject(error); }
+    let encoded: string;
+    try {
+      const propsJson = canonicalProperties(props ?? {});
+      if (!event || [...event].length > 80 || !ticket.eventId || [...ticket.eventId].length > 128 || new TextEncoder().encode(propsJson).length > 4096) throw new GalinumError('invalid_event');
+      encoded = JSON.stringify({ event, eventId: ticket.eventId, propsJson });
+    } catch (error) {
+      this.journal.reject(ticket);
+      return Promise.reject(new EventAdmissionError('invalid_event', ticket.eventId));
+    }
+    const admission = this.journal.admit(ticket, encoded);
+    void admission.catch(() => {});
+    return this.enqueue(async () => {
+      try {
+        await this.initialize();
+        if ((capture.redirect ?? capture) !== this.journalIntent) throw new GalinumError('superseded');
+        const userId = this.storage.local!.session.userId;
+        if (!userId) { this.journal.reject(ticket); throw new GalinumError('identify_required'); }
+        await this.bind(userId, this.epoch);
+        await this.publishJournal();
+        const receipt = await admission;
+        if ((capture.redirect ?? capture) !== this.journalIntent) throw new GalinumError('superseded');
+        this.scheduleFlush();
+        return freeze(receipt);
+      } catch (error) {
+        throw error instanceof EventAdmissionError ? error : new EventAdmissionError(error instanceof GalinumError ? error.code : 'journal_admission_uncertain', ticket.eventId);
+      }
+    }, { epoch: this.epoch });
+  }
+
+  private scheduleFlush() { void this.flush().catch(() => {}); }
+  flush = (): Promise<void> => {
+    const prior = this.queue;
+    return prior.then(async () => {
+        const capture = this.journalIntent;
+      const initial = await this.journal.peek(capture.version);
+      const end = initial.lastSequence;
+      const previous = this.sender ?? Promise.resolve();
+      const sending = previous.catch(() => {}).then(async () => {
+        while (true) {
+          if (this.disposed || capture !== this.journalIntent) throw new GalinumError('superseded');
+          const prefix = await this.journal.peek(capture.version);
+          if (prefix.acknowledgedThrough >= end) {
+            if (initial.pendingAdmissions && prefix.pendingAdmissions) throw new GalinumError('journal_admission_pending');
+            this.publish();
+            return;
+          }
+          const batch: PushObservationBatch = { bindingGeneration: prefix.generation, commands: [] };
+          for (const command of prefix.commands) {
+            batch.commands.push(command);
+            if (new TextEncoder().encode(JSON.stringify(batch)).length > 65536) { batch.commands.pop(); break; }
+          }
+          if (!batch.commands.length || batch.commands[0]!.sequence !== prefix.acknowledgedThrough + 1) throw new GalinumError('journal_prefix_invalid');
+          const ack = await this.retry(() => {
+            if (capture !== this.journalIntent) throw new GalinumError('superseded');
+            return this.request(this.path() + '/observations', 'POST', batch);
+          }) as { acknowledgedThrough?: unknown };
+          const through = batch.commands.at(-1)!.sequence;
+          if (ack.acknowledgedThrough !== through) throw new GalinumError('invalid_acknowledgement');
+          if (capture !== this.journalIntent) throw new GalinumError('superseded');
+          await this.journal.acknowledge(capture.version, prefix.generation, through);
+        }
+      }).catch(error => {
+        const safe = error instanceof GalinumError ? error : new GalinumError('journal_storage_failure');
+        if (capture === this.journalIntent && safe.code !== 'superseded') this.publish('error', safe);
+        throw safe;
+      }).finally(() => { if (this.sender === sending) this.sender = undefined; });
+      this.sender = sending;
+      return sending;
+    });
+  };
+
   dispose = () => {
     this.disposed = true;
     this.epoch++;
     this.cancellation.abort();
     this.unsubscribeToken?.();
+    this.journal.dispose();
     this.state = null;
     this.publish("disposed");
     this.listeners.clear();
   };
+}
+
+function canonicalProperties(value: Properties): string {
+  const visiting = new Set<object>();
+  const normalize = (item: unknown): unknown => {
+    if (item === null || typeof item === 'string' || typeof item === 'boolean') return item;
+    if (typeof item === 'number' && Number.isFinite(item)) return item;
+    if (typeof item !== 'object' || visiting.has(item)) throw new GalinumError('invalid_event');
+    visiting.add(item);
+    let result: unknown;
+    if (Array.isArray(item)) result = item.map(normalize);
+    else {
+      if (Object.getPrototypeOf(item) !== Object.prototype && Object.getPrototypeOf(item) !== null) throw new GalinumError('invalid_event');
+      result = Object.fromEntries(Object.keys(item).sort().map(key => [key, normalize((item as Record<string, unknown>)[key])]));
+    }
+    visiting.delete(item);
+    return result;
+  };
+  if (!value || Array.isArray(value) || typeof value !== 'object') throw new GalinumError('invalid_event');
+  return JSON.stringify(normalize(value));
 }

@@ -18,8 +18,8 @@ function Foundation() {
   const galinum = useGalinum();
   const [userId, setUserId] = useState("example-user-a");
   const [result, setResult] = useState("Ready for setup");
-  const run = (operation: () => Promise<void>) => {
-    void operation().then(() => setResult("Acknowledged")).catch(error => setResult(error instanceof GalinumError ? error.code : "Operation failed"));
+  const run = (operation: () => Promise<unknown>) => {
+    void operation().then(receipt => setResult(receipt && typeof receipt === "object" && "state" in receipt ? String(receipt.state) : "Acknowledged")).catch(error => setResult(error instanceof GalinumError ? error.code : "Operation failed"));
   };
   return <ScrollView contentContainerStyle={{ padding: 32, gap: 16, paddingTop: 72 }}>
     <Text style={{ fontSize: 24 }}>Native client foundation</Text>

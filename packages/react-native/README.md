@@ -1,7 +1,7 @@
 # @galinum/react-native
 
 Native installation, identity, event, permission and consent client. It uses the
-public installation and identify/track HTTP APIs. Notification routing, actions,
+public installation, identify and ordered observation HTTP APIs. Notification routing, actions,
 receipt reporting and in-app rendering are not implemented.
 
 ## Create one client
@@ -46,14 +46,16 @@ needed. The provider does not dispose the shared client when it unmounts. Call
 
 `useGalinumClient()` returns the client. `useGalinumSnapshot()` returns its immutable
 external-store snapshot. `useGalinum()` returns that snapshot, identity controls,
-and session-bound operations. All asynchronous methods return `Promise<void>`.
+and session-bound operations. `track` returns an event receipt; other asynchronous
+methods return `Promise<void>`.
 
 | Method | Behavior |
 | --- | --- |
 | `start()` | Load durable credentials/session, bootstrap, reconcile binding, permission and token. No prompt or activity. |
 | `identify(userId, traits?)` | Identify through the public API before binding. Switching users clears product consent. |
 | `reset()` | Invalidate old callbacks immediately; persist anonymous intent, unbind and clear the server token. Keep installation credentials. |
-| `track(event, props?)` | Track for the current identified user. No automatic retry after an uncertain response. |
+| `track(event, props?, { eventId }?)` | Reserve invocation order, then persist an event for the captured identity. Return `{ eventId, state: "queued" \| "acknowledged" }`. |
+| `flush()` | Send the captured journal watermark; resolve after its server acknowledgements are durable. |
 | `setConsent(boolean)` | Persist product consent separately from OS authorization. True requires identification. |
 | `requestPermission()` | Request OS authorization only on this explicit call; synchronize the result. Does not enable consent. |
 | `syncDevice()` | Refresh permission and native token without prompting or recording activity. |
@@ -90,6 +92,54 @@ added. Snapshots expose status, user ID, product consent, installation state and
 sanitized error codes. They contain no capability or token values. The SDK logs
 nothing and never forwards server error bodies or native error text.
 
+## Ordered native journal
+
+Expo and bare adapters include the app-process TurboModule. Rebuild native projects
+after installation; Expo Go cannot load it. React Native autolinking and Codegen
+register the module. Android uses SQLCipher Android 4.17.0 and AndroidX SQLite 2.6.2.
+iOS uses the SQLCipher 4.10.0 CocoaPod and Objective-C++ Codegen integration. Install
+Pods after adding the package. Do not also link system SQLite for this journal.
+
+`track` reserves a memory ticket synchronously before initialization, key reads or
+HTTP. It then resolves the captured identity and commits a contiguous per-binding
+sequence in SQLCipher. Analytics does not require push consent. A later internal
+ingress cannot overtake a valid earlier ticket waiting for initialization.
+
+```ts
+const receipt = await client.track('export_completed', { format: 'csv' }, {
+  eventId: 'export-job-123',
+});
+await client.flush();
+```
+
+`queued` means the encrypted transaction completed, not that the server received
+it. `acknowledged` means the same business event was already acknowledged locally.
+Retain your business event ID for retries. `EventAdmissionError.eventId` also makes
+an uncertain admission recoverable. Repeat the same event name and properties;
+changed data under the same ID fails. A reserved ticket alone is not durable.
+Process death before admission can lose it; retry with the retained event ID.
+
+The sender preserves the exact durable uncertain batch across appends and process
+restart. Reads use an indexed prefix of at most 32 commands and the 64 KiB wire
+budget. There is no fixed lifetime row limit. Storage exhaustion rejects admission
+without reporting it queued. Existing rows and their ordering remain intact.
+
+SQLCipher files remain in Android `noBackupFilesDir` or the iOS app Application
+Support directory, excluded from backup with first-unlock file protection. Only a
+separate 256-bit journal key enters SecureStore/Keychain. Missing keys never trigger
+replacement of an existing database. MMKV still stores installation state.
+
+One process-local native owner controls each scoped journal. A live owner cannot
+be stolen. Reset waits for durable native closure as well as the installation's
+actual-write and acknowledged binding fences. Startup closes the native gate;
+rehydration leaves application identity unconfirmed. Explicit `identify` confirms
+application identity. The SDK does not route or display notifications.
+
+Every adapter must provide a `JournalPort`, including custom adapters. Missing
+journals fail at client construction with `journal_required`. All `track` calls
+return `Promise<EventReceipt>` and preserve the supplied business event ID through
+the ordered sender. Custom bridges must preserve the complete JournalPort contract.
+
 ## Persistence and recovery
 
 `start()` and `identify(A)` both load saved state before comparing identities.
@@ -100,7 +150,7 @@ A real A-to-B switch clears consent and invalidates A's session handles.
 Two stores separate credentials from operational data. SecureStore on Expo and
 Keychain on bare hold only the installation credentials and a small encryption key.
 The installation ID contains 128 random bits; the capability contains 256 random
-bits. Both use native cryptographic randomness and hex encoding accepted by M1.
+bits. Both use native cryptographic randomness and the installation API's hex encoding.
 The scope is a SHA-256 digest, not an unbounded configuration string.
 
 Both adapters use encrypted `react-native-mmkv` for session intent, one pending
@@ -115,7 +165,7 @@ The operational file belongs in the application's container. Secure credentials
 may survive iOS reinstall; if the operational file is absent, the client starts
 anonymous, unbinds the old server user and clears its token during startup. It never
 restores a user or consent from Keychain alone. Do not configure MMKV's automatic
-`AppGroupIdentifier` storage for this foundation. Shared extension/headless storage
+`AppGroupIdentifier` storage for installation state. Shared extension/headless storage
 ownership is not implemented; such hosts need an app-container `KeyValueStore` in
 a custom adapter. Keep device-only keys and exclude these operational files from
 backup/restore that could move them without their keys. Missing keys fail visibly.
@@ -151,8 +201,8 @@ and every unacknowledged identity intent, requires a binding PUT acknowledgement
 that advances the server revision, even if the user is already anonymous or already
 matches. Same-user writes preserve binding generation, consent and token revision.
 Only acknowledgement of the current intent clears its requirement. Restart repeats
-reconciliation when that requirement remains. Older format-2 records without the
-counters conservatively require one fence and keep saved identity/consent.
+reconciliation when that requirement remains. Stored records with missing or invalid
+counters fail with `invalid_storage`.
 A transport abort or timeout is not server cancellation. Delayed earlier writes
 are rejected by server revision guards after the acknowledged fence.
 
@@ -215,7 +265,7 @@ bundle ID, signing entitlement, provider topic and APNs environment. The Galinum
 
 The adapter uses `getDevicePushTokenAsync`, yielding APNs on iOS and FCM on Android.
 It does not use Expo Push Service tokens. Its Android channel is created only when
-requesting permission. The channel is native setup; the foundation advertises no
+requesting permission. The channel is native setup; the client advertises no
 rendering/action capabilities. Push use requires a development build, not Expo Go.
 See [Expo Notifications](https://docs.expo.dev/versions/latest/sdk/notifications/),
 [SecureStore](https://docs.expo.dev/versions/latest/sdk/securestore/) and
@@ -277,5 +327,11 @@ this bare adapter's actual APNs registration proof. See its
 [messaging guidance](https://rnfirebase.io/messaging/usage).
 
 This package configures no message handlers, background handlers, notification
-presentation or navigation. Add those only when the corresponding Galinum wire
-contracts and rendering implementations are available.
+presentation or navigation.
+
+## Native text regression
+
+On macOS, run `pnpm --filter @galinum/react-native test:native-text`. This compiles
+the production UTF-8 binding/read helper against Foundation and SQLite. It proves
+that embedded-NUL event IDs remain distinct, with negative controls reproducing
+the old truncation collision. It does not substitute for an iOS SQLCipher build.

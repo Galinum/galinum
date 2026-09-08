@@ -9,6 +9,7 @@ for (const order of ["identify-first", "start-first", "identify-only"] as const)
     await first.setConsent(true);
     const before = (await f.inspect())[0];
     first.dispose();
+    await f.journalReleased();
     const client = f.create();
     if (order === "identify-first") await Promise.all([client.identify("A"), client.start()]);
     if (order === "start-first") await Promise.all([client.start(), client.identify("A")]);
@@ -37,6 +38,7 @@ for (const read of ["getToken", "getPermission"] as const) {
       expect(JSON.parse(f.storage.get(f.config.storageKey)!).session).toEqual({ userId, consent: false });
       expect((await f.inspect())[0]).toMatchObject({ userId, consent: false, hasToken: false });
       client.dispose();
+      await f.journalReleased();
       const restarted = f.create();
       await restarted.start();
       expect(restarted.getSnapshot()).toMatchObject({ userId, consent: false });
@@ -50,14 +52,14 @@ it("writes reset intent while essential HTTP remains blocked, and reconciles aft
   const started = deferred<void>();
   const release = deferred<void>();
   const client = f.create({ requestTimeoutMs: 100, fetch: async (input, init) => {
-    if (block && String(input).endsWith("/track")) { started.resolve(); await release.promise; }
+    if (block && String(input).endsWith("/activity")) { started.resolve(); await release.promise; }
     return f.transport(input, init);
   } });
   await client.identify("A");
   await client.setConsent(true);
   block = true;
-  const track = client.track("pending");
-  const trackFailure = expect(track).rejects.toMatchObject({ code: "transport_uncertain" });
+  const track = client.recordForegroundActivity();
+  const trackFailure = expect(track).rejects.toMatchObject({ code: "superseded" });
   await started.promise;
   const reset = client.reset();
   await vi.waitFor(() => expect(JSON.parse(f.storage.get(f.config.storageKey)!).session.userId).toBeNull(), { interval: 1 });
@@ -66,6 +68,7 @@ it("writes reset intent while essential HTTP remains blocked, and reconciles aft
   await trackFailure;
   release.resolve();
   client.dispose();
+  await f.journalReleased();
   const restarted = f.create();
   await restarted.start();
   expect((await f.inspect())[0]).toMatchObject({ userId: null, consent: false, hasToken: false });
@@ -102,6 +105,7 @@ it("serializes delayed old writes before the latest intent without claiming earl
   await vi.waitFor(() => expect(JSON.parse(f.storage.get(f.config.storageKey)!).session.userId).toBeNull());
   expect(peak).toBe(1);
   client.dispose();
+  await f.journalReleased();
   const restarted = f.create();
   await restarted.start();
   expect((await f.inspect())[0]).toMatchObject({ userId: null, hasToken: false, consent: false });
@@ -129,6 +133,7 @@ it("late A storage completions cannot overwrite B's persisted intent", async () 
   await Promise.all([oldFailure, reset, b]);
   expect(JSON.parse(f.storage.get(f.config.storageKey)!).session).toEqual({ userId: "B", consent: false });
   client.dispose();
+  await f.journalReleased();
   const restarted = f.create();
   await restarted.start();
   expect(restarted.getSnapshot()).toMatchObject({ userId: "B", consent: false });
@@ -198,6 +203,7 @@ it("reinstall-surviving credentials never restore identity without app state", a
   const credentials = f.secrets.get(f.config.storageKey);
   expect(credentials).not.toContain('"session"');
   client.dispose();
+  await f.journalReleased();
   f.storage.clear();
   const restarted = f.create();
   await restarted.start();
@@ -210,10 +216,12 @@ it("fails closed on key rotation and a different API scope without touching cred
   const client = f.create();
   await client.identify("A");
   client.dispose();
+  await f.journalReleased();
   const credentials = f.secrets.get(f.config.storageKey);
   for (const overrides of [{ publishableKey: "pub_rotated" }, { apiBase: "https://other.example.com" }]) {
     const other = f.create(overrides);
     await expect(other.start()).rejects.toMatchObject({ code: "scope_mismatch" });
+    other.dispose();await f.journalReleased();
   }
   expect(f.secrets.get(f.config.storageKey)).toBe(credentials);
   expect((await f.inspect())[0].userId).toBe("A");
@@ -234,6 +242,7 @@ it("a real cold-start A to B switch clears consent and token", async () => {
   await first.identify("A");
   await first.setConsent(true);
   first.dispose();
+  await f.journalReleased();
   const client = f.create();
   await client.identify("B");
   expect((await f.inspect())[0]).toMatchObject({ userId: "B", consent: false, hasToken: false });
@@ -242,9 +251,10 @@ it("a real cold-start A to B switch clears consent and token", async () => {
 
 it("retains the acknowledged identity snapshot when an unrelated track fails", async () => {
   const f = await fixture();
-  const client = f.create({ fetch: (input, init) => String(input).endsWith("/track") ? Promise.reject(new Error("offline")) : f.transport(input, init) });
+  const client = f.create({ fetch: (input, init) => String(input).endsWith("/observations") ? Promise.reject(new Error("offline")) : f.transport(input, init) });
   await client.identify("A");
-  await expect(client.track("failed")).rejects.toMatchObject({ code: "transport_uncertain" });
+  expect((await client.track("failed")).state).toBe("queued");
+  await expect(client.flush()).rejects.toMatchObject({ code: "transport_uncertain" });
   expect(client.getSnapshot()).toMatchObject({ userId: "A", installation: { userId: "A" }, error: { code: "transport_uncertain" } });
 });
 
@@ -268,6 +278,7 @@ it("recovers a lost token acknowledgement without an extra registration mutation
   await expect(client.setConsent(true)).rejects.toMatchObject({ code: "transport_uncertain" });
   const revision = (await f.inspect())[0].tokenRevision;
   client.dispose();
+  await f.journalReleased();
   const restarted = f.create();
   await restarted.start();
   expect((await f.inspect())[0].tokenRevision).toBe(revision);

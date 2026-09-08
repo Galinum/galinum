@@ -24,6 +24,7 @@ it("provider exposes immutable updates and fences hooks captured by a previous u
   expect(f.adapter.requestPermission).not.toHaveBeenCalled();
   await act(async () => { renderer.unmount(); });
   client.dispose();
+  await f.journalReleased();
   expect(f.removed.length).toBe(f.callbacks.length);
 });
 
@@ -34,6 +35,7 @@ it("preserves saved consent with child identify effects before the provider star
   await previous.setConsent(true);
   const revision = (await f.inspect())[0].tokenRevision;
   previous.dispose();
+  await f.journalReleased();
   const client = f.create();
   const order: string[] = [];
   const start = client.start;

@@ -15,6 +15,7 @@ describe("native client against installation HTTP contracts", () => {
     await expect(first.start()).rejects.toMatchObject({ code: "transport_uncertain" });
     const saved = f.secrets.get(f.config.storageKey);
     first.dispose();
+    await f.journalReleased();
     fail = false;
     const second = f.create({ fetch: send });
     await second.start();
@@ -46,12 +47,13 @@ describe("native client against installation HTTP contracts", () => {
     await client.setConsent(true);
     f.callbacks.at(-1)!("rotated-token");
     await client.track("activated_workspace", { workspaceId: "one" });
+    await client.flush();
     expect(f.adapter.requestPermission).not.toHaveBeenCalled();
     expect(f.requests.filter(r => r.path.endsWith("/activity"))).toHaveLength(0);
     expect((await f.inspect())[0]).toMatchObject({ userId: "A", hasToken: true, consent: true, lastActiveAt: null });
     await client.recordForegroundActivity();
     expect((await f.inspect())[0].lastActiveAt).toEqual(expect.any(Number));
-    expect(f.requests.find(r => r.path === "/api/v1/track")!.body).toEqual({ userId: "A", event: "activated_workspace", props: { workspaceId: "one" } });
+    expect(f.requests.find(r => r.path.endsWith("/observations"))!.body).toMatchObject({ bindingGeneration: 1, commands: [{ kind: "event", event: "activated_workspace", props: { workspaceId: "one" } }] });
     expect(f.requests.find(r => r.path === "/api/v1/identify")!.headers.has("X-Galinum-Installation-Capability")).toBe(false);
   });
 
@@ -210,6 +212,7 @@ describe("native client against installation HTTP contracts", () => {
     await expect(client.reset()).rejects.toMatchObject({ code: "transport_uncertain" });
     expect(JSON.parse(f.storage.get(f.config.storageKey)!).session).toEqual({ userId: null, consent: false });
     client.dispose();
+    await f.journalReleased();
     const restarted = f.create();
     await restarted.start();
     expect((await f.inspect())[0]).toMatchObject({ userId: null, consent: false, hasToken: false });
@@ -227,7 +230,8 @@ describe("native client against installation HTTP contracts", () => {
     const tracked = client.track("sample", props);
     props.nested.value = 2;
     await tracked;
-    expect(f.requests.find(r => r.path.endsWith("/track"))!.body!.props).toEqual({ nested: { value: 1 } });
+    await client.flush();
+    expect((f.requests.find(r => r.path.endsWith("/observations"))!.body!.commands as any[])[0].props).toEqual({ nested: { value: 1 } });
     await client.reset();
     expect(snapshot.userId).toBe("A");
     const serialized = JSON.stringify(snapshot);
@@ -236,16 +240,27 @@ describe("native client against installation HTTP contracts", () => {
     expect(serialized).not.toContain("native-test-token");
   });
 
-  it("does not retry track when its response is lost", async () => {
-    const f = await fixture();
+  it("custom adapters preserve repeated business IDs after lost observation responses", async () => {
+    const f = await fixture();let lose = true;
     const client = f.create({ fetch: async (input, init) => {
       const response = await f.transport(input, init);
-      if (String(input).endsWith("/track")) throw new Error("lost");
+      if (lose && String(input).endsWith("/observations")) throw new Error("lost");
       return response;
     } });
     await client.identify("A");
-    await expect(client.track("once")).rejects.toMatchObject({ code: "transport_uncertain" });
-    expect(f.requests.filter(r => r.path.endsWith("/track"))).toHaveLength(1);
+    const props = { nested: { value: [null, true, "data"] } };
+    expect(await client.track("once", props, { eventId: "custom-job" })).toEqual({ eventId: "custom-job", state: "queued" });
+    await expect(client.flush()).rejects.toMatchObject({ code: "transport_uncertain" });
+    expect(await client.track("once", props, { eventId: "custom-job" })).toEqual({ eventId: "custom-job", state: "queued" });
+    await expect(client.flush()).rejects.toMatchObject({ code: "transport_uncertain" });
+    lose = false;await client.flush();
+    expect(await client.track("once", props, { eventId: "custom-job" })).toEqual({ eventId: "custom-job", state: "acknowledged" });
+    const sends = f.requests.filter(r => r.path.endsWith("/observations"));
+    expect(sends.length).toBeGreaterThan(1);
+    for (const send of sends) expect(send.body).toEqual(sends[0]!.body);
+    expect(f.requests.some(r => r.path === "/api/v1/track")).toBe(false);
+    const events = await (await fetch(f.config.apiBase + "/api/v1/events?name=once&externalUserId=A", { headers: { Authorization: "Bearer secret_test" } })).json();
+    expect(events.total).toBe(1);expect(events.events[0].props).toEqual(props);
   });
 
   it("redacts transport and server errors and rejects unexpected response fields", async () => {
@@ -253,6 +268,7 @@ describe("native client against installation HTTP contracts", () => {
     const client = f.create({ fetch: async () => new Response(JSON.stringify({ error: "secret-capability-token" }), { status: 401 }) });
     await expect(client.start()).rejects.toMatchObject({ code: "http_error", status: 401 });
     expect(JSON.stringify(client.getSnapshot())).not.toContain("secret-capability-token");
+    client.dispose();await f.journalReleased();
     const malformed = f.create({ fetch: async (input, init) => {
       const response = await f.transport(input, init);
       const body = await response.json();
@@ -298,6 +314,7 @@ it("resumes one durable pending acknowledgement after a process restart", async 
   const before = (await f.inspect())[0];
   expect(JSON.parse(f.storage.get(f.config.storageKey)!).pending.route).toBe("activity");
   client.dispose();
+  await f.journalReleased();
   const restarted = f.create();
   await restarted.start();
   const after = (await f.inspect())[0];

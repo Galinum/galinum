@@ -1,3 +1,4 @@
+import { testJournal } from "./journal-fixture.js";
 import { randomBytes } from "node:crypto";
 import { createServer } from "node:http";
 import { afterEach, vi } from "vitest";
@@ -28,7 +29,9 @@ export async function fixture() {
   const secrets = new Map<string, string>();
   const callbacks: ((token: string | null) => void)[] = [];
   const removed: number[] = [];
+  const journal = testJournal();
   const adapter: NativeAdapter = {
+    journal: journal.port,
     secrets: { get: async key => secrets.get(key) ?? null, set: async (key, value) => { secrets.set(key, value); } },
     storage: { get: async key => storage.get(key) ?? null, set: async (key, value) => { storage.set(key, value); } },
     randomBytes: async length => new Uint8Array(randomBytes(length)),
@@ -54,5 +57,5 @@ export async function fixture() {
     const [state] = await inspect();
     return fetch(`${origin}/api/v1/sdk/installations/${record.installationId}/${route}`, { method: route === "activity" ? "POST" : "PUT", headers: { Authorization: "Bearer pub_test", "Content-Type": "application/json", "X-Galinum-Installation-Capability": record.capability }, body: JSON.stringify({ requestId: randomBytes(16).toString("hex"), revision: state.revision, bindingGeneration: state.bindingGeneration, ...(route === "token" ? { tokenRevision: state.tokenRevision } : {}), ...fields }) });
   };
-  return { create, config, adapter, storage, secrets, callbacks, removed, requests, transport, inspect, mutate };
+  return { create, journalReleased: journal.released, config, adapter, storage, secrets, callbacks, removed, requests, transport, inspect, mutate };
 }

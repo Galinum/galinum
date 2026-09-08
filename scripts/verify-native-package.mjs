@@ -49,7 +49,7 @@ try {
   run("pnpm", ["pack", "--pack-destination", scratch]);
   const tarball = join(scratch, readdirSync(scratch).find(name => name.endsWith(".tgz")));
   const files = run("tar", ["-tzf", tarball]).trim().split("\n");
-  for (const file of files) assert(/^package\/(dist\/[^/]+\.(js|d\.ts)|package\.json|README\.md|LICENSE)$/.test(file), `Unexpected packed ${file}`);
+  for (const file of files) assert(/^package\/(dist\/(?:specs\/)?[^/]+\.(js|d\.ts)|src\/specs\/[^/]+\.ts|android\/build\.gradle|android\/src\/main\/.+\.(java|xml)|ios\/[^/]+\.(h|mm)|GalinumJournal\.podspec|react-native\.config\.cjs|package\.json|README\.md|LICENSE)$/.test(file), `Unexpected packed ${file}`);
   const packed = JSON.parse(run("tar", ["-xOf", tarball, "package/package.json"]));
   const contracts = JSON.parse(readFileSync(join(root, "packages/contracts/package.json"), "utf8"));
   assert.equal(packed.dependencies["@galinum/contracts"], contracts.version);

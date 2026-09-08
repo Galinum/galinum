@@ -1,0 +1,1 @@
+module.exports = { dependency: { platforms: { android: { sourceDir: './android', packageImportPath: 'import com.galinum.journal.GalinumJournalPackage;', packageInstance: 'new GalinumJournalPackage()' }, ios: { podspecPath: './GalinumJournal.podspec' } } } };

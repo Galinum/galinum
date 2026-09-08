@@ -37,13 +37,20 @@
   "files": [
     "dist",
     "LICENSE",
-    "README.md"
+    "README.md",
+    "src/specs",
+    "android/build.gradle",
+    "android/src/main",
+    "ios",
+    "GalinumJournal.podspec",
+    "react-native.config.cjs"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "check:package": "node ../../scripts/verify-native-package.mjs"
+    "check:package": "node ../../scripts/verify-native-package.mjs",
+    "test:native-text": "node test/native-text.mjs"
   },
   "dependencies": {
     "@galinum/contracts": "workspace:*",
@@ -118,5 +125,20 @@
   },
   "engines": {
     "node": ">=20.19.0"
+  },
+  "codegenConfig": {
+    "name": "GalinumJournalSpec",
+    "type": "modules",
+    "jsSrcsDir": "src/specs",
+    "android": {
+      "javaPackageName": "com.galinum.journal"
+    },
+    "ios": {
+      "modules": {
+        "GalinumJournal": {
+          "className": "GalinumJournal"
+        }
+      }
+    }
   }
 }

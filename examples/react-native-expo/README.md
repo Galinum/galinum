@@ -39,3 +39,19 @@ large records, process death and reinstall behavior on task-owned devices separa
 Permission and token checks need native modules and provider configuration. Expo
 Go is not a substitute. See the [SDK setup](../../packages/react-native/README.md)
 for the Expo and bare dependency sets and native setup requirements.
+
+
+## Embedded journal verification
+
+The `verification/` fixture uses the actual native journal and JavaScript client.
+After Android prebuild, run `node verification/prepare.mjs`, then build
+`:app:assembleJournalVerification` in the generated Android project. It uses a
+unique application ID, an embedded Hermes bundle and a verification-only native
+source set. That source set is not included in the SDK package.
+
+The host driver must provide private runtime configuration in the app sandbox.
+It controls only a disposable server and an explicitly selected disposable device.
+The fixture substitutes permission/token/channel facts and injects a native tap
+through the internal ingress boundary. This proves journal and HTTP order, not
+notification delivery, OS receiver routing or production channel setup. It also
+checks actual process reopen, uncertain-prefix replay and database pressure.

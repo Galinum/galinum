@@ -1,3 +1,4 @@
-.expo/
-ios/
-android/
+/.expo/
+/ios/
+/android/
+/.codegen-journal/

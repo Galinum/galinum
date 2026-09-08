@@ -6,7 +6,7 @@ const native = vi.hoisted(() => ({
   messaging: { isDeviceRegisteredForRemoteMessages: false }, keychainGet: vi.fn(), keychainSet: vi.fn(), secureGet: vi.fn(), secureSet: vi.fn(),
 }));
 vi.mock("../src/protected-store.js", () => ({ createProtectedStore: () => ({ get: vi.fn(), set: vi.fn() }) }));
-vi.mock("react-native", () => ({ Platform: native.platform }));
+vi.mock("react-native", () => ({ Platform: native.platform, TurboModuleRegistry: { get: () => null } }));
 vi.mock("expo-notifications", () => ({
   getPermissionsAsync: native.getPermissions, requestPermissionsAsync: native.requestPermissions,
   getDevicePushTokenAsync: native.expoToken, addPushTokenListener: native.addListener,

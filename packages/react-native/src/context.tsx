@@ -18,5 +18,5 @@ export function useGalinumSnapshot() {
 export function useGalinum() {
   const client = useGalinumClient();
   const snapshot = useGalinumSnapshot();
-  return useMemo(() => ({ ...client.session(), identify: client.identify, reset: client.reset, snapshot }), [client, snapshot]);
+  return useMemo(() => ({ ...client.session(), identify: client.identify, reset: client.reset, flush: client.flush, snapshot }), [client, snapshot]);
 }
