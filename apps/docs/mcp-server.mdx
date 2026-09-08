@@ -128,8 +128,10 @@ default, campaign override, approval, mapping coverage, launch evidence, and
 warnings. The full endpoint also exposes `set_launch_policy` and
 `set_campaign_activation_mode` with revision preconditions. Enabling automatic
 mode can activate existing approved drafts. A null override inherits the project
-default. These Cloud-only tools never approve communications or configure
-human-confirmed deployment scope. See [GitHub integration](/github) for setup,
+default. The underlying activation operations are also supported by self-hosted
+servers. These tools never approve communications or configure deployment scope.
+Stock [operator HTTP](/self-host/activation) is separate from agent MCP.
+See [GitHub integration](/github) for setup,
 manual fallback, and rollback behavior.
 
 ## Revise an unlaunched campaign

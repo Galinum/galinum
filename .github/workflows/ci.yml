@@ -49,6 +49,16 @@ jobs:
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/galinum_product_ci
           RUN_DB_INTEGRATION: "1"
         run: pnpm --filter @galinum/server test
+      - name: Verify the existing database upgrade
+        env:
+          GALINUM_UPGRADE_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+        run: pnpm verify:activation-upgrade
       - run: pnpm test
       - run: pnpm verify:affected -- --base "${{ github.event.before }}"
+      - name: Verify the built activation runtime
+        env:
+          GALINUM_RUNTIME_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+        run: |
+          pnpm --filter @galinum/server... build
+          pnpm verify:activation-runtime
       - run: pnpm verify:clean-clone

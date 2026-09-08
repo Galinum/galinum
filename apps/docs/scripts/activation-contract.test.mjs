@@ -12,15 +12,16 @@ const operations = [
 ];
 
 for (const [path, read, write, response, field] of operations) {
-  test(`${path} keeps Cloud availability and credential boundaries`, () => {
+  test(`${path} keeps product availability and credential boundaries`, () => {
     const { get, patch } = contract.paths[path];
     assert.equal(get.operationId, read);
     assert.equal(patch.operationId, write);
     assert.deepEqual(get.security, [{ secretKey: [] }, { hostedAgentKey: [] }]);
     assert.deepEqual(patch.security, [{ secretKey: [] }]);
     for (const operation of [get, patch]) {
-      assert.ok(cloud.operations.includes(operation.operationId));
-      assert.ok(operation.responses[501]);
+      assert.ok(!cloud.operations.includes(operation.operationId));
+      assert.equal(operation.responses[501], undefined);
+      assert.doesNotMatch(operation.description, /Cloud.only|self-host returns 501/i);
       assert.deepEqual(operation.responses[200].content["application/json"].schema, { $ref: `#/components/schemas/${response}` });
     }
     assert.ok(patch.responses[403]);
@@ -70,4 +71,67 @@ test("activation response preserves the settled fields, states, and nullable evi
       assert.equal(schemas[name].properties?.[field], undefined);
     }
   }
+});
+
+
+test("source declarations use atomic create and revisioned replacement shapes", () => {
+  const create = contract.paths["/api/v1/campaigns"].post.requestBody.content["application/json"].schema;
+  const update = contract.paths["/api/v1/campaigns/{id}"].patch.requestBody.content["application/json"].schema;
+  assert.deepEqual(create.properties.sourceChanges, { $ref: "#/components/schemas/CampaignSourceChangesCreate" });
+  assert.deepEqual(update.properties.sourceChanges, { $ref: "#/components/schemas/CampaignSourceChangesUpdate" });
+  assert.ok(!create.required.includes("sourceChanges"));
+  assert.ok(!(update.required ?? []).includes("sourceChanges"));
+  assert.deepEqual(schemas.CampaignSourceChangesCreate.required, ["changes"]);
+  assert.equal(schemas.CampaignSourceChangesCreate.properties.expectedRevision, undefined);
+  assert.deepEqual(schemas.CampaignSourceChangesUpdate.required, ["expectedRevision", "changes"]);
+  for (const name of ["CampaignSourceChangesCreate", "CampaignSourceChangesUpdate"]) {
+    assert.equal(schemas[name].additionalProperties, false);
+    assert.equal(schemas[name].properties.changes.minItems, undefined);
+  }
+  const [commit, pullRequest] = schemas.CampaignSourceChange.oneOf;
+  assert.deepEqual(commit.required, ["sourceId", "kind", "sha"]);
+  assert.deepEqual(pullRequest.required, ["sourceId", "kind", "number", "shas"]);
+  assert.equal(commit.additionalProperties, false);
+  assert.equal(pullRequest.additionalProperties, false);
+  assert.equal(commit.properties.kind.const, "commit");
+  assert.equal(pullRequest.properties.kind.const, "pull_request");
+  assert.equal(pullRequest.properties.shas.minItems, 1);
+  assert.equal(pullRequest.properties.shas.maxItems, undefined);
+  const detail = schemas.CampaignDetail.allOf.find((entry) => entry.properties);
+  assert.ok(detail.required.includes("sourceChanges"));
+  assert.deepEqual(detail.properties.sourceChanges, { $ref: "#/components/schemas/CampaignSourceChanges" });
+  assert.deepEqual(schemas.CampaignSourceChanges.required, ["revision", "changes"]);
+});
+
+
+test("hosted source jobs remain separate from product activation and operator HTTP", () => {
+  for (const [path, method, id] of [
+    ["/api/v1/github/refs/due", "get", "listDueGithubRefs"],
+    ["/api/v1/github/refs/{refId}/claim", "post", "claimGithubRef"],
+    ["/api/v1/github/refs/{refId}/reconcile", "post", "reconcileGithubRef"],
+  ]) {
+    const operation = contract.paths[path][method];
+    assert.equal(operation.operationId, id);
+    assert.ok(cloud.operations.includes(id));
+    assert.equal(operation["x-mcp"].exposed, false);
+  }
+  assert.ok(Object.keys(contract.paths).every((path) => !path.startsWith("/operator/")));
+});
+
+
+test("complete source reads do not inherit declaration write-size limits", () => {
+  const readChanges = schemas.CampaignSourceChanges.properties.changes;
+  assert.deepEqual(readChanges.items, { $ref: "#/components/schemas/CampaignSourceChange" });
+  assert.equal(readChanges.maxItems, undefined);
+  assert.equal(schemas.CampaignSourceChange.oneOf[1].properties.shas.maxItems, undefined);
+  assert.equal(schemas.CampaignSourceChanges.additionalProperties, false);
+  for (const name of ["CampaignSourceChangesCreate", "CampaignSourceChangesUpdate"]) {
+    const writeChanges = schemas[name].properties.changes;
+    assert.equal(writeChanges.maxItems, 100);
+    assert.deepEqual(writeChanges.items, { $ref: "#/components/schemas/CampaignSourceChangeInput" });
+  }
+  assert.deepEqual(schemas.CampaignSourceChangeInput.allOf, [
+    { $ref: "#/components/schemas/CampaignSourceChange" },
+    { type: "object", properties: { shas: { type: "array", maxItems: 250 } } },
+  ]);
 });

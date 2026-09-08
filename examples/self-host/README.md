@@ -51,3 +51,15 @@ Compile the dashboard with Tailwind CSS v4. Import Tailwind and the package styl
 ```
 
 The package stylesheet registers the dashboard's built JavaScript as a Tailwind source and supplies its semantic tokens. Serve the compiled CSS, not the raw imports.
+
+## Upgrade an existing database
+
+Apply the activation upgrade before starting this version against a database created with the previous schema:
+
+```sh
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f packages/server/migrations/activation-1.sql
+```
+
+The upgrade preserves existing campaigns and deliveries. It does not approve campaigns, attach source changes, or launch messages. A fresh database initialized with the current `schema.sql` already includes this upgrade. Do not apply it twice.
+
+The server checks the recorded schema version before starting. Use `pnpm verify:activation-upgrade` to rehearse the upgrade against disposable loopback databases.

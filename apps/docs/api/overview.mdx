@@ -4,7 +4,8 @@ description: "Galinum's HTTP API — the SDK surface your product calls, and the
 icon: "book-open"
 ---
 
-The Galinum API has two surfaces.
+The Galinum agent and SDK API has two surfaces. Self-hosted setup and review
+use separate [operator HTTP controls](/self-host/activation), outside agent MCP.
 
 The **SDK endpoints** are the ingestion and delivery surface the
 [React SDK](/sdk/react/overview) is built on. If you're not using React — or
@@ -33,12 +34,12 @@ logging its decisions — server-to-server:
 | `POST /api/v1/campaigns` | Create (and optionally launch) a campaign |
 | `GET /api/v1/campaigns` | List campaigns with delivery stats |
 | `GET /api/v1/campaigns/{id}` | One campaign with per-variant stats |
-| `PATCH /api/v1/campaigns/{id}` | Edit name, audience, content, variants, or delivery window |
+| `PATCH /api/v1/campaigns/{id}` | Edit content, audience, variants, delivery window, or revisioned source declarations |
 | `POST /api/v1/campaigns/{id}/status` | Launch, pause, or end a campaign |
 | `GET /api/v1/campaigns/{id}/deliveries` | Per-user delivery feed for a campaign |
 | `GET /api/v1/campaigns/{id}/conversions` | Exact event conversions by variant |
-| `GET /api/v1/launch-policy` / `PATCH /api/v1/launch-policy` | Read / change the project launch default (Cloud only) |
-| `GET /api/v1/campaigns/{id}/activation` / `PATCH /api/v1/campaigns/{id}/activation` | Inspect activation evidence / change the campaign mode override (Cloud only) |
+| `GET /api/v1/launch-policy` / `PATCH /api/v1/launch-policy` | Read / change the project launch default |
+| `GET /api/v1/campaigns/{id}/activation` / `PATCH /api/v1/campaigns/{id}/activation` | Inspect activation evidence / change the campaign mode override |
 | `POST /api/v1/goals` / `GET /api/v1/goals` | Create / list business goals (optimized loop only) |
 | `GET /api/v1/goals/{id}` / `PATCH /api/v1/goals/{id}` | Goal detail / edits |
 | `POST /api/v1/agent-runs` / `GET /api/v1/agent-runs` | Log / browse agent decisions |
@@ -57,8 +58,21 @@ return `403`. Launch-policy and campaign-activation GET requests remain availabl
 Management endpoints are not CORS-enabled, so
 call them from an agent or backend, never the browser. See
 [Authentication](/api/authentication) for the exact key boundaries. There is
-no DELETE anywhere: campaigns end, variants retire with `weight: 0`, and goals
+no DELETE in the agent management API: campaigns end, variants retire with `weight: 0`, and goals
 archive.
+
+## Prepared campaigns and deployment activation
+
+The product server supports launch policy and activation on self-hosted
+installations. Declare `sourceChanges` alongside content in ordinary campaign
+POST/PATCH. Create uses `{ changes }`; replacement PATCH requires
+`{ expectedRevision, changes }`. Campaign detail returns `{ revision, changes }`
+in `sourceChanges`. Omission preserves the declaration and approval.
+
+Content and source replacement commit together. Approval survives edits, but
+current source coverage and channel readiness remain required. Source-managed
+preparations reject generic association replacement with `409` before changing
+copy. See [GitHub integration](/github) for the complete activation workflow.
 
 ## Base URL
 

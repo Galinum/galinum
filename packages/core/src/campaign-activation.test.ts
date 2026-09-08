@@ -15,7 +15,7 @@ function evidence(id = "deployment-1"): ActivationEvidence {
 function input(patch: Partial<ActivationInput> = {}): ActivationInput {
   return {
     status: "draft", startedAt: null, defaultMode: "automatic", override: null,
-    approved: true, withdrawn: false, projectPaused: false,
+    approved: true, withdrawn: false, projectPaused: false, readiness: { ok: true },
     sources: [{ id: "source-1", state: "ready" }],
     requirements: [{ id: "change-1", sourceId: "source-1", label: "Feature", mappingIds: ["web"] }],
     coverage: [{ requirementId: "change-1", mappingId: "web", state: "present", evidence: evidence() }],
@@ -27,6 +27,20 @@ function input(patch: Partial<ActivationInput> = {}): ActivationInput {
 const eligible = { state: "eligible", blockers: [] };
 
 describe("initial automatic activation", () => {
+  it("blocks failed launch readiness even with approval and current deployment coverage", () => {
+    const campaign = input({ readiness: { ok: false, error: "The sending domain is unverified." } });
+    expect(assessAutomaticActivation(campaign)).toEqual({ state: "waiting", blockers: [
+      { code: "readiness", detail: "The sending domain is unverified." },
+    ] });
+  });
+
+  it("requires explicit launch readiness from JavaScript callers", () => {
+    const campaign = Object.assign(input(), { readiness: undefined });
+    expect(Reflect.apply(assessAutomaticActivation, undefined, [campaign])).toEqual({ state: "waiting", blockers: [
+      { code: "readiness", detail: "Launch readiness has not been verified." },
+    ] });
+  });
+
   it("accepts approved current coverage without a delivery expiry", () => {
     expect(assessAutomaticActivation(input())).toEqual(eligible);
   });

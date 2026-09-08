@@ -65,6 +65,15 @@ configuration authority. Optimization writes use the claimed evaluation's
 campaigns. Revoking this key stops hosted access
 without rotating your project secret.
 
+## Self-hosted operator credential
+
+The stock server uses a separately configured `GALINUM_OPERATOR_KEY` for
+[operator setup and review](/self-host/activation). It must differ from management
+and publishable keys. Keep it out of agent environments and MCP configuration.
+The operator HTTP surface can confirm deployment scope and approve a current
+review snapshot. Management and hosted-agent keys cannot perform those actions.
+Only safe shipping-settings inspection also accepts the management key.
+
 ## Authentication errors
 
 Missing or invalid keys return `401`:

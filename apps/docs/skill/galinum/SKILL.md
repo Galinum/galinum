@@ -107,7 +107,7 @@ omit `goalId`.
 
 Use this path for work claimed from a connected GitHub source. A source event
 permits draft preparation only. Never launch, schedule, approve your own work,
-or revise a campaign that has already launched through this path. Cloud
+or revise a campaign that has already launched through this path. Product
 automatic activation separately checks human approval and current deployment
 evidence. Source edits retain approval, so an eligible revision can later launch.
 
@@ -149,7 +149,8 @@ changes. Do not write a second ordinary campaign mutation or log a launch.
 
 ## Deployment-based activation
 
-In Galinum Cloud, read `GET /api/v1/launch-policy` and
+On the product server, including self-hosted installations, read
+`GET /api/v1/launch-policy` and
 `GET /api/v1/campaigns/{id}/activation` to explain launch mode, approval,
 coverage, waiting reasons, launch evidence, and warnings. Hosted credentials
 have GET visibility only: never PATCH launch controls, approve communications,
@@ -159,7 +160,17 @@ Use the launch activation contract in `references/api.md` for mode changes
 with a customer project secret. Change modes only within the user's authority.
 Automatic mode can launch existing approved drafts, including after source
 edits. Never use it to bypass draft-only instructions. Deployment setup requires
-a human manager's explicit repository, environment, sources, and scope confirmation.
+an authorized operator's explicit repository, environment, sources, and scope
+confirmation. Operator setup and review are separate from agent MCP. Never
+request or reuse the operator key for agent work.
+
+For a prepared campaign, use ordinary create/PATCH `sourceChanges` with the
+content in the same request. On create, send `{changes}`; on replacement PATCH,
+send `{expectedRevision,changes}` using the current detail projection. Omission
+preserves sources and approval. Do not replace associations on a source-managed
+preparation; a `409` leaves copy unchanged. Retained approval does not replace
+current coverage or channel readiness. Self-hosted activation works with your
+own GitHub App and prepared campaigns; it does not require hosted drafting.
 
 Keep feature flags, gradual rollouts, and unclear mappings in manual mode
 until the intended audience has access. Report unresolved evidence as waiting;

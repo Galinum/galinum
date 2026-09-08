@@ -45,6 +45,12 @@
             "pages": [
               "email/domain-setup"
             ]
+          },
+          {
+            "group": "Self-hosting",
+            "pages": [
+              "self-host/activation"
+            ]
           }
         ]
       },

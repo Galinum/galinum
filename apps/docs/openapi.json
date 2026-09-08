@@ -79,7 +79,7 @@
       "post": {
         "operationId": "trackEvent",
         "summary": "Track an event",
-        "description": "Records a behavioral event for a user — the substrate Galinum's agents analyze for campaign targeting. Tracking implicitly upserts the user, so it is safe to call for users not yet identified. When the event name matches the targetEvent of a goal linked to a campaign (via goalId), exposed deliveries resolve to converted automatically. Exposure is shownAt for web in-app and deliveredAt for email.",
+        "description": "Records a behavioral event for a user \u2014 the substrate Galinum's agents analyze for campaign targeting. Tracking implicitly upserts the user, so it is safe to call for users not yet identified. When the event name matches the targetEvent of a goal linked to a campaign (via goalId), exposed deliveries resolve to converted automatically. Exposure is shownAt for web in-app and deliveredAt for email.",
         "tags": [
           "Users"
         ],
@@ -235,7 +235,7 @@
       "post": {
         "operationId": "recordDeliveryEvent",
         "summary": "Report delivery feedback",
-        "description": "Records what the user did with a delivered message. `shown` marks the impression when the message actually renders, without resolving the delivery; `clicked`, `dismissed`, and `converted` resolve it — the message stops being returned for that user — and feed Galinum's per-variant measurement. converted also resolves automatically when a tracked event matches the targetEvent of the goal linked to the campaign (via goalId).",
+        "description": "Records what the user did with a delivered message. `shown` marks the impression when the message actually renders, without resolving the delivery; `clicked`, `dismissed`, and `converted` resolve it \u2014 the message stops being returned for that user \u2014 and feed Galinum's per-variant measurement. converted also resolves automatically when a tracked event matches the targetEvent of the goal linked to the campaign (via goalId).",
         "tags": [
           "Messages"
         ],
@@ -270,7 +270,7 @@
                       "dismissed",
                       "converted"
                     ],
-                    "description": "shown = the message actually rendered (the impression; sent automatically by the React SDK — custom consumers must send it when they display the message, or it never counts as shown); clicked = engaged with the CTA; dismissed = closed the message; converted = completed the campaign's goal."
+                    "description": "shown = the message actually rendered (the impression; sent automatically by the React SDK \u2014 custom consumers must send it when they display the message, or it never counts as shown); clicked = engaged with the CTA; dismissed = closed the message; converted = completed the campaign's goal."
                   }
                 }
               }
@@ -325,7 +325,7 @@
             "secretKey": []
           }
         ],
-        "description": "Uploads an image to attach to a campaign message. Send `multipart/form-data` with a single `file` field: PNG, JPEG, WebP, or GIF (animation is preserved), up to 4 MB and 4096×4096 pixels. File contents are verified — SVG and files whose bytes don't match their declared type are rejected. Returns an absolute HTTP(S) URL on the server's configured public origin; reference it as `media.url` when creating or editing a campaign. The image never changes the message's presentation — set `message.presentation` for that. Objects are immutable and retained; upload a new file to change an image.",
+        "description": "Uploads an image to attach to a campaign message. Send `multipart/form-data` with a single `file` field: PNG, JPEG, WebP, or GIF (animation is preserved), up to 4 MB and 4096\u00d74096 pixels. File contents are verified \u2014 SVG and files whose bytes don't match their declared type are rejected. Returns an absolute HTTP(S) URL on the server's configured public origin; reference it as `media.url` when creating or editing a campaign. The image never changes the message's presentation \u2014 set `message.presentation` for that. Objects are immutable and retained; upload a new file to change an image.",
         "tags": [
           "Campaigns"
         ],
@@ -413,7 +413,7 @@
             "$ref": "#/components/responses/RateLimited"
           },
           "502": {
-            "description": "Storage error — the image could not be stored; try again.",
+            "description": "Storage error \u2014 the image could not be stored; try again.",
             "content": {
               "application/json": {
                 "schema": {
@@ -455,7 +455,7 @@
             "secretKey": []
           }
         ],
-        "description": "Creates a web in-app or email campaign behind the same campaign model. Use either one `message` (a direct communication, one variant named \"A\") or an explicit weighted `variants` array. Pass `launch: true` to start delivery, or leave a draft. Email launch requires a verified project domain and a matching from address. Optional `deliverFrom`/`deliverUntil` schedule a future start and automatic expiry.",
+        "description": "Creates a web in-app or email campaign behind the same campaign model. Use either one `message` (a direct communication, one variant named \"A\") or an explicit weighted `variants` array. Pass `launch: true` to start delivery, or leave a draft. Email launch requires a verified project domain and a matching from address. Optional `deliverFrom`/`deliverUntil` schedule a future start and automatic expiry. Optional sourceChanges declares the changes for deployment-based activation. Content and declaration commit atomically. Declaring changes does not approve the campaign. Approval survives later edits, but launch requires coverage for the current declaration and current channel readiness.",
         "tags": [
           "Campaigns"
         ],
@@ -528,7 +528,7 @@
                       "null"
                     ],
                     "minLength": 1,
-                    "description": "Link the campaign to a goal in this project (400 if the goal doesn't exist here). Tracked events matching the linked goal's targetEvent automatically resolve the campaign's deliveries to converted once shown. Omit or pass null for no goal — direct communications never need one."
+                    "description": "Link the campaign to a goal in this project (400 if the goal doesn't exist here). Tracked events matching the linked goal's targetEvent automatically resolve the campaign's deliveries to converted once shown. Omit or pass null for no goal \u2014 direct communications never need one."
                   },
                   "launch": {
                     "type": "boolean",
@@ -558,6 +558,9 @@
                       }
                     ],
                     "description": "Requested delivery-window end: epoch milliseconds or ISO-8601 with an explicit timezone offset. Must be in the future; delivery stops automatically at exactly this instant."
+                  },
+                  "sourceChanges": {
+                    "$ref": "#/components/schemas/CampaignSourceChangesCreate"
                   }
                 },
                 "description": "Exactly one of `message` or `variants` is required.",
@@ -897,7 +900,7 @@
             "secretKey": []
           }
         ],
-        "description": "Edits any subset of name, targeting, message content, variants, and the delivery window. `message` only works on single-variant campaigns; `variants` entries with an `id` update that variant, entries without one create a new variant (variants are never deleted — retire one with `weight: 0`; a campaign keeps at most 10 variants, exactly one control, and at least one positive weight). Extending `deliverUntil` into the future resumes an expired campaign (a paused one additionally needs the `launch` status action).",
+        "description": "Edits any subset of name, targeting, message content, variants, and the delivery window. `message` only works on single-variant campaigns; `variants` entries with an `id` update that variant, entries without one create a new variant (variants are never deleted \u2014 retire one with `weight: 0`; a campaign keeps at most 10 variants, exactly one control, and at least one positive weight). Extending `deliverUntil` into the future resumes an expired campaign (a paused one additionally needs the `launch` status action). Optional sourceChanges declares the changes for deployment-based activation. Content and declaration commit atomically. Declaring changes does not approve the campaign. Approval survives later edits, but launch requires coverage for the current declaration and current channel readiness. Omission preserves the declaration. Replacement requires sourceChanges.expectedRevision from campaign detail. Source-managed preparations cannot replace their associations through this field; the request returns 409 before any copy mutation.",
         "tags": [
           "Campaigns"
         ],
@@ -959,7 +962,7 @@
                       "null"
                     ],
                     "minLength": 1,
-                    "description": "Link the campaign to a goal in this project; null unlinks. Linking takes effect for target events tracked from then on — it never rewrites past deliveries."
+                    "description": "Link the campaign to a goal in this project; null unlinks. Linking takes effect for target events tracked from then on \u2014 it never rewrites past deliveries."
                   },
                   "message": {
                     "$ref": "#/components/schemas/MessageInput",
@@ -1024,6 +1027,9 @@
                       }
                     ],
                     "description": "Replace the delivery-window end (must stay after deliverFrom and, when set, be in the future); null clears it."
+                  },
+                  "sourceChanges": {
+                    "$ref": "#/components/schemas/CampaignSourceChangesUpdate"
                   }
                 }
               }
@@ -1056,7 +1062,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "404": {
-            "description": "Campaign not found — or audience.kind segment referenced a segment/version that does not exist in this project.",
+            "description": "Campaign not found \u2014 or audience.kind segment referenced a segment/version that does not exist in this project.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1066,7 +1072,7 @@
             }
           },
           "409": {
-            "description": "audience.kind segment referenced an archived segment.",
+            "description": "audience.kind segment referenced an archived segment. Also returned for a stale source declaration revision or an attempt to replace associations on a source-managed preparation; no content or declaration changes commit.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1105,7 +1111,7 @@
             "idempotentHint": false,
             "openWorldHint": true
           },
-          "guidance": "Change only what the user asked to change. Do not add a goal, variants, a delivery window, or optimization to a campaign that did not request them. Before you create, launch, or update a campaign, read recent agent runs and query running and scheduled campaigns as two separate paginated searches. Read every page through pageCount for both statuses before treating their deduplicated union as a complete point-in-time snapshot. Repeat both searches immediately before the write. Never claim protection against concurrent campaign changes. If an update is uncertain, read the campaign back before you retry."
+          "guidance": "Change only what the user asked to change. Source changes and content commit atomically. Omission preserves source associations and approval; replacement requires the current sourceChanges.revision as expectedRevision. Source-managed preparations reject generic association replacement with 409 before any copy mutation. Current source coverage and readiness remain required for automatic activation. Do not add a goal, variants, a delivery window, or optimization to a campaign that did not request them. Before you create, launch, or update a campaign, read recent agent runs and query running and scheduled campaigns as two separate paginated searches. Read every page through pageCount for both statuses before treating their deduplicated union as a complete point-in-time snapshot. Repeat both searches immediately before the write. Never claim protection against concurrent campaign changes. If an update is uncertain, read the campaign back before you retry."
         }
       }
     },
@@ -1118,7 +1124,7 @@
             "secretKey": []
           }
         ],
-        "description": "Transitions a campaign's status. `launch` starts a draft or paused campaign, `pause` suspends delivery, `end` stops it permanently — ended campaigns cannot be restarted. On an expired campaign (past its `deliverUntil`) only `end` is allowed; extend `deliverUntil` to resume delivery instead.",
+        "description": "Transitions a campaign's status. `launch` starts a draft or paused campaign, `pause` suspends delivery, `end` stops it permanently \u2014 ended campaigns cannot be restarted. On an expired campaign (past its `deliverUntil`) only `end` is allowed; extend `deliverUntil` to resume delivery instead.",
         "tags": [
           "Campaigns"
         ],
@@ -1756,7 +1762,7 @@
             "hostedAgentKey": []
           }
         ],
-        "description": "Returns one end-user by Galinum id (`eu_…`) or by your own external user id.",
+        "description": "Returns one end-user by Galinum id (`eu_\u2026`) or by your own external user id.",
         "tags": [
           "Users"
         ],
@@ -2109,7 +2115,7 @@
               "type": "string",
               "maxLength": 256
             },
-            "description": "Galinum end-user id (`eu_…`)."
+            "description": "Galinum end-user id (`eu_\u2026`)."
           },
           {
             "name": "externalUserId",
@@ -2235,7 +2241,7 @@
             "secretKey": []
           }
         ],
-        "description": "Creates a business goal for the optimized-communication loop: a target event to move, binding guardrails, and an approval mode. Goals are optional — direct communications don't need one.",
+        "description": "Creates a business goal for the optimized-communication loop: a target event to move, binding guardrails, and an approval mode. Goals are optional \u2014 direct communications don't need one.",
         "tags": [
           "Goals"
         ],
@@ -2586,7 +2592,7 @@
             "hostedAgentKey": []
           }
         ],
-        "description": "Records one agent decision — its input, output, and rationale — so the dashboard's agent feed shows what ran and why. Set `goalId` when the run serves a goal; omit it for direct communications.",
+        "description": "Records one agent decision \u2014 its input, output, and rationale \u2014 so the dashboard's agent feed shows what ran and why. Set `goalId` when the run serves a goal; omit it for direct communications.",
         "tags": [
           "Agent runs"
         ],
@@ -2736,7 +2742,7 @@
             "hostedAgentKey": []
           }
         ],
-        "description": "Browses the project's agent-run history, newest first — the agent's own memory of what it already did.",
+        "description": "Browses the project's agent-run history, newest first \u2014 the agent's own memory of what it already did.",
         "tags": [
           "Agent runs"
         ],
@@ -2887,7 +2893,7 @@
           }
         ],
         "summary": "Discover audience capabilities",
-        "description": "Returns the project's audience-authoring vocabulary in one bounded, context-efficient response: the supported expression versions, node kinds, operators per type, window units, and validation limits, plus what has actually been observed in this project — trait keys with per-type user counts, event names with user counts and recency, and top-level event property keys with observed types. Use this before authoring an expression instead of paginating raw users/events. Output is exact distinct vocabulary (not sampled); when a list is truncated by its bound the response says so via `traitsTruncated` / `eventsTruncated` / `propertiesTruncated` — absence from a truncated list is NOT evidence the field doesn't exist. Low-cardinality string traits also include bounded representative values.",
+        "description": "Returns the project's audience-authoring vocabulary in one bounded, context-efficient response: the supported expression versions, node kinds, operators per type, window units, and validation limits, plus what has actually been observed in this project \u2014 trait keys with per-type user counts, event names with user counts and recency, and top-level event property keys with observed types. Use this before authoring an expression instead of paginating raw users/events. Output is exact distinct vocabulary (not sampled); when a list is truncated by its bound the response says so via `traitsTruncated` / `eventsTruncated` / `propertiesTruncated` \u2014 absence from a truncated list is NOT evidence the field doesn't exist. Low-cardinality string traits also include bounded representative values.",
         "responses": {
           "200": {
             "description": "The project's audience capabilities.",
@@ -2931,7 +2937,7 @@
                               },
                               "types": {
                                 "type": "object",
-                                "description": "Observed JSON type → user count (e.g. `{ \"string\": 812 }`). Multiple keys reveal a type conflict in the data."
+                                "description": "Observed JSON type \u2192 user count (e.g. `{ \"string\": 812 }`). Multiple keys reveal a type conflict in the data."
                               },
                               "users": {
                                 "type": "integer"
@@ -3013,7 +3019,7 @@
             }
           },
           "429": {
-            "description": "Rate limited — respect Retry-After.",
+            "description": "Rate limited \u2014 respect Retry-After.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3081,7 +3087,7 @@
                   },
                   "segment": {
                     "type": "string",
-                    "description": "Saved segment to evaluate, by id (seg_…) or machine key. Provide exactly one of `expression` or `segment`."
+                    "description": "Saved segment to evaluate, by id (seg_\u2026) or machine key. Provide exactly one of `expression` or `segment`."
                   },
                   "version": {
                     "type": "integer",
@@ -3089,7 +3095,7 @@
                     "description": "Segment version to evaluate; omitted = current."
                   }
                 },
-                "description": "Provide exactly one of `expression` (inline) or `segment` (+ optional `version`) — both run through the identical validator and evaluator.",
+                "description": "Provide exactly one of `expression` (inline) or `segment` (+ optional `version`) \u2014 both run through the identical validator and evaluator.",
                 "oneOf": [
                   {
                     "required": [
@@ -3141,7 +3147,7 @@
                     },
                     "expressionHash": {
                       "type": "string",
-                      "description": "sha256 of the canonical serialization — equal hashes mean identical semantics."
+                      "description": "sha256 of the canonical serialization \u2014 equal hashes mean identical semantics."
                     },
                     "summary": {
                       "type": "string",
@@ -3193,7 +3199,7 @@
                           },
                           "events": {
                             "type": "object",
-                            "description": "Referenced event name → the user's occurrence count as evaluated, bounded by the published maxEvaluatedEventOccurrences limit (a value at the bound means ‘at least this many’)."
+                            "description": "Referenced event name \u2192 the user's occurrence count as evaluated, bounded by the published maxEvaluatedEventOccurrences limit (a value at the bound means \u2018at least this many\u2019)."
                           }
                         }
                       },
@@ -3220,7 +3226,7 @@
             }
           },
           "400": {
-            "description": "Invalid request or invalid expression — the body includes `diagnostics` with stable codes and JSON Pointer paths.",
+            "description": "Invalid request or invalid expression \u2014 the body includes `diagnostics` with stable codes and JSON Pointer paths.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3261,7 +3267,7 @@
             }
           },
           "429": {
-            "description": "Rate limited — respect Retry-After.",
+            "description": "Rate limited \u2014 respect Retry-After.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3319,7 +3325,7 @@
           }
         ],
         "summary": "Explain an audience for one user",
-        "description": "Evaluates an audience expression for ONE project user and returns a condition-level evidence trace mirroring the expression tree — the debugging surface for \"why did this user match?\" and \"why did this user not match?\". Each trace node reports its JSON Pointer path, matched state, and the compact evidence behind the decision: observed value and type for field conditions, occurrence counts and window boundaries for event conditions, and per-child outcomes for groups. Uses the same evaluator as check and message eligibility, so the three always agree for the same user, expression, and evaluatedAt.",
+        "description": "Evaluates an audience expression for ONE project user and returns a condition-level evidence trace mirroring the expression tree \u2014 the debugging surface for \"why did this user match?\" and \"why did this user not match?\". Each trace node reports its JSON Pointer path, matched state, and the compact evidence behind the decision: observed value and type for field conditions, occurrence counts and window boundaries for event conditions, and per-child outcomes for groups. Uses the same evaluator as check and message eligibility, so the three always agree for the same user, expression, and evaluatedAt.",
         "requestBody": {
           "required": true,
           "content": {
@@ -3332,11 +3338,11 @@
                   },
                   "userId": {
                     "type": "string",
-                    "description": "The Galinum user id (eu_…) or your own external user id."
+                    "description": "The Galinum user id (eu_\u2026) or your own external user id."
                   },
                   "segment": {
                     "type": "string",
-                    "description": "Saved segment to evaluate, by id (seg_…) or machine key. Provide exactly one of `expression` or `segment`."
+                    "description": "Saved segment to evaluate, by id (seg_\u2026) or machine key. Provide exactly one of `expression` or `segment`."
                   },
                   "version": {
                     "type": "integer",
@@ -3344,7 +3350,7 @@
                     "description": "Segment version to evaluate; omitted = current."
                   }
                 },
-                "description": "Provide exactly one of `expression` (inline) or `segment` (+ optional `version`) — both run through the identical validator and evaluator.",
+                "description": "Provide exactly one of `expression` (inline) or `segment` (+ optional `version`) \u2014 both run through the identical validator and evaluator.",
                 "oneOf": [
                   {
                     "required": [
@@ -3413,7 +3419,7 @@
                     },
                     "trace": {
                       "type": "object",
-                      "description": "Trace node mirroring the expression tree. Every node carries `path` (JSON Pointer into the expression), `kind`, and `matched`. Field nodes add `field`, `op`, `observed` (compact evidence — long strings truncated, objects reported by type), `observedType`, and a `note` for absence/type mismatches. Event nodes add `event`, `occurrences`, `required` count, and `windowCutoff`. Group nodes carry `children`; `not` carries `child`.",
+                      "description": "Trace node mirroring the expression tree. Every node carries `path` (JSON Pointer into the expression), `kind`, and `matched`. Field nodes add `field`, `op`, `observed` (compact evidence \u2014 long strings truncated, objects reported by type), `observedType`, and a `note` for absence/type mismatches. Event nodes add `event`, `occurrences`, `required` count, and `windowCutoff`. Group nodes carry `children`; `not` carries `child`.",
                       "properties": {
                         "path": {
                           "type": "string"
@@ -3523,7 +3529,7 @@
             }
           },
           "429": {
-            "description": "Rate limited — respect Retry-After.",
+            "description": "Rate limited \u2014 respect Retry-After.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3637,7 +3643,7 @@
         },
         "responses": {
           "200": {
-            "description": "Idempotent replay — the segment this idempotencyKey originally created.",
+            "description": "Idempotent replay \u2014 the segment this idempotencyKey originally created.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3714,7 +3720,7 @@
             }
           },
           "429": {
-            "description": "Rate limited — respect Retry-After.",
+            "description": "Rate limited \u2014 respect Retry-After.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3757,7 +3763,7 @@
           }
         ],
         "summary": "List segments",
-        "description": "Compact list (up to 100, newest first): metadata, status, current version, and derived summary — the full expression is fetched intentionally via the detail or version reads.",
+        "description": "Compact list (up to 100, newest first): metadata, status, current version, and derived summary \u2014 the full expression is fetched intentionally via the detail or version reads.",
         "parameters": [
           {
             "name": "status",
@@ -3815,7 +3821,7 @@
             }
           },
           "429": {
-            "description": "Rate limited — respect Retry-After.",
+            "description": "Rate limited \u2014 respect Retry-After.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3869,7 +3875,7 @@
             "schema": {
               "type": "string"
             },
-            "description": "Segment id (seg_…) or machine key."
+            "description": "Segment id (seg_\u2026) or machine key."
           }
         ],
         "responses": {
@@ -3912,7 +3918,7 @@
             }
           },
           "429": {
-            "description": "Rate limited — respect Retry-After.",
+            "description": "Rate limited \u2014 respect Retry-After.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3955,7 +3961,7 @@
           }
         ],
         "summary": "Update a segment",
-        "description": "Metadata edits (`name`, `description`) change no version. Replacing `expression` creates a NEW immutable version atomically and advances `currentVersion`; it requires `expectedVersion` (the version you last read) — a stale value returns 409 with the segment's `currentVersion` so you can re-read, re-check, and retry deliberately. Campaigns already pinning older versions are never changed. Archived segments accept metadata edits but refuse revision.",
+        "description": "Metadata edits (`name`, `description`) change no version. Replacing `expression` creates a NEW immutable version atomically and advances `currentVersion`; it requires `expectedVersion` (the version you last read) \u2014 a stale value returns 409 with the segment's `currentVersion` so you can re-read, re-check, and retry deliberately. Campaigns already pinning older versions are never changed. Archived segments accept metadata edits but refuse revision.",
         "parameters": [
           {
             "name": "id",
@@ -3964,7 +3970,7 @@
             "schema": {
               "type": "string"
             },
-            "description": "Segment id (seg_…) or machine key."
+            "description": "Segment id (seg_\u2026) or machine key."
           }
         ],
         "requestBody": {
@@ -4089,7 +4095,7 @@
             }
           },
           "429": {
-            "description": "Rate limited — respect Retry-After.",
+            "description": "Rate limited \u2014 respect Retry-After.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4143,7 +4149,7 @@
             "schema": {
               "type": "string"
             },
-            "description": "Segment id (seg_…) or machine key."
+            "description": "Segment id (seg_\u2026) or machine key."
           }
         ],
         "responses": {
@@ -4196,7 +4202,7 @@
             }
           },
           "429": {
-            "description": "Rate limited — respect Retry-After.",
+            "description": "Rate limited \u2014 respect Retry-After.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4250,7 +4256,7 @@
             "schema": {
               "type": "string"
             },
-            "description": "Segment id (seg_…) or machine key."
+            "description": "Segment id (seg_\u2026) or machine key."
           }
         ],
         "responses": {
@@ -4300,7 +4306,7 @@
             }
           },
           "429": {
-            "description": "Rate limited — respect Retry-After.",
+            "description": "Rate limited \u2014 respect Retry-After.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4345,7 +4351,7 @@
           }
         ],
         "summary": "Read a segment version",
-        "description": "One immutable version with its exact canonical expression — valid forever, including for archived segments.",
+        "description": "One immutable version with its exact canonical expression \u2014 valid forever, including for archived segments.",
         "parameters": [
           {
             "name": "id",
@@ -4354,7 +4360,7 @@
             "schema": {
               "type": "string"
             },
-            "description": "Segment id (seg_…) or machine key."
+            "description": "Segment id (seg_\u2026) or machine key."
           },
           {
             "name": "version",
@@ -4422,7 +4428,7 @@
             }
           },
           "429": {
-            "description": "Rate limited — respect Retry-After.",
+            "description": "Rate limited \u2014 respect Retry-After.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6222,7 +6228,7 @@
         "tags": [
           "Launch activation"
         ],
-        "description": "Galinum Cloud only; self-host returns 501. Customer project secrets and hosted-agent credentials can read this state. This read grants no approval or deployment configuration authority. The initial default is automatic. Default changes affect all unlaunched campaigns without explicit overrides; explicit campaign overrides remain unchanged.",
+        "description": "Supported by the product server, including self-hosted installations. Unconfigured deployment tracking returns waiting blockers, not an unavailable operation. Customer project secrets and hosted-agent credentials can read this state. This read grants no approval or deployment configuration authority. The initial default is automatic. Default changes affect all unlaunched campaigns without explicit overrides; explicit campaign overrides remain unchanged.",
         "responses": {
           "200": {
             "description": "Current LaunchPolicy.",
@@ -6242,16 +6248,6 @@
           },
           "500": {
             "$ref": "#/components/responses/ServerError"
-          },
-          "501": {
-            "description": "Available only in Galinum Cloud.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
           }
         },
         "x-mcp": {
@@ -6264,7 +6260,7 @@
             "idempotentHint": true,
             "openWorldHint": true
           },
-          "guidance": "Galinum Cloud only. Read the inherited project mode and revision. Reading does not grant approval or deployment configuration authority."
+          "guidance": "Available on the product server, including self-hosted installations. Read the inherited project mode and revision. Reading does not grant approval or deployment configuration authority."
         }
       },
       "patch": {
@@ -6278,7 +6274,7 @@
         "tags": [
           "Launch activation"
         ],
-        "description": "Galinum Cloud only; self-host returns 501. Requires a customer project secret; hosted-agent credentials are forbidden. Supply the current revision as expectedRevision. Stale revisions return 409; read fresh state and reconsider before retrying. This write changes launch mode only, never approval or deployment scope. Approval remains a human manager-session action. Enabling automatic mode can make existing approved drafts eligible without another approval or deployment. The initial default is automatic. Default changes affect all unlaunched campaigns without explicit overrides; explicit campaign overrides remain unchanged.",
+        "description": "Supported by the product server, including self-hosted installations. Unconfigured deployment tracking returns waiting blockers, not an unavailable operation. Requires a customer project secret; hosted-agent credentials are forbidden. Supply the current revision as expectedRevision. Stale revisions return 409; read fresh state and reconsider before retrying. This write changes launch mode only, never approval or deployment scope. Approval requires a separate operator review action; management and hosted-agent credentials cannot grant it. Enabling automatic mode can make existing approved drafts eligible without another approval or deployment. The initial default is automatic. Default changes affect all unlaunched campaigns without explicit overrides; explicit campaign overrides remain unchanged.",
         "responses": {
           "200": {
             "description": "Current LaunchPolicy.",
@@ -6321,16 +6317,6 @@
           },
           "500": {
             "$ref": "#/components/responses/ServerError"
-          },
-          "501": {
-            "description": "Available only in Galinum Cloud.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
           }
         },
         "requestBody": {
@@ -6366,7 +6352,7 @@
             "idempotentHint": false,
             "openWorldHint": true
           },
-          "guidance": "Galinum Cloud only; customer project secret required. Change only within the user's authority. Automatic mode can activate existing approved drafts without another deployment or approval. Draft-only instructions do not authorize this change. Use the current expectedRevision; after conflicts or uncertain responses, read fresh state and reconsider. This control never approves communications or confirms deployment scope."
+          "guidance": "Customer project secret required. Change only within the user's authority. Automatic mode can activate existing approved drafts without another deployment or approval. Draft-only instructions do not authorize this change. Use the current expectedRevision; after conflicts or uncertain responses, read fresh state and reconsider. This control never approves communications or confirms deployment scope."
         }
       }
     },
@@ -6385,7 +6371,7 @@
         "tags": [
           "Launch activation"
         ],
-        "description": "Galinum Cloud only; self-host returns 501. Customer project secrets and hosted-agent credentials can read this state. This read grants no approval or deployment configuration authority. A null mode override inherits the project default. Eligibility uses current deployment evidence, all required mappings, approval, source/project pause controls, readiness, and expiry. A future deliverFrom delays delivery, not initial activation. Replayed events never restart started, paused, or ended campaigns.",
+        "description": "Supported by the product server, including self-hosted installations. Unconfigured deployment tracking returns waiting blockers, not an unavailable operation. Customer project secrets and hosted-agent credentials can read this state. This read grants no approval or deployment configuration authority. A null mode override inherits the project default. Eligibility uses current deployment evidence, all required mappings, approval, source/project pause controls, readiness, and expiry. A future deliverFrom delays delivery, not initial activation. Replayed events never restart started, paused, or ended campaigns. Current channel readiness is required and rechecked when launch commits. Missing or failed readiness blocks activation.",
         "responses": {
           "200": {
             "description": "Current CampaignActivationView.",
@@ -6415,16 +6401,6 @@
           },
           "500": {
             "$ref": "#/components/responses/ServerError"
-          },
-          "501": {
-            "description": "Available only in Galinum Cloud.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
           }
         },
         "parameters": [
@@ -6448,7 +6424,7 @@
             "idempotentHint": true,
             "openWorldHint": true
           },
-          "guidance": "Galinum Cloud only. Explain effective mode, approval, all required mapping coverage, waiting reasons, launch evidence, and rollback/revert warnings. Unknown evidence is not successful coverage or proof of rollback. Warnings do not automatically pause delivery or send email."
+          "guidance": "Available on the product server, including self-hosted installations. Explain effective mode, approval, all required mapping coverage, waiting reasons, launch evidence, and rollback/revert warnings. Unknown evidence is not successful coverage or proof of rollback. Warnings do not automatically pause delivery or send email."
         }
       },
       "patch": {
@@ -6462,7 +6438,7 @@
         "tags": [
           "Launch activation"
         ],
-        "description": "Galinum Cloud only; self-host returns 501. Requires a customer project secret; hosted-agent credentials are forbidden. Supply the current revision as expectedRevision. Stale revisions return 409; read fresh state and reconsider before retrying. This write changes launch mode only, never approval or deployment scope. Approval remains a human manager-session action. Enabling automatic mode can make existing approved drafts eligible without another approval or deployment. A null mode override inherits the project default. Eligibility uses current deployment evidence, all required mappings, approval, source/project pause controls, readiness, and expiry. A future deliverFrom delays delivery, not initial activation. Replayed events never restart started, paused, or ended campaigns.",
+        "description": "Supported by the product server, including self-hosted installations. Unconfigured deployment tracking returns waiting blockers, not an unavailable operation. Requires a customer project secret; hosted-agent credentials are forbidden. Supply the current revision as expectedRevision. Stale revisions return 409; read fresh state and reconsider before retrying. This write changes launch mode only, never approval or deployment scope. Approval requires a separate operator review action; management and hosted-agent credentials cannot grant it. Enabling automatic mode can make existing approved drafts eligible without another approval or deployment. A null mode override inherits the project default. Eligibility uses current deployment evidence, all required mappings, approval, source/project pause controls, readiness, and expiry. A future deliverFrom delays delivery, not initial activation. Replayed events never restart started, paused, or ended campaigns. Current channel readiness is required and rechecked when launch commits. Missing or failed readiness blocks activation.",
         "responses": {
           "200": {
             "description": "Current CampaignActivationView.",
@@ -6515,16 +6491,6 @@
           },
           "500": {
             "$ref": "#/components/responses/ServerError"
-          },
-          "501": {
-            "description": "Available only in Galinum Cloud.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
           }
         },
         "parameters": [
@@ -6578,7 +6544,7 @@
             "idempotentHint": false,
             "openWorldHint": true
           },
-          "guidance": "Galinum Cloud only; customer project secret required. Change only within the user's authority. Null inherits the project default. Automatic mode can activate an approved draft, including after source edits, when all current requirements are deployed. Keep flags, gradual rollouts, and unclear mappings manual until the audience has access. Use the current expectedRevision; after conflicts or uncertain responses, read fresh state and reconsider. This control never approves communications or confirms deployment scope."
+          "guidance": "Customer project secret required. Change only within the user's authority. Null inherits the project default. Automatic mode can activate an approved draft, including after source edits, when all current requirements are deployed. Keep flags, gradual rollouts, and unclear mappings manual until the audience has access. Use the current expectedRevision; after conflicts or uncertain responses, read fresh state and reconsider. This control never approves communications or confirms deployment scope."
         }
       }
     }
@@ -6588,12 +6554,12 @@
       "publishableKey": {
         "type": "http",
         "scheme": "bearer",
-        "description": "Your project's publishable key (`pk_pub_…`). Safe to expose in the browser — it identifies the project and is rate-limited, not secret."
+        "description": "Your project's publishable key (`pk_pub_\u2026`). Safe to expose in the browser \u2014 it identifies the project and is rate-limited, not secret."
       },
       "secretKey": {
         "type": "http",
         "scheme": "bearer",
-        "description": "Your project's secret key (`pk_…`, without the `pub` segment). Server-side only — never ship it to a browser. Get it from Settings → Projects in the dashboard."
+        "description": "Your project's secret key (`pk_\u2026`, without the `pub` segment). Server-side only \u2014 never ship it to a browser. Get it from Settings \u2192 Projects in the dashboard."
       },
       "hostedAgentKey": {
         "type": "http",
@@ -6605,7 +6571,7 @@
       "Traits": {
         "type": "object",
         "additionalProperties": true,
-        "description": "User traits (max 4 KB serialized), shallow-merged into the existing profile. `$`-prefixed keys are reserved for auto-collected context (`$browser`, `$os`, `$timezone`, `$country`, …).",
+        "description": "User traits (max 4 KB serialized), shallow-merged into the existing profile. `$`-prefixed keys are reserved for auto-collected context (`$browser`, `$os`, `$timezone`, `$country`, \u2026).",
         "example": {
           "plan": "free",
           "signupSource": "landing"
@@ -6653,7 +6619,7 @@
             "properties": {
               "title": {
                 "type": "string",
-                "example": "Welcome to Galinum 👋"
+                "example": "Welcome to Galinum \ud83d\udc4b"
               },
               "body": {
                 "type": "string",
@@ -6713,7 +6679,7 @@
           "title": {
             "type": "string",
             "maxLength": 120,
-            "example": "CSV export is here 📊"
+            "example": "CSV export is here \ud83d\udcca"
           },
           "body": {
             "type": "string",
@@ -6800,7 +6766,7 @@
       },
       "StoredWebInAppMessageContent": {
         "type": "object",
-        "description": "The variant's stored message content. Same shape as the write schema, except `presentation` is absent on campaigns authored before it existed — reads return stored content verbatim. Delivery resolves one for those (media → `modal`, no media → `toast`).",
+        "description": "The variant's stored message content. Same shape as the write schema, except `presentation` is absent on campaigns authored before it existed \u2014 reads return stored content verbatim. Delivery resolves one for those (media \u2192 `modal`, no media \u2192 `toast`).",
         "properties": {
           "presentation": {
             "type": "string",
@@ -6814,7 +6780,7 @@
           "title": {
             "type": "string",
             "maxLength": 120,
-            "example": "CSV export is here 📊"
+            "example": "CSV export is here \ud83d\udcca"
           },
           "body": {
             "type": "string",
@@ -7182,7 +7148,8 @@
           {
             "type": "object",
             "required": [
-              "variants"
+              "variants",
+              "sourceChanges"
             ],
             "properties": {
               "variants": {
@@ -7221,6 +7188,9 @@
                     }
                   }
                 }
+              },
+              "sourceChanges": {
+                "$ref": "#/components/schemas/CampaignSourceChanges"
               }
             }
           }
@@ -7662,7 +7632,7 @@
               "failed",
               "converted"
             ],
-            "description": "The latest resolution. The *At timestamps accumulate independently — a delivery can have both clickedAt and convertedAt. `frequency_capped` is terminal, has no sentAt, and does not accrue MAU."
+            "description": "The latest resolution. The *At timestamps accumulate independently \u2014 a delivery can have both clickedAt and convertedAt. `frequency_capped` is terminal, has no sentAt, and does not accrue MAU."
           },
           "queuedAt": {
             "type": "integer",
@@ -7791,7 +7761,7 @@
           "name": {
             "type": "string",
             "maxLength": 40,
-            "description": "Defaults to A, B, C… by position.",
+            "description": "Defaults to A, B, C\u2026 by position.",
             "example": "A"
           },
           "message": {
@@ -7996,10 +7966,10 @@
                 ]
               },
               "value": {
-                "description": "Required for every operator except exists/not_exists (which reject it). Typed per operator: eq/neq take a string/number/boolean; in/not_in a non-empty array (≤ 50) of all strings or all numbers; contains/starts_with/ends_with a string; gt/gte/lt/lte a number; before/after an ISO-8601 date-time with explicit offset; within_last/not_within_last an AudienceWindow."
+                "description": "Required for every operator except exists/not_exists (which reject it). Typed per operator: eq/neq take a string/number/boolean; in/not_in a non-empty array (\u2264 50) of all strings or all numbers; contains/starts_with/ends_with a string; gt/gte/lt/lte a number; before/after an ISO-8601 date-time with explicit offset; within_last/not_within_last an AudienceWindow."
               }
             },
-            "description": "Compares a user trait or lifecycle field. Comparisons are strict — no type coercion; a value comparison on an absent or type-incompatible field does not match (use exists/not_exists for absence). Lifecycle fields accept only datetime and existence operators."
+            "description": "Compares a user trait or lifecycle field. Comparisons are strict \u2014 no type coercion; a value comparison on an absent or type-incompatible field does not match (use exists/not_exists for absence). Lifecycle fields accept only datetime and existence operators."
           },
           {
             "type": "object",
@@ -8059,7 +8029,7 @@
             "description": "Evaluates occurrences of one event, optionally within a relative window and filtered by event-property conditions."
           }
         ],
-        "description": "One audience expression node, discriminated by `kind`. Overall limits: nesting depth ≤ 8, total nodes ≤ 64. Unknown kinds, unknown operators, unknown keys, and empty groups are rejected with structured diagnostics."
+        "description": "One audience expression node, discriminated by `kind`. Overall limits: nesting depth \u2264 8, total nodes \u2264 64. Unknown kinds, unknown operators, unknown keys, and empty groups are rejected with structured diagnostics."
       },
       "AudienceExpression": {
         "type": "object",
@@ -8157,7 +8127,7 @@
                 "const": "all"
               }
             },
-            "description": "Everyone — every identified user."
+            "description": "Everyone \u2014 every identified user."
           },
           {
             "type": "object",
@@ -8180,7 +8150,7 @@
                   "string",
                   "null"
                 ],
-                "description": "The pinned immutable audience version (aud_…). Null only for campaigns still stored with the deprecated legacy targeting shape."
+                "description": "The pinned immutable audience version (aud_\u2026). Null only for campaigns still stored with the deprecated legacy targeting shape."
               },
               "schemaVersion": {
                 "type": "integer"
@@ -8227,7 +8197,7 @@
                 ]
               }
             },
-            "description": "The stored audience cannot be read (fails validation). The campaign delivers to NOBODY until the audience is replaced — invalid audiences fail closed, never widen to everyone."
+            "description": "The stored audience cannot be read (fails validation). The campaign delivers to NOBODY until the audience is replaced \u2014 invalid audiences fail closed, never widen to everyone."
           },
           {
             "type": "object",
@@ -8262,7 +8232,7 @@
               },
               "segmentVersion": {
                 "type": "integer",
-                "description": "The exact pinned version — later segment revisions never change it."
+                "description": "The exact pinned version \u2014 later segment revisions never change it."
               },
               "schemaVersion": {
                 "type": "integer"
@@ -8323,7 +8293,7 @@
               "string",
               "null"
             ],
-            "description": "The audience's intent — not a duplicate rendering of its rules."
+            "description": "The audience's intent \u2014 not a duplicate rendering of its rules."
           },
           "status": {
             "type": "string",
@@ -8338,7 +8308,7 @@
           },
           "currentAudienceVersionId": {
             "type": "string",
-            "description": "The immutable audience version (aud_…) behind the current version."
+            "description": "The immutable audience version (aud_\u2026) behind the current version."
           },
           "summary": {
             "type": [
@@ -8990,7 +8960,7 @@
               },
               "segment": {
                 "type": "string",
-                "description": "Segment id (seg_…) or machine key."
+                "description": "Segment id (seg_\u2026) or machine key."
               },
               "version": {
                 "type": "integer",
@@ -8998,10 +8968,10 @@
                 "description": "Pin a specific immutable version; omitted = the segment's current version, resolved atomically at write time."
               }
             },
-            "description": "Pin a saved segment's audience version. Archived segments are refused (409). A `reason` is rejected here — the pinned version carries its own revision reason."
+            "description": "Pin a saved segment's audience version. Archived segments are refused (409). A `reason` is rejected here \u2014 the pinned version carries its own revision reason."
           }
         ],
-        "description": "Canonical audience union. `null` or `{ \"kind\": \"all\" }` targets everyone. `{ \"kind\": \"expression\", \"expression\": { … }, \"reason\": \"…\" }` authors an inline audience stored as an immutable audience version. `{ \"kind\": \"segment\", \"segment\": \"id-or-key\", \"version\": n? }` pins a saved segment version (omitted version = current, resolved atomically; archived segments are refused). Check expressions first with POST /api/v1/audiences/check. Mutually exclusive with the deprecated `targeting` field."
+        "description": "Canonical audience union. `null` or `{ \"kind\": \"all\" }` targets everyone. `{ \"kind\": \"expression\", \"expression\": { \u2026 }, \"reason\": \"\u2026\" }` authors an inline audience stored as an immutable audience version. `{ \"kind\": \"segment\", \"segment\": \"id-or-key\", \"version\": n? }` pins a saved segment version (omitted version = current, resolved atomically; archived segments are refused). Check expressions first with POST /api/v1/audiences/check. Mutually exclusive with the deprecated `targeting` field."
       },
       "GithubSourceError": {
         "type": "object",
@@ -10164,7 +10134,7 @@
             "type": "string"
           }
         },
-        "description": "Galinum Cloud project launch policy. Initially automatic. Changes apply to every unlaunched campaign without an explicit override."
+        "description": "Product project launch policy. Initially automatic. Changes apply to every unlaunched campaign without an explicit override."
       },
       "ActivationEvidence": {
         "type": "object",
@@ -10493,7 +10463,145 @@
             }
           }
         },
-        "description": "Galinum Cloud activation supervision, separate from common campaign fields. Null override inherits the project default. All required changes across every configured mapping need current present coverage. Approval survives source edits; eligibility checks the latest content and associated changes. Evidence timestamps are epoch milliseconds. Warnings retain deployment evidence without pausing delivery or sending email."
+        "description": "Product activation supervision, separate from common campaign fields. Null override inherits the project default. All required changes across every configured mapping need current present coverage. Approval survives source edits; eligibility checks the latest content and associated changes. Evidence timestamps are epoch milliseconds. Warnings retain deployment evidence without pausing delivery or sending email. Channel readiness must succeed at the current launch attempt; an inspection result is not a launch permit."
+      },
+      "CampaignSourceChange": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "sourceId",
+              "kind",
+              "sha"
+            ],
+            "properties": {
+              "sourceId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "kind": {
+                "type": "string",
+                "const": "commit"
+              },
+              "sha": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{40}$"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "sourceId",
+              "kind",
+              "number",
+              "shas"
+            ],
+            "properties": {
+              "sourceId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "kind": {
+                "type": "string",
+                "const": "pull_request"
+              },
+              "number": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "shas": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{40}$"
+                }
+              }
+            }
+          }
+        ],
+        "description": "One current source association. PR shas include the complete original commit set; read projections do not apply input array-size limits."
+      },
+      "CampaignSourceChangesCreate": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "changes"
+        ],
+        "properties": {
+          "changes": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/CampaignSourceChangeInput"
+            }
+          }
+        },
+        "description": "Optional prepared source declaration, committed atomically with campaign content. No expectedRevision on create. Empty changes cannot qualify for automatic activation."
+      },
+      "CampaignSourceChangesUpdate": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expectedRevision",
+          "changes"
+        ],
+        "properties": {
+          "expectedRevision": {
+            "type": "string",
+            "minLength": 1
+          },
+          "changes": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/CampaignSourceChangeInput"
+            }
+          }
+        },
+        "description": "Explicit replacement of prepared sources. Requires the current sourceChanges.revision. Omission preserves the declaration and approval. Content and source replacement commit atomically; approval survives edits, but current source coverage is required. Source-managed preparations reject this field with 409 before any copy mutation."
+      },
+      "CampaignSourceChanges": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "revision",
+          "changes"
+        ],
+        "properties": {
+          "revision": {
+            "type": "string"
+          },
+          "changes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CampaignSourceChange"
+            }
+          }
+        },
+        "description": "Complete current associations and their revision. Read arrays are not truncated or restricted by ordinary write-size limits, including when deployment evidence is unknown or manual launch is required."
+      },
+      "CampaignSourceChangeInput": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/CampaignSourceChange"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "shas": {
+                "type": "array",
+                "maxItems": 250
+              }
+            }
+          }
+        ],
+        "description": "A writable source change. Inherits the strict source change fields and types; PR input is limited to 250 original SHAs."
       }
     },
     "responses": {
@@ -10559,7 +10667,7 @@
         }
       },
       "RateLimited": {
-        "description": "Rate limit exceeded, counted per project (SDK endpoints: 120 requests/minute or 2,000/hour per endpoint; management endpoints: 60/minute or 1,000/hour per resource group — all campaign operations share one budget, as do goal operations and user reads). Retry after the `Retry-After` header.",
+        "description": "Rate limit exceeded, counted per project (SDK endpoints: 120 requests/minute or 2,000/hour per endpoint; management endpoints: 60/minute or 1,000/hour per resource group \u2014 all campaign operations share one budget, as do goal operations and user reads). Retry after the `Retry-After` header.",
         "headers": {
           "Retry-After": {
             "schema": {
@@ -10606,7 +10714,7 @@
         "mode": "readonly"
       }
     },
-    "instructions": "Galinum is self-driving product communications. You use it to create, target,\nlaunch, and measure product messages for one project. The project secret you\nauthenticated with scopes every call to that project.\n\n## Classify the request before you write\n\nDecide which of three modes the user asked for, then use the smallest one:\n\n- **Direct** — one message, engagement stats only. \"Announce the CSV export\",\n  \"tell free users about the promo\", \"draft a message about the pricing change\".\n- **Outcome-measured** — one message plus a goal you measure. \"Send the promo\n  and track upgrades\", \"tell me whether people start using it\".\n- **Optimized** — variants and goal-driven optimization. \"A/B test this\n  message\", \"optimize onboarding\", \"work toward the activation goal\".\n\nDirect is the default. Never add a goal, variants, a delivery window, an\nevaluation, or optimization that the user did not ask for. A product having\ngoals does not make an ordinary announcement outcome-measured. Use one message\nfor direct communication. Set a delivery window only from timing the user gave\nyou, or after you resolve the missing dates with them.\n\n## Respect launch authority\n\nIf the user said draft, propose, or prepare, stop at draft. Never launch.\n\nLaunch only when the user gave explicit launch, send, or announce authority.\nIf launch authority is ambiguous, stop at draft and ask the user.\n\n## Check what already exists before you write\n\nBefore you create, launch, or update a campaign:\n\n1. Read recent agent runs, so you can see what another agent already did.\n2. Query running campaigns and scheduled campaigns as two separate calls.\n3. Read every page through `pageCount` for both status queries.\n4. Treat the deduplicated union as a complete point-in-time snapshot only\n   after both paginated searches are exhausted.\n5. Repeat both queries immediately before the write.\n\nThis snapshot never protects you against a concurrent campaign write. Do not\nclaim that it does. Avoid overlapping audiences and delivery periods.\n\n## Log decisions, and never double-write\n\nLog material decisions, proposals, and launches as agent runs. Reuse the same\nidempotency key when you retry, so one decision produces one run record.\n\nNever retry an uncertain campaign creation. Read campaigns back and confirm\nwhat exists first. For any other uncertain write, read the current state before\nyou act again.\n\n## Deployment activation controls\n\nGalinum Cloud exposes launch-policy and campaign-activation reads and mode\nwrites. Read the current revision before a mode write. Change modes only within\nthe user's authority: enabling automatic mode can activate existing approved\ndrafts, including after source edits. Draft-only instructions do not authorize\nthat change. Null campaign override inherits the project default, initially\nautomatic. All required changes need current deployment coverage and approval.\n\nThese tools never approve communications or configure deployment scope. A human\nmanager must select and confirm the repository, environment, sources, and scope\nin the dashboard. Hosted credentials have GET visibility only. Use manual mode\nfor feature flags, gradual rollouts, and unclear mappings. Unknown evidence is\nwaiting, never proof of deployment or rollback. Rollback/revert warnings appear\non campaigns and in dashboard activity; they do not automatically pause delivery\nor send email.",
+    "instructions": "Galinum is self-driving product communications. You use it to create, target,\nlaunch, and measure product messages for one project. The project secret you\nauthenticated with scopes every call to that project.\n\n## Classify the request before you write\n\nDecide which of three modes the user asked for, then use the smallest one:\n\n- **Direct** \u2014 one message, engagement stats only. \"Announce the CSV export\",\n  \"tell free users about the promo\", \"draft a message about the pricing change\".\n- **Outcome-measured** \u2014 one message plus a goal you measure. \"Send the promo\n  and track upgrades\", \"tell me whether people start using it\".\n- **Optimized** \u2014 variants and goal-driven optimization. \"A/B test this\n  message\", \"optimize onboarding\", \"work toward the activation goal\".\n\nDirect is the default. Never add a goal, variants, a delivery window, an\nevaluation, or optimization that the user did not ask for. A product having\ngoals does not make an ordinary announcement outcome-measured. Use one message\nfor direct communication. Set a delivery window only from timing the user gave\nyou, or after you resolve the missing dates with them.\n\n## Respect launch authority\n\nIf the user said draft, propose, or prepare, stop at draft. Never launch.\n\nLaunch only when the user gave explicit launch, send, or announce authority.\nIf launch authority is ambiguous, stop at draft and ask the user.\n\n## Check what already exists before you write\n\nBefore you create, launch, or update a campaign:\n\n1. Read recent agent runs, so you can see what another agent already did.\n2. Query running campaigns and scheduled campaigns as two separate calls.\n3. Read every page through `pageCount` for both status queries.\n4. Treat the deduplicated union as a complete point-in-time snapshot only\n   after both paginated searches are exhausted.\n5. Repeat both queries immediately before the write.\n\nThis snapshot never protects you against a concurrent campaign write. Do not\nclaim that it does. Avoid overlapping audiences and delivery periods.\n\n## Log decisions, and never double-write\n\nLog material decisions, proposals, and launches as agent runs. Reuse the same\nidempotency key when you retry, so one decision produces one run record.\n\nNever retry an uncertain campaign creation. Read campaigns back and confirm\nwhat exists first. For any other uncertain write, read the current state before\nyou act again.\n\n## Deployment activation controls\n\nThe product server exposes launch-policy and campaign-activation reads and mode\nwrites, including on self-hosted installations. Read the current revision before a mode write. Change modes only within\nthe user's authority: enabling automatic mode can activate existing approved\ndrafts, including after source edits. Draft-only instructions do not authorize\nthat change. Null campaign override inherits the project default, initially\nautomatic. All required changes need current deployment coverage, approval,\nand a successful current channel-readiness check.\n\nPrepared campaigns declare sourceChanges alongside content through ordinary\ncampaign create/PATCH. Create uses {changes}; replacement PATCH uses\n{expectedRevision,changes} from current campaign detail. Omission preserves the\ndeclaration and approval. Updates commit atomically. Source-managed preparations\nreject generic association replacement with 409 before changing copy. Approval\nsurvives edits, but current source coverage remains required.\n\nThese tools never approve communications or configure deployment scope. An\nauthorized operator must select and confirm the repository, environment, sources,\nand scope. Stock operator HTTP is separate from agent MCP; never request or\nreuse its credential for agent work. Hosted credentials have GET visibility only. Use manual mode\nfor feature flags, gradual rollouts, and unclear mappings. Unknown evidence is\nwaiting, never proof of deployment or rollback. Rollback/revert warnings appear\non campaigns and in dashboard activity; they do not automatically pause delivery\nor send email.",
     "readonlyInstructions": "This endpoint exposes read-only tools only. Campaign, goal, and segment writes are not available here. Connect to the full endpoint when the user asks you to create, update, or launch something."
   }
 }

@@ -166,7 +166,7 @@ omit `goalId`.
 
 Use this path for work claimed from a connected GitHub source. A source event
 permits draft preparation only. Never launch, schedule, approve your own work,
-or revise a campaign that has already launched through this path. Cloud
+or revise a campaign that has already launched through this path. Product
 automatic activation separately checks human approval and current deployment
 evidence. Source edits retain approval, so an eligible revision can later launch.
 
@@ -208,7 +208,8 @@ changes. Do not write a second ordinary campaign mutation or log a launch.
 
 ## Deployment-based activation
 
-In Galinum Cloud, read `GET /api/v1/launch-policy` and
+On the product server, including self-hosted installations, read
+`GET /api/v1/launch-policy` and
 `GET /api/v1/campaigns/{id}/activation` to explain launch mode, approval,
 coverage, waiting reasons, launch evidence, and warnings. Hosted credentials
 have GET visibility only: never PATCH launch controls, approve communications,
@@ -218,7 +219,17 @@ Use the launch activation contract in `references/api.md` for mode changes
 with a customer project secret. Change modes only within the user's authority.
 Automatic mode can launch existing approved drafts, including after source
 edits. Never use it to bypass draft-only instructions. Deployment setup requires
-a human manager's explicit repository, environment, sources, and scope confirmation.
+an authorized operator's explicit repository, environment, sources, and scope
+confirmation. Operator setup and review are separate from agent MCP. Never
+request or reuse the operator key for agent work.
+
+For a prepared campaign, use ordinary create/PATCH `sourceChanges` with the
+content in the same request. On create, send `{changes}`; on replacement PATCH,
+send `{expectedRevision,changes}` using the current detail projection. Omission
+preserves sources and approval. Do not replace associations on a source-managed
+preparation; a `409` leaves copy unchanged. Retained approval does not replace
+current coverage or channel readiness. Self-hosted activation works with your
+own GitHub App and prepared campaigns; it does not require hosted drafting.
 
 Keep feature flags, gradual rollouts, and unclear mappings in manual mode
 until the intended audience has access. Report unresolved evidence as waiting;
@@ -620,7 +631,8 @@ Content-Type: application/json
 ```
 
 They are server-to-server only (not CORS-enabled). These are the **only**
-agent-facing endpoints; nothing else exists (no DELETE anywhere).
+agent-facing endpoints. Separate stock operator HTTP is for setup and review,
+not agent execution. The agent management API has no DELETE endpoints.
 
 The hosted key is deliberately narrower. It can read campaign, goal, delivery,
 event, usage, user, agent state, launch policy, and campaign activation state. It can call the hosted evaluation,
@@ -1131,11 +1143,45 @@ running campaign before its window opens, `expired` one at/past
 `deliverUntil` to re-open the window, plus the `launch` action if the
 campaign was paused).
 
+### Prepared source declarations
+
+Use optional `sourceChanges` to associate prepared content with GitHub changes.
+This works on the product server, including self-hosted installations, without
+hosted source drafting. Each change is exactly one of:
+
+- `{ sourceId, kind: "commit", sha }`.
+- `{ sourceId, kind: "pull_request", number, shas }`.
+
+`sourceId` names a configured project source (1–128 characters). A commit SHA
+is 40 lowercase hexadecimal characters. PR `number` is a positive integer;
+Ordinary writes accept 1–250 original commit SHAs per PR bundle and at most
+100 changes. Unknown fields and duplicate changes are
+rejected. An empty change set cannot qualify for automatic activation.
+
+Read projections return the complete current associations. Source-managed
+preparations can exceed 100 changes or 250 originals in a PR bundle; these
+write-size limits do not apply to reads. Never truncate either array, including
+when evidence is unknown or manual launch is required.
+
+Create accepts `sourceChanges: { changes }`, without `expectedRevision`.
+PATCH accepts `sourceChanges: { expectedRevision, changes }`, requiring the
+current `sourceChanges.revision` from campaign detail. Omission preserves the
+declaration and approval. Explicit replacement commits atomically with content;
+if either fails, neither changes. Approval survives edits, but launch requires
+coverage for the current declaration and current channel readiness.
+
+Source-managed preparations retain their source-owned associations. Attempting
+to replace them through generic `sourceChanges` returns `409` before any copy
+mutation. Revise those preparations through their existing source workflow.
+A stale declaration revision also returns `409`. Read fresh detail and
+reconsider the complete content/source update before retrying.
+
 ### POST /api/v1/campaigns
 
 Body:
 
 - `name` — required, ≤ 80 chars.
+- `sourceChanges` — optional `{ changes }` as defined above.
 - `channel` — `web_inapp` (default) or `email`.
 - Exactly one of:
   - `message` — a single variant named "A", or
@@ -1211,7 +1257,10 @@ never widen to everyone).
 
 ### GET /api/v1/campaigns/{id}
 
-Detail = the list shape plus `variants`, each with its own stats:
+Detail = the list shape plus `sourceChanges: { revision, changes }` and
+`variants`, each with its own stats. `sourceChanges.revision` is the opaque
+precondition for replacing the declared changes; an undeclared campaign has
+an empty `changes` array:
 
 ```json
 { "campaign": { …,
@@ -1229,6 +1278,7 @@ Detail = the list shape plus `variants`, each with its own stats:
 Any subset of:
 
 - `name` — rename.
+- `sourceChanges` — optional `{ expectedRevision, changes }` replacement, as above.
 - `audience` — replace the audience; `null` / `{ "kind": "all" }` clears it
   (back to everyone). A new expression creates a NEW immutable audience
   version pinned by the campaign; a segment reference re-pins to that
@@ -1542,14 +1592,17 @@ decision makes the same evaluation claimable again with its original
 
 ---
 
-## Launch activation (Galinum Cloud)
+## Launch activation
 
-These four operations are Cloud-only; self-host returns `501`. GET accepts a
-customer project secret or hosted-agent key. PATCH accepts only a customer
-project secret; a hosted key receives `403`. Approval remains the human
-manager-session action. These endpoints never grant approval or deployment
-configuration authority. A human manager selects the repository, exact production
-environment, associated sources, and explicitly confirms what that deployment ships.
+These four operations are supported by the product server, including self-hosted
+installations. Unconfigured tracking returns waiting blockers, not `501`. GET
+accepts a customer project secret or hosted-agent key. PATCH accepts only a
+customer project secret; a hosted key receives `403`. These endpoints never
+grant approval or deployment configuration authority. An authorized operator
+selects and confirms the repository, exact environment, sources, and scope.
+Stock setup and review use separate operator HTTP, outside agent MCP. Do not
+use the operator key for agent work. Prepared campaigns and your own GitHub App
+are sufficient for self-hosted activation; hosted drafting is not required.
 
 ### GET /api/v1/launch-policy
 
@@ -1601,8 +1654,8 @@ opaque mapping ID when available. Warning `reason` is `rollback` or `revert`.
 Send exactly `{ "mode": null, "expectedRevision": "<revision>" }`.
 Both fields are required. `mode` accepts `automatic`, `manual`, or `null`.
 Null clears the override; it does not mean manual. Returns the current
-activation view in the same shape as GET. These are separate Cloud controls,
-not fields on common campaign create, update, or read payloads.
+activation view in the same shape as GET. Launch modes use these dedicated
+controls. Source declarations use ordinary campaign create/PATCH and detail.
 
 Both PATCH endpoints reject unknown fields with `400` and stale revisions
 with `409`. After a conflict or uncertain response, GET the current state
@@ -1620,7 +1673,9 @@ its current source requirements. Configuring tracking also evaluates existing
 approved drafts. Explicit manual overrides remain manual.
 
 Project/source pauses, source readiness, withdrawal, campaign readiness, and
-expiry still block activation. Future `deliverFrom` delays delivery but does
+expiry still block activation. Current channel readiness is checked at the
+launch attempt. Missing, malformed, failed, or throwing readiness blocks launch;
+an earlier inspection is not permission to launch. Future `deliverFrom` delays delivery but does
 not block activation. Manual launch retains its existing lifecycle/readiness
 checks and does not require deployment coverage. Use manual mode for feature
 flags, gradual rollouts, or unclear mappings until the audience has access.

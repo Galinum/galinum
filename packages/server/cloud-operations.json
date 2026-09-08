@@ -5,16 +5,12 @@
     "completeCampaignEvaluation",
     "createAgentProposal",
     "getAgentSettings",
-    "getCampaignActivation",
-    "getLaunchPolicy",
     "listAgentProposals",
     "listDueEvaluations",
     "listDueGithubRefs",
     "mutateClaimedCampaign",
     "reconcileGithubRef",
     "reportAgentUsage",
-    "scheduleCampaignEvaluation",
-    "setCampaignActivationMode",
-    "setLaunchPolicy"
+    "scheduleCampaignEvaluation"
   ]
 }

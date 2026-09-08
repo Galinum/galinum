@@ -1,4 +1,7 @@
+import type { LaunchReadiness } from "./campaign-effects.js";
+
 export type LaunchMode = "automatic" | "manual";
+export type { CampaignSourceChange, CampaignSourceChanges } from "./management-contract.js";
 export type ActivationEvidence = { id: string; provider: string; label: string; url: string; revision: string; reportedAt: number };
 export type ActivationCoverage = { requirementId: string; mappingId: string; mappingLabel?: string; state: "present" | "absent" | "reverted" | "unknown" | "pending"; evidence: ActivationEvidence | null; reason?: string };
 export type ActivationRequirement = { id: string; sourceId: string; label: string; mappingIds: string[] };
@@ -13,6 +16,7 @@ export type ActivationInput = {
   approved: boolean;
   withdrawn: boolean;
   projectPaused: boolean;
+  readiness: LaunchReadiness;
   sources: { id: string; state: "ready" | "pending" | "paused" | "unavailable" }[];
   requirements: ActivationRequirement[];
   coverage: ActivationCoverage[];
@@ -47,6 +51,9 @@ export function assessAutomaticActivation(input: ActivationInput): ActivationAss
   if (!input.approved) blockers.push({ code: "approval" });
   if (input.withdrawn) blockers.push({ code: "withdrawn" });
   if (input.projectPaused) blockers.push({ code: "project_paused" });
+  if (input.readiness?.ok !== true) {
+    blockers.push({ code: "readiness", detail: input.readiness?.error ?? "Launch readiness has not been verified." });
+  }
   if (input.sources.length === 0 || input.requirements.length === 0) {
     blockers.push({ code: "no_sources" });
   }

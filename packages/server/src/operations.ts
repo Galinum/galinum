@@ -303,25 +303,25 @@ export const OPERATIONS = [
     "method": "GET",
     "path": "/api/v1/launch-policy",
     "operationId": "getLaunchPolicy",
-    "availability": "galinum_cloud"
+    "availability": "product"
   },
   {
     "method": "PATCH",
     "path": "/api/v1/launch-policy",
     "operationId": "setLaunchPolicy",
-    "availability": "galinum_cloud"
+    "availability": "product"
   },
   {
     "method": "GET",
     "path": "/api/v1/campaigns/{id}/activation",
     "operationId": "getCampaignActivation",
-    "availability": "galinum_cloud"
+    "availability": "product"
   },
   {
     "method": "PATCH",
     "path": "/api/v1/campaigns/{id}/activation",
     "operationId": "setCampaignActivationMode",
-    "availability": "galinum_cloud"
+    "availability": "product"
   }
 ] as const;
 

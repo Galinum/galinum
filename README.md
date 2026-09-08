@@ -5,8 +5,7 @@ the management API and distributable skill to create, target, launch, and
 measure timely messages.
 
 This monorepo owns the reusable product, public contracts, and a
-single-project self-host server. Galinum Cloud consumes exact product releases
-and owns its own billing, tenancy, and operations.
+single-project self-host server.
 
 ## Repository map
 
