@@ -17,6 +17,8 @@ const config = serverConfig(process.env);
 if (config.warning) process.stderr.write(`${config.warning}\n`);
 
 const productOptions = {
+  operatorKey: config.operatorKey,
+  github: config.github,
   secretKey: process.env.GALINUM_SECRET_KEY,
   publishableKey: process.env.GALINUM_PUBLISHABLE_KEY,
   media: config.mediaDirectory
@@ -26,7 +28,8 @@ const productOptions = {
 const product = process.env.DATABASE_URL
   ? await createPostgresProduct({ ...productOptions, connectionString: process.env.DATABASE_URL })
   : createLocalProduct(productOptions);
-const server = createServer(nodeAdapter(createApp(product.handlers, product.media)));
+const server = createServer(nodeAdapter(createApp(product.handlers, product.media, product.operatorHandler)));
+product.worker.start();
 server.listen(config.port, config.host, () => {
   const address = server.address();
   const boundPort = typeof address === "object" && address ? address.port : config.port;
@@ -35,3 +38,12 @@ server.listen(config.port, config.host, () => {
   if (!process.env.GALINUM_SECRET_KEY) process.stdout.write(`Local secret key: ${product.secretKey}\n`);
   if (!process.env.GALINUM_PUBLISHABLE_KEY) process.stdout.write(`Local publishable key: ${product.publishableKey}\n`);
 });
+
+let stopping = false;
+async function shutdown() {
+  if (stopping) return;
+  stopping = true;
+  await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  await product.close();
+}
+for (const signal of ["SIGINT", "SIGTERM"] as const) process.once(signal, () => { void shutdown().catch(() => { process.exitCode = 1; }); });

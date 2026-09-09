@@ -1,64 +1,147 @@
 ---
 title: "GitHub integration"
-description: "Prepare communications from code changes, review drafts, and launch when your product is ready."
+description: "Launch approved, prepared communications when their changes reach the configured production deployments."
 ---
 
-Connect a repository so Galinum can prepare communications from relevant code
-changes. Pushes to your selected branch cover both direct commits and merged
-pull requests. GitHub events never launch a campaign.
+Galinum can activate prepared communications after GitHub reports successful
+production deployment of their associated changes. The product server supports
+this workflow on self-hosted installations with your own GitHub App. Hosted
+automatic drafting is not required.
 
-## Connect a repository
+## Prepare a communication
 
-1. Select your project in Galinum.
-2. Open **Settings → GitHub** and connect your GitHub account.
-3. Install the Galinum GitHub App for the repositories you want it to read.
-4. Select a repository and its target branch, usually `main`.
-5. Add project instructions for the agent's audience, tone, and announcement priorities.
+Use ordinary campaign POST/PATCH to write content and its `sourceChanges`
+together. Declare direct commits or PR bundles from configured project sources.
+Create accepts `{ changes }`; replacement PATCH requires
+`{ expectedRevision, changes }` from the current campaign detail projection.
+Omitting `sourceChanges` preserves the declaration and approval.
 
-The App reads repository contents and pull requests. It does not write code,
-comment on PRs, or block merges and deployments.
+Content and associations commit atomically. Source edits retain approval, but
+automatic launch must cover the current declaration. Source-managed preparations
+cannot replace associations through the generic field. Such a request returns
+`409` before changing copy; use that preparation's existing source workflow.
 
-Galinum starts from the branch's current state when you connect it. Later
-pushes become new input. It does not announce the repository's full history.
+## Configure tracking and review
 
-## Prepare drafts before a PR merges
+For the stock server, follow [self-hosted activation setup](/self-host/activation).
+An authorized operator registers sources, confirms each deployment scope, and
+approves a current content/source review through separate operator HTTP controls.
+Agent management credentials and MCP tools cannot configure scope or approve.
+Operator authority is an administrative delegation; it does not prove that a
+human personally made each HTTP request.
 
-Enable **Draft from ready pull requests** to prepare communications earlier.
-A non-draft PR targeting your selected branch becomes eligible when it opens
-or is marked ready for review. Opening a draft PR alone does not start drafting.
+Select the exact repository, production environment, and sources that each
+deployment ships. Describe the scope and explicitly confirm it. One repository
+does not necessarily represent one deployed application. An agent cannot infer
+this configuration or confirm it with its management credential.
 
-Relevant commits refresh the existing draft. Returning the PR to draft pauses
-updates for that PR. Closing it without merging withdraws its contribution.
-Merging reconciles the early draft with the branch change instead of creating
-a duplicate campaign.
+GitHub App deployment tracking needs **Deployments: read-only**, plus read access
+to repository contents and pull requests for source evidence. Accept requested
+permission updates for existing installations. Polling works without webhooks.
+Where signed webhook ingress is configured, **Deployment status**
+(`deployment_status`) events can wake work sooner; they never grant coverage.
 
-## Review a communication
+Projects initially use **automatic** launch. Change the project default or set
+an individual campaign to **automatic** or **manual**. A `null` campaign override
+inherits the project default. Default changes affect every unlaunched campaign
+without an explicit override; explicit overrides stay unchanged.
 
-The agent assesses customer impact using the code changes, repository context,
-project instructions, and existing campaigns. It groups related changes into
-an unlaunched campaign. Unrelated changes can produce separate drafts. Changes
-without communication value produce no campaign. You do not need a PR label
-or checkbox.
+Saving tracking also evaluates existing approved drafts. Eligible automatic
+drafts can launch without another approval or deployment. Select manual mode
+before setup for communications you want to launch yourself.
 
-Open the campaign to inspect its current content and GitHub sources. Approval
-records your review. It does not publish or schedule the campaign.
+## Automatic launch
 
-## Revise with your own agent
+Automatic launch requires approval and current deployment coverage for every
+associated change across **all** required repository/environment mappings.
+A missing or unclear mapping prevents automatic launch. Drafting and grouping
+remain available when mapping is unclear.
 
-Copy the revision prompt from the campaign and add your feedback. Run it in
-an agent connected to the authenticated [Galinum MCP server](/mcp-server).
-The prompt identifies the actual campaign, so the revision appears in the
-same dashboard preview.
+If deployment succeeds before approval, later approval makes the communication
+eligible while its changes remain deployed. Source revisions retain approval.
+Automatic launch uses the latest content and checks its current associated
+changes, rather than the changes present when you approved it.
 
-Relevant GitHub changes can still update a customer-edited draft. The agent
-uses its current content and preserves unrelated edits. Approval survives
-these revisions. Refresh the preview to inspect the latest content.
+Project and source pause controls, withdrawn or unresolved sources, and delivery
+expiry still apply. Current channel readiness must succeed when launch commits.
+Missing or failed readiness blocks launch; a previous check does not authorize it. A future `deliverFrom` permits
+activation but delays delivery until that window opens. An expired
+`deliverUntil` blocks activation.
 
-## Launch when the product is ready
+The activation API and campaign supervision panel show the effective mode, approval, waiting
+reasons, coverage for each mapping, last check, launch evidence, and warnings.
+The [management API](/api/overview) exposes this state through
+`GET /api/v1/campaigns/{id}/activation` and the default through
+`GET /api/v1/launch-policy`. Revision-checked PATCH requests change these modes;
+they do not approve campaigns or configure deployment scope.
 
-Select **Launch** when you want users to receive the current communication.
-You can review and approve a draft between a push and a separate production
-deployment. No release or deployment integration is required.
+## Launch manually
 
-After launch, this integration leaves the campaign unchanged. Later relevant
-changes can produce another unlaunched draft.
+Use **manual** mode for feature flags, gradual rollouts, and unclear deployment
+mappings. Select **Launch** when the intended audience has access. Manual launch
+uses the existing readiness and lifecycle checks without requiring GitHub
+deployment coverage. No deployment integration is required for manual launch.
+
+## Deployment evidence and retries
+
+Only successful deployments in the configured repository and exact environment
+can establish new coverage. Pending, failed, and unselected-environment deployments
+cannot. A newer failed or pending deployment does not erase previously deployed
+code. A later invalidating status on the selected deployment leaves evidence
+unknown; Galinum does not fall back to a superseded success.
+
+GitHub reports deployment status; it does not independently inspect your running
+application. Galinum checks direct commit ancestry and complete merged PR bundles,
+including merge, squash, and rebase results. All required changes must be covered.
+Git history alone does not prove that a feature is available to its audience.
+
+Evidence reads have bounded page, request, and byte limits. Missing history,
+ambiguous source identity, incomplete comparisons, stale provider responses, and
+provider failures leave evidence unresolved. They never count as successful
+coverage or proof of rollback. Periodic reconciliation retries pending work,
+including missed signals and temporary failures. Duplicate, delayed, out-of-order,
+and concurrent signals do not duplicate initial launch or restore stale evidence.
+Already started, paused, or ended campaigns never restart from replayed signals.
+
+## Rollbacks and reverts
+
+An explicit rollback that excludes required changes, or a deployed identifiable
+revert, invalidates coverage for an unlaunched communication. Detection uses
+Git/deployment evidence and canonical full-SHA revert declarations. A causal
+revert of a revert can restore coverage; unrelated reverts do not cancel each
+other. Ambiguous or incomplete history remains unknown. Galinum does not ask an
+agent to infer feature removal from arbitrary code edits.
+
+If the communication already launched, including a manual launch, deterministic
+coverage loss creates a warning on the communication and in the agent
+activity feed. Warnings identify the affected changes and deployment evidence.
+They do not automatically pause delivery, change its window, or send email.
+You decide whether to pause the communication. Later relevant source changes
+can still produce another unlaunched draft.
+
+## Hosted source drafting
+
+Galinum Cloud can also prepare communications from connected repositories.
+This hosted source-job workflow is separate from the product activation workflow.
+The stock self-host server does not perform hosted automatic drafting.
+
+In **Settings → GitHub**, connect your GitHub account, install the Galinum
+GitHub App, select a repository and target branch, and add project instructions.
+Pushes cover direct commits and merged PRs. Drafting starts from the branch's
+current state; it does not announce the repository's full history.
+
+Enable **Draft from ready pull requests** for early preparation. A non-draft PR
+becomes eligible when opened or marked ready. Returning it to draft pauses
+updates; closing without merge withdraws its contribution. Merge reconciliation
+reuses the early draft rather than creating a duplicate.
+
+The agent groups relevant changes into unlaunched campaigns and skips changes
+without customer value. Source work cannot approve or launch its own draft.
+Review the content and GitHub sources in the campaign. Approval can make an
+automatic campaign eligible when its current changes are already deployed.
+
+Use the campaign's revision prompt with your authenticated agent to request
+copy changes. Relevant source updates can still revise a customer-edited draft,
+preserving unrelated changes and existing approval. Refresh the preview to
+inspect the latest content. Already launched campaigns are not revised by
+source drafting; later changes can produce another draft.

@@ -1,10 +1,14 @@
 import { createOperationRouter, type OperationHandlers } from "./router.js";
 import type { MediaStore } from "@galinum/core";
 
-export function createApp(handlers: OperationHandlers = {}, media?: MediaStore) {
+export function createApp(handlers: OperationHandlers = {}, media?: MediaStore, operator?: (request: Request) => Promise<Response | null>) {
   const route = createOperationRouter(handlers);
   return async function app(request: Request): Promise<Response> {
     const url = new URL(request.url);
+    if (operator) {
+      const response = await operator(request);
+      if (response) return response;
+    }
     if (request.method === "GET" && url.pathname === "/api/health") {
       return Response.json({ status: "ok" });
     }

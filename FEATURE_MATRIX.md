@@ -7,13 +7,14 @@ supervision pages. They do not have feature parity.
 | --- | --- | --- |
 | Project model | One project | Managed organizations and projects |
 | Management API | Included | Managed |
-| Campaign, audience, segment, goal, and event rules | Included | Included through exact product releases |
+| Campaign, audience, segment, goal, and event rules | Included | Included |
 | Supervision dashboard | Reusable package; host integration required | Included with cloud navigation and policy |
 | Web in-app delivery API | Included | Managed |
 | Persistent PostgreSQL storage | Included | Managed |
 | Campaign media | Local memory or filesystem | Managed object storage |
 | Email delivery | Not included | Managed |
 | Hosted optimization agent | Not included | Managed |
+| GitHub deployment activation for prepared campaigns | Included | Included |
 | GitHub-triggered campaign drafts | Not included | Managed |
 | Hosted MCP endpoint and OAuth | Not included | Managed |
 | Billing and entitlements | Not included | Managed |

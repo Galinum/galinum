@@ -1,6 +1,6 @@
 {
   "name": "@galinum/dashboard",
-  "version": "0.17.0",
+  "version": "0.18.4",
   "description": "Reusable Galinum supervision pages and dashboard components",
   "private": true,
   "license": "Apache-2.0",

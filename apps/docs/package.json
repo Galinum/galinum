@@ -13,7 +13,9 @@
   "scripts": {
     "dev": "npx --yes mintlify@4.2.850 dev --port 3002",
     "check:mcp": "node scripts/check-mcp.mjs",
-    "check:skill": "node scripts/check-skill.mjs",
-    "check:links": "node ../../scripts/check-docs-links.mjs"
+    "check:skill": "node scripts/check-skill.mjs && pnpm check:skill-page",
+    "check:links": "node ../../scripts/check-docs-links.mjs",
+    "check:activation": "node --test scripts/activation-contract.test.mjs",
+    "check:skill-page": "node scripts/generate-skill-page.mjs --check"
   }
 }

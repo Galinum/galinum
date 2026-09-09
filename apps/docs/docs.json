@@ -45,6 +45,12 @@
             "pages": [
               "email/domain-setup"
             ]
+          },
+          {
+            "group": "Self-hosting",
+            "pages": [
+              "self-host/activation"
+            ]
           }
         ]
       },
@@ -96,6 +102,15 @@
               "POST /api/v1/campaigns/{id}/status",
               "GET /api/v1/campaigns/{id}/deliveries",
               "GET /api/v1/campaigns/{id}/conversions"
+            ]
+          },
+          {
+            "group": "Launch activation",
+            "pages": [
+              "GET /api/v1/launch-policy",
+              "PATCH /api/v1/launch-policy",
+              "GET /api/v1/campaigns/{id}/activation",
+              "PATCH /api/v1/campaigns/{id}/activation"
             ]
           },
           {

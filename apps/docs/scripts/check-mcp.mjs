@@ -66,8 +66,8 @@ for (const { path, verb, op } of operations) {
 }
 
 const exposed = operations.filter(({ op }) => op["x-mcp"]?.exposed);
-check("28 exposed operations", exposed.length === 28);
-check("28 inventory tools", inventory.tools.length === 28);
+check("32 exposed operations", exposed.length === 32);
+check("32 inventory tools", inventory.tools.length === 32);
 
 const names = exposed.map(({ op }) => op["x-mcp"].tool);
 check("tool names are unique", new Set(names).size === names.length);
@@ -105,11 +105,12 @@ const READONLY = [
   "list_goals", "get_goal", "list_agent_runs", "get_audience_capabilities",
   "check_audience", "explain_audience", "list_segments", "get_segment",
   "list_segment_versions", "get_segment_version", "get_usage",
+  "get_launch_policy", "get_campaign_activation",
 ];
 const readonlyFixture = inventory.tools.filter((t) => t.readOnlyHint).map((t) => t.name);
-check("read-only inventory is the exact 18-name subset",
-  READONLY.length === 18 &&
-  readonlyFixture.length === 18 &&
+check("read-only inventory is the exact 20-name subset",
+  READONLY.length === 20 &&
+  readonlyFixture.length === 20 &&
   READONLY.every((n) => readonlyFixture.includes(n)));
 
 function assertExpressible(label, schema, depth = 0) {

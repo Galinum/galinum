@@ -48,3 +48,29 @@ idempotency key when you retry, so one decision produces one run record.
 Never retry an uncertain campaign creation. Read campaigns back and confirm
 what exists first. For any other uncertain write, read the current state before
 you act again.
+
+## Deployment activation controls
+
+The product server exposes launch-policy and campaign-activation reads and mode
+writes, including on self-hosted installations. Read the current revision before a mode write. Change modes only within
+the user's authority: enabling automatic mode can activate existing approved
+drafts, including after source edits. Draft-only instructions do not authorize
+that change. Null campaign override inherits the project default, initially
+automatic. All required changes need current deployment coverage, approval,
+and a successful current channel-readiness check.
+
+Prepared campaigns declare sourceChanges alongside content through ordinary
+campaign create/PATCH. Create uses {changes}; replacement PATCH uses
+{expectedRevision,changes} from current campaign detail. Omission preserves the
+declaration and approval. Updates commit atomically. Source-managed preparations
+reject generic association replacement with 409 before changing copy. Approval
+survives edits, but current source coverage remains required.
+
+These tools never approve communications or configure deployment scope. An
+authorized operator must select and confirm the repository, environment, sources,
+and scope. Stock operator HTTP is separate from agent MCP; never request or
+reuse its credential for agent work. Hosted credentials have GET visibility only. Use manual mode
+for feature flags, gradual rollouts, and unclear mappings. Unknown evidence is
+waiting, never proof of deployment or rollback. Rollback/revert warnings appear
+on campaigns and in dashboard activity; they do not automatically pause delivery
+or send email.

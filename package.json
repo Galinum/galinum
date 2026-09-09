@@ -37,7 +37,7 @@
     "check:contract": "node scripts/check-contract.mjs",
     "check:mcp": "pnpm --filter @galinum/docs check:mcp",
     "check:skill": "pnpm --filter @galinum/docs check:skill",
-    "check:docs": "pnpm --filter @galinum/docs check:links",
+    "check:docs": "pnpm --filter @galinum/docs check:links && pnpm --filter @galinum/docs check:activation",
     "check:core": "pnpm --filter @galinum/core typecheck",
     "check:dashboard": "pnpm --filter @galinum/dashboard typecheck",
     "check:react": "pnpm --filter @galinum/react typecheck",
@@ -47,10 +47,15 @@
     "test": "node --test scripts/*.test.mjs && pnpm --filter @galinum/core test && pnpm --filter @galinum/dashboard test && pnpm --filter @galinum/react test && pnpm --filter @galinum/server test",
     "build": "pnpm --filter @galinum/core build && pnpm --filter @galinum/server build && pnpm --filter @galinum/dashboard build && pnpm --filter @galinum/react build && pnpm --filter @galinum/example-react-nextjs build",
     "release": "node scripts/release-packages.mjs",
-    "verify": "pnpm verify:workspace && pnpm verify:server-operations && pnpm verify:product-schema && pnpm verify:dashboard && pnpm test && pnpm check && pnpm build && pnpm verify:dashboard-built && pnpm verify:release"
+    "verify": "pnpm verify:workspace && pnpm verify:server-operations && pnpm verify:product-schema && pnpm verify:dashboard && pnpm test && pnpm check && pnpm build && pnpm verify:dashboard-built && pnpm verify:release && pnpm verify:activation-runtime --memory-only",
+    "db:codegen": "node scripts/generate-product-db-types.mjs",
+    "verify:activation-upgrade": "node scripts/verify-activation-upgrade.mjs",
+    "verify:activation-runtime": "node scripts/verify-activation-runtime.mjs"
   },
   "devDependencies": {
     "@types/node": "20.19.41",
+    "kysely-codegen": "0.20.0",
+    "pg": "8.23.0",
     "semver": "7.8.5",
     "typescript": "5.9.3",
     "vitest": "4.1.8"

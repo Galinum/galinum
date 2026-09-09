@@ -7,7 +7,11 @@ This repository owns the reusable Galinum product.
 - Agents operate through the public management API and the distributable skill.
 - The dashboard supervises campaigns. It does not author campaigns.
 - Keep one generic campaign and channel model across cloud and self-hosted deployments.
-- Do not depend on managed-cloud source code or credentials.
+- Product behavior and safety guarantees must be implemented and tested from
+  this repository alone. Consumer-specific checks do not replace missing
+  product safeguards.
+- Public explanations and review replies must cite publicly accessible source
+  and runnable tests. Keep repository guidance self-contained.
 
 ## Repository map
 

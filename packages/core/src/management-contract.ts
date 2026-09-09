@@ -1,5 +1,11 @@
 import type { AudienceExpression } from "./audience/expression.js";
 
+export type CampaignSourceChange = { sourceId: string } & (
+  | { kind: "commit"; sha: string }
+  | { kind: "pull_request"; number: number; shas: string[] }
+);
+export type CampaignSourceChanges = { revision: string; changes: CampaignSourceChange[] };
+
 export const ACTIVITY_LIMIT_DEFAULT = 10;
 export const ACTIVITY_LIMIT_MAX = 50;
 export const CAMPAIGN_PER_PAGE_DEFAULT = 100;
@@ -246,6 +252,7 @@ export type CampaignVariant = {
 };
 
 export type CampaignDetail = CampaignSummary & {
+  sourceChanges: CampaignSourceChanges;
   audience: CampaignAudience;
   targeting: Record<string, unknown> | null;
   pages: string[] | null;

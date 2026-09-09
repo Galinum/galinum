@@ -16,7 +16,13 @@ export function serverConfig(environment: NodeJS.ProcessEnv) {
   if (environment.GALINUM_MEDIA_DIR && !publicOrigin) {
     throw new Error("GALINUM_PUBLIC_URL is required with GALINUM_MEDIA_DIR");
   }
+  const githubFields = [environment.GALINUM_GITHUB_APP_ID, environment.GALINUM_GITHUB_CLIENT_ID, environment.GALINUM_GITHUB_PRIVATE_KEY];
+  if (githubFields.some(Boolean) && !githubFields.every(Boolean)) throw new Error("GitHub App ID, client ID and private key must be configured together.");
+  const appId = Number(environment.GALINUM_GITHUB_APP_ID);
+  if (githubFields.every(Boolean) && (!Number.isSafeInteger(appId) || appId < 1)) throw new Error("Invalid GALINUM_GITHUB_APP_ID.");
   return {
+    operatorKey: environment.GALINUM_OPERATOR_KEY,
+    github: githubFields.every(Boolean) ? { appId, clientId: environment.GALINUM_GITHUB_CLIENT_ID!, privateKey: environment.GALINUM_GITHUB_PRIVATE_KEY! } : undefined,
     host,
     port,
     mediaDirectory: environment.GALINUM_MEDIA_DIR ?? null,

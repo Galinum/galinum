@@ -1,3 +1,4 @@
+import { createPostgresActivationData } from "./activation/postgres.js";
 import { randomUUID } from "node:crypto";
 import type {
   AgentRuns,
@@ -387,10 +388,17 @@ function audienceVersionFromRow(row: AudienceVersionRow): ProductAudienceVersion
 }
 
 class PostgresProductSession implements ProductStoreSession {
+  readonly activation: ReturnType<typeof createPostgresActivationData>;
   constructor(
     protected readonly database: Database,
     protected readonly projectId: string,
-  ) {}
+  ) { this.activation = createPostgresActivationData(database as unknown as Kysely<ProductDB>, projectId); }
+
+  async listActivationCampaignIds(after: string, limit: number) {
+    const rows = await this.database.selectFrom("campaigns").select("id").where("project_id", "=", this.projectId)
+      .where("id", ">", after).orderBy("id").limit(limit).execute();
+    return rows.map((row) => row.id);
+  }
 
   async identifyUser(externalId: string, traits: JsonObject, now: number) {
     const row = await this.database
@@ -1655,7 +1663,10 @@ class PostgresProductStore extends PostgresProductSession implements ProductStor
   }
 
   async transaction<T>(work: (store: ProductStoreSession) => Promise<T>) {
-    return this.rootDatabase.transaction().execute((transaction) => work(new PostgresProductSession(transaction, this.projectId)));
+    return this.rootDatabase.transaction().execute(async (transaction) => {
+      await sql`select pg_advisory_xact_lock(hashtextextended(${this.projectId}, 0))`.execute(transaction);
+      return work(new PostgresProductSession(transaction, this.projectId));
+    });
   }
 
   async withReadSnapshot<T>(work: (store: ProductStoreAccess) => Promise<T>) {
@@ -1679,6 +1690,12 @@ export async function createPostgresProduct(options: PostgresProductOptions) {
     }),
   });
   try {
+    try {
+      const versions = await database.selectFrom("product_schema_versions").select("version").execute();
+      if (versions.length !== 1 || versions[0].version !== "activation-1") throw new Error("Unsupported schema version");
+    } catch {
+      throw new Error("Unsupported product schema. Apply packages/server/migrations/activation-1.sql before starting the server.");
+    }
     await database
       .insertInto("projects")
       .values({ id: projectId, name: projectId, created_at: (options.now ?? Date.now)() })

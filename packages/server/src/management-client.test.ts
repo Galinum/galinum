@@ -124,6 +124,7 @@ const campaigns = {
 };
 const campaignDetail = {
   campaign: {
+    sourceChanges: { revision: "0", changes: [] },
     ...campaigns.campaigns[0],
     variants: [{
       id: "variant",
@@ -291,6 +292,19 @@ describe("management client", () => {
       kind: "invalid_response",
       status: 200,
     });
+  });
+
+  it("preserves complete source associations beyond authoring limits", async () => {
+    const sourceChanges = { revision: "source-owned-revision", changes: [
+      ...Array.from({ length: 125 }, (_, index) => ({ sourceId: "source", kind: "commit", sha: index.toString(16).padStart(40, "0") })),
+      { sourceId: "source", kind: "pull_request", number: 42, shas: Array.from({ length: 251 }, (_, index) => index.toString(16).padStart(40, "0")) },
+    ] };
+    const client = createManagementClient(async () => Response.json({ ...campaignDetail, campaign: { ...campaignDetail.campaign, sourceChanges } }));
+    expect((await client.getCampaign("campaign"))?.campaign.sourceChanges).toEqual(sourceChanges);
+    const invalid = createManagementClient(async () => Response.json({ ...campaignDetail,
+      campaign: { ...campaignDetail.campaign, sourceChanges: { revision: "1", changes: [{ sourceId: "source", kind: "commit", sha: "invalid" }] } },
+    }));
+    await expect(invalid.getCampaign("campaign")).rejects.toMatchObject({ kind: "invalid_response" });
   });
 
   it("sends the exact campaign status request", async () => {
