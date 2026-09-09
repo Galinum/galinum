@@ -1,15 +1,32 @@
 apply plugin: 'com.android.library'
 apply plugin: 'com.facebook.react'
 
+def expoNotifications = rootProject.findProject(':expo-notifications') ?: rootProject.findProject(':expo')
+def firebaseMessaging = rootProject.findProject(':react-native-firebase_messaging') ?: rootProject.findProject(':@react-native-firebase_messaging')
 react { jsRootDir = file('../src/specs'); libraryName = 'GalinumJournalSpec'; codegenJavaPackageName = 'com.galinum.journal' }
 android {
   namespace 'com.galinum.journal'
   compileSdk rootProject.ext.has('compileSdkVersion') ? rootProject.ext.compileSdkVersion : 36
   defaultConfig { minSdk 23 }
   compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+  sourceSets {
+    main {
+      if (firebaseMessaging) manifest.srcFile 'src/bare/AndroidManifest.xml'
+      java.srcDirs = ['src/main/java'] + (expoNotifications ? ['src/expo/java'] : []) + (firebaseMessaging ? ['src/bare/java'] : [])
+    }
+  }
 }
 dependencies {
   implementation 'com.facebook.react:react-android'
+  implementation 'androidx.core:core:1.17.0'
   implementation 'net.zetetic:sqlcipher-android:4.17.0'
   implementation 'androidx.sqlite:sqlite:2.6.2'
+  if (expoNotifications) {
+    compileOnly expoNotifications
+    compileOnly 'com.google.firebase:firebase-messaging:25.0.1'
+  }
+  if (firebaseMessaging) {
+    compileOnly firebaseMessaging
+    compileOnly 'com.google.firebase:firebase-messaging:25.0.1'
+  }
 }

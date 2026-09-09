@@ -49,7 +49,9 @@ try {
   run("pnpm", ["pack", "--pack-destination", scratch]);
   const tarball = join(scratch, readdirSync(scratch).find(name => name.endsWith(".tgz")));
   const files = run("tar", ["-tzf", tarball]).trim().split("\n");
-  for (const file of files) assert(/^package\/(dist\/(?:specs\/)?[^/]+\.(js|d\.ts)|src\/specs\/[^/]+\.ts|android\/build\.gradle|android\/src\/main\/.+\.(java|xml)|ios\/[^/]+\.(h|mm)|GalinumJournal\.podspec|react-native\.config\.cjs|package\.json|README\.md|LICENSE)$/.test(file), `Unexpected packed ${file}`);
+  for (const file of files) assert(/^package\/(dist\/(?:specs\/)?[^/]+\.(js|d\.ts)|src\/specs\/[^/]+\.ts|android\/build\.gradle|android\/src\/(main|expo|bare)\/.+\.(java|xml)|ios\/[^/]+\.(h|mm)|ios\/INTEGRATION\.md|ios-receipts\/[^/]+\.swift|Galinum(Journal|ReceiptStore)\.podspec|app\.plugin\.js|react-native\.config\.cjs|package\.json|README\.md|LICENSE)$/.test(file), `Unexpected packed ${file}`);
+  for (const file of ["app.plugin.js", "android/src/expo/java/com/galinum/journal/GalinumExpoMessagingService.java", "android/src/bare/java/com/galinum/journal/GalinumFirebaseReceiver.java"]) assert(files.includes("package/" + file), `Missing packed ${file}`);
+  for (const file of ["GalinumReceiptStore.podspec", "ios-receipts/GalinumReceiptStore.swift", "ios/GalinumNotifications.mm"]) assert(files.includes("package/" + file), `Missing iOS carrier ${file}`);
   const packed = JSON.parse(run("tar", ["-xOf", tarball, "package/package.json"]));
   const contracts = JSON.parse(readFileSync(join(root, "packages/contracts/package.json"), "utf8"));
   assert.equal(packed.dependencies["@galinum/contracts"], contracts.version);

@@ -38,6 +38,18 @@ export function createNativeJournal(): JournalPort {
     admitEvent: (scope, owner, ticket, event) => call(async () => JSON.parse(await nativeJournalModule().admitEvent(scope, owner, ticket, event))),
     peek: (scope, owner, intent) => call(async () => JSON.parse(await nativeJournalModule().peek(scope, owner, intent))),
     acknowledge: (scope, owner, intent, generation, through) => call(() => nativeJournalModule().acknowledge(scope, owner, intent, generation, through)),
+    configureNotifications: (scope, owner, setup) => call(async () => JSON.parse(await nativeJournalModule().configureNotifications(scope, owner, JSON.stringify(setup)))),
+    readInteractions: (scope, owner, intent) => call(async () => JSON.parse(await nativeJournalModule().readInteractions(scope, owner, intent))),
+    acknowledgeInteraction: (scope, owner, intent, interactionId, disposition) => call(() => nativeJournalModule().acknowledgeInteraction(scope, owner, intent, interactionId, disposition)),
+    cancelNotifications: (scope, owner) => call(() => nativeJournalModule().cancelNotifications(scope, owner)),
+    readCompletion: (scope, owner, userId, deliveryId) => call(() => nativeJournalModule().readCompletion(scope, owner, userId, deliveryId)),
+    admitFeedback: (scope, owner, feedback) => call(async () => JSON.parse(await nativeJournalModule().admitFeedback(scope, owner, JSON.stringify(feedback)))),
+    peekFeedback: (scope, owner) => call(async () => JSON.parse(await nativeJournalModule().peekFeedback(scope, owner))),
+    acknowledgeFeedback: (scope, owner, feedbackId, receipt) => call(() => nativeJournalModule().acknowledgeFeedback(scope, owner, feedbackId, JSON.stringify(receipt))),
+    subscribeInteractions: (scope, listener) => {
+      const subscription = nativeJournalModule().onInteraction(value => { if (value === scope) listener(); });
+      return () => subscription.remove();
+    },
     release: (scope, owner) => call(() => nativeJournalModule().release(scope, owner)),
   };
 }

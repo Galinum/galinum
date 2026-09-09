@@ -1,9 +1,10 @@
 import { createMMKV } from "react-native-mmkv";
-import { AppRegistry, NativeModules } from 'react-native';
-import { createGalinumClient, GalinumError } from '@galinum/react-native';
+import { AppRegistry, Linking, NativeModules } from 'react-native';
+import { createGalinumClient, GalinumError, InAppController } from '@galinum/react-native';
 import { createExpoAdapter } from '@galinum/react-native/expo';
+import { VerificationApp, showInApp } from './inapp';
 const harness = NativeModules.JournalHarness;
-AppRegistry.registerComponent('main', () => () => null);
+AppRegistry.registerComponent('main', () => VerificationApp);
 const config = JSON.parse(harness.config());
 const check = (condition: unknown, label: string) => { if (!condition) throw new Error(label); };
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -18,7 +19,10 @@ async function waitReached(point: string, timeoutMs = 8000) {
 const code = (error: unknown) => (error instanceof GalinumError ? error.code : String(error));
 const result: Record<string, unknown> = { phase: config.phase };
 async function run() {
-  const adapter = createExpoAdapter({ androidChannel: { id: 'updates', name: 'Updates' } });
+  const adapter: ReturnType<typeof createExpoAdapter> = config.carrier === 'bare'
+    ? require('@galinum/react-native/bare').createBareAdapter()
+    : createExpoAdapter({ androidChannel: { id: 'updates', name: 'Updates' } });
+  const nativeToken = adapter.getToken;
   let scope = '', owner = '', intent = 0;
   const port = adapter.journal!;
   const commits: any[] = [], publications: any[] = [];
@@ -51,7 +55,8 @@ async function run() {
   adapter.getToken = async () => tokenRead;
   adapter.subscribeToken = listener => { tokenCallback = listener;return () => {}; };
   const bodies: unknown[] = [], http: unknown[] = [];
-  const makeClient = (storageTimeoutMs = 15000, storageKey = 'galinum.journal.verification') => createGalinumClient({ apiBase: config.origin, publishableKey: config.publishableKey, appId: config.appId, platform: 'android', environment: 'development', storageKey, adapter, requestTimeoutMs: 3000, storageTimeoutMs,
+  const notifications = { foreground: (config.foreground ?? 'display') as 'display' | 'suppress', channels: [{ id: 'updates', name: 'Updates' }], actions: [{ id: 'open', title: 'Open' }, { id: 'later', title: 'Later' }] };
+  const makeClient = (storageTimeoutMs = 15000, storageKey = 'galinum.journal.verification', carrier = false) => createGalinumClient({ apiBase: config.origin, publishableKey: config.publishableKey, appId: config.appId, platform: 'android', environment: 'development', storageKey, adapter, requestTimeoutMs: 3000, storageTimeoutMs, ...(carrier ? { notifications } : {}),
     fetch: async (input, init) => {
       if (failReads && init?.method === 'GET') {
         failedReads++;
@@ -62,7 +67,7 @@ async function run() {
       const observation = String(input).endsWith('/observations');
       if (observation && config.phase === 'replay') await replayBarrier;
       if (observation) bodies.push(JSON.parse(String(init?.body)));
-      if (String(input).endsWith('/facts')) {
+      if (!carrier && String(input).endsWith('/facts')) {
         const body = JSON.parse(String(init?.body));body.capabilities.channels = ['updates'];
         init = { ...init, body: JSON.stringify(body) };
       }
@@ -80,7 +85,126 @@ async function run() {
   const trace = () => JSON.parse(harness.trace()) as any[];
   const tap = (_label: string) => harness.tap(scope, owner, JSON.stringify({ kind: 'tap', ...config.reference }));
   const phase = config.phase as string;
-  if (phase === 'seed') {
+  const handled: unknown[] = [];
+  const waitHandled = async (count: number, timeoutMs: number) => { const start = Date.now();while (handled.length < count) { if (Date.now() - start > timeoutMs) throw new Error('interaction_not_handled');await sleep(50); } };
+  const waitObservation = async (targetId: string, statuses: string[], timeoutMs: number) => {
+    const start = Date.now();
+    while (true) {
+      const state = await inspect();
+      const found = (state.observations as any[]).find(entry => entry.targetId === targetId && statuses.includes(entry.status));
+      if (found) return state;
+      if (Date.now() - start > timeoutMs) throw new Error('observation_not_found:' + targetId + ':' + statuses.join('|'));
+      await sleep(200);
+    }
+  };
+  if (phase === 'inapp-terminal' || phase === 'inapp-completion') {
+    const client = makeClient();
+    await client.start();
+    result.confirmedBeforeIdentify = client.inApp.getSnapshot().appConfirmed;
+    check(result.confirmedBeforeIdentify === false, 'rehydration_never_authorizes_inapp');
+    await client.identify('journal-A');
+    let entry = 0, routed = false;
+    const captured = client.session();
+    const controller = new InAppController(client.inApp, client.feedback, {
+      id: () => client.inApp.getSnapshot().owner + ':' + (++entry),
+      appSchemes: ['galinum-verify'],
+      openDestination: async destination => {
+        await Linking.openURL(destination.url);
+        await captured.track('inapp_native_clicked');
+        routed = true;
+      },
+    });
+    showInApp(controller, config.phase);
+    await harness.save('ready', JSON.stringify({ phase, verified: true }));
+    if (phase === 'inapp-terminal') {
+      const deadline = Date.now() + 120000;
+      while (!routed) { if (Date.now() > deadline) throw new Error('inapp_action_not_routed'); await sleep(100); }
+      check(await client.feedback.isCompleted('journal-A', config.deliveryId), 'terminal_completion_durable');
+      await client.feedback.flush();
+      result.routed = routed;
+      result.locallyCompleted = true;
+    } else {
+      check(await client.feedback.isCompleted('journal-A', config.deliveryId), 'completion_survives_process_restart');
+      const deadline = Date.now() + 15000;
+      while (controller.getSnapshot().phase !== 'empty') { if (Date.now() > deadline) throw new Error('completed_delivery_represented'); await sleep(100); }
+      const other = makeClient(15000, 'galinum.journal.verification.other');
+      await other.identify('journal-A');
+      check(!(await other.feedback.isCompleted('journal-A', config.deliveryId)), 'second_client_has_no_local_completion');
+      const decision = await other.inApp.decide({ userId: 'journal-A', entryId: other.inApp.getSnapshot().owner + ':entry', requestId: other.inApp.getSnapshot().owner + ':request', path: '/settings' }, new AbortController().signal);
+      check(!decision.messages.some(message => message.deliveryId === config.deliveryId), 'shared_server_completion_suppresses_second_client');
+      result.sharedCompletion = true;
+      other.dispose();
+    }
+    result.controller = controller.getSnapshot();
+  } else if (phase === 'carrier-seed') {
+    const client = makeClient(15000, 'galinum.journal.verification', true);
+    await client.identify('journal-A');
+    await client.setConsent(true);
+    result.installation = client.getSnapshot().installation;
+    result.control = await inspect();
+    result.resolvedService = harness.resolvedService();
+    check((result.control as any).control.display === 'open', 'seed_display_open');
+    check((result.control as any).settings && (result.control as any).settings.channels.includes('updates'), 'native_channel_configured');
+    check((result.installation as any).capabilities.channels.includes('updates') && (result.installation as any).capabilities.actions.includes('open'), 'capabilities_advertised_from_native_setup');
+    if (config.carrier === 'bare') {
+      result.resolvedReceiver = harness.bareReceiver();
+      check(result.resolvedReceiver === 'com.galinum.journal.GalinumFirebaseReceiver', 'galinum_bare_receiver_resolved');
+    } else check(result.resolvedService === 'com.galinum.journal.GalinumExpoMessagingService', 'galinum_service_resolved');
+  } else if (phase === 'carrier-provider-token') {
+    const token = await nativeToken();
+    check(typeof token === 'string' && token.length > 0, 'native_fcm_token_available');
+    await harness.save('provider-token-private', JSON.stringify({ token }));
+    result.nativeTokenAvailable = true;
+  } else if (phase === 'carrier-open') {
+    const client = makeClient(15000, 'galinum.journal.verification', true);
+    client.setNotificationHandler(interaction => { handled.push(interaction); });
+    await client.start();
+    await sleep(300);
+    result.handledBeforeIdentify = handled.length;
+    await client.identify('journal-A');
+    await waitHandled(1, 10000);
+    await client.flush();
+    result.handled = handled;
+    result.state = await inspect();
+    check(result.handledBeforeIdentify === 0, 'no_handler_before_identity_confirmation');
+  } else if (phase === 'carrier-warm') {
+    const client = makeClient(15000, 'galinum.journal.verification', true);
+    client.setNotificationHandler(interaction => { handled.push(interaction); });
+    await client.identify('journal-A');
+    await harness.save('ready', JSON.stringify({ phase, pid: 0, verified: true }));
+    await waitHandled(1, 120000);
+    await client.flush();
+    result.handled = handled;
+    result.state = await inspect();
+  } else if (phase === 'carrier-suppress' || phase === 'carrier-revoked' || phase === 'carrier-token-revoked') {
+    const client = makeClient(15000, 'galinum.journal.verification', true);
+    client.setNotificationHandler(interaction => { handled.push(interaction); });
+    await client.identify('journal-A');
+    if (phase === 'carrier-revoked') await client.setConsent(false);
+    if (phase === 'carrier-token-revoked') { tokenRead = null; tokenCallback(null); await client.syncDevice(); }
+    await harness.save('ready', JSON.stringify({ phase, pid: 0, verified: true }));
+    result.state = await waitObservation(config.reference.targetId, ['pending', 'admitted'], 120000);
+    await sleep(500);
+    result.state = await inspect();
+    result.handled = handled;
+    check(!(result.state as any).notifications.some((entry: any) => entry.targetId === config.reference.targetId), 'no_notification_row');
+    if (phase === 'carrier-revoked') await client.setConsent(true);
+    await client.flush();
+    result.final = await inspect();
+  } else if (phase === 'carrier-old-user') {
+    const client = makeClient(15000, 'galinum.journal.verification', true);
+    client.setNotificationHandler(interaction => { handled.push(interaction); });
+    await client.identify('journal-A');
+    await client.reset();
+    await client.identify('journal-B');
+    await harness.save('ready', JSON.stringify({ phase, pid: 0, verified: true }));
+    result.state = await waitObservation(config.reference.targetId, ['retired'], 120000);
+    result.handled = handled;
+    check(handled.length === 0 && !(result.state as any).notifications.some((entry: any) => entry.targetId === config.reference.targetId), 'old_user_envelope_retired_without_display');
+    await client.reset();
+    await client.identify('journal-A');
+    await client.flush();
+  } else if (phase === 'seed') {
     const client = makeClient();
     await client.identify('journal-A');
     await client.setConsent(true);

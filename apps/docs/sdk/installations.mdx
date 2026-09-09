@@ -4,8 +4,10 @@ description: "Register installations, bind users, and inspect eligibility throug
 ---
 
 The installation API stores app identity, user bindings, native tokens, permission,
-consent, capabilities, and app activity. Use the [push delivery API](/push) to send notifications. This lifecycle API does
-not provide a React Native rendering SDK.
+consent, capabilities, and app activity. Use the [React Native SDK](/sdk/react-native)
+for Expo and bare application integration, and the [push delivery API](/push)
+for provider configuration and sends. The same public contracts serve
+self-hosted Galinum and Galinum Cloud.
 
 ## Bootstrap and authentication
 
@@ -17,11 +19,11 @@ Send `POST /api/v1/sdk/installations` with the project publishable key:
 
 ```json
 {
-  "installationId": "device_123",
-  "appId": "com.example.app",
-  "platform": "ios",
-  "environment": "production",
-  "capability": "replace_with_your_locally_generated_random_capability"
+	"installationId": "device_123",
+	"appId": "com.example.app",
+	"platform": "ios",
+	"environment": "production",
+	"capability": "replace_with_your_locally_generated_random_capability"
 }
 ```
 
@@ -46,10 +48,10 @@ First identify the user through `POST /api/v1/identify`. Then send
 
 ```json
 {
-  "requestId": "request_123",
-  "bindingGeneration": 0,
-  "revision": 0,
-  "userId": "customer_123"
+	"requestId": "request_123",
+	"bindingGeneration": 0,
+	"revision": 0,
+	"userId": "customer_123"
 }
 ```
 
@@ -123,6 +125,52 @@ returns no selection. These rules do not dispatch a campaign.
 
 Wire types and validation schemas are generated from OpenAPI in
 `@galinum/contracts`. This package has no Node imports or server dependencies.
+
+## In-app decisions and feedback
+
+In-app messaging uses the project publishable key and the same external user ID
+as identification. It does not require an installation capability or push consent.
+Native and web use `web_inapp` campaigns and the same project/user/campaign
+delivery and variant assignment.
+
+Send `GET /api/v1/messages` with `userId`, `entryId`, `requestId`, and `path` query
+parameters. Generate entry/request IDs before the request. A native screen path
+such as `/exports` follows the same campaign `pages` rules as a web pathname.
+The response echoes the three identities alongside `messages` and uses
+`Cache-Control: no-store`. Compare them against the current confirmed user,
+route entry, and local facts before selecting a message. Cached content never
+supplies fresh display authority.
+
+For an actual presentation, send `POST /api/v1/deliveries/{id}/event`:
+
+```json
+{
+	"userId": "customer_123",
+	"type": "shown",
+	"feedbackId": "screen-entry-123:shown"
+}
+```
+
+Types are `shown`, `clicked`, `dismissed`, and `converted`. Each operation needs
+a durable, stable `feedbackId`; exact retries reuse it. A different render gets
+a new ID. A canonical HTTP 200 response contains `userId`, `deliveryId`, `type`,
+`receiptId` equal to the feedback ID, and the first `acknowledgedAt` timestamp.
+Validate that tuple before marking local work acknowledged. Conflicting reuse
+returns `409`. Terminal feedback requires a previously recorded shown operation.
+SDKs also enforce a durable shown predecessor for the same local entry.
+
+Store feedback with its original user and delivery before sending. Never relabel
+it after logout. Locally completed messages stay suppressed during retries.
+Acknowledged completion suppresses a later server decision on another device,
+including between web and native. Concurrent authorized entries can still race:
+there is no global display lease or recall of already-painted content.
+See [React Native rendering](/sdk/react-native#render-in-app-messages).
+
+These are framework-independent HTTP contracts. A Swift or Kotlin integration
+can implement them without Expo or a React runtime. It must preserve revision
+replays, captured identity, ordered observations, fresh entry decisions, and
+durable feedback receipts. React Native bridge classes are not standalone
+Swift or Kotlin SDKs.
 
 ## Upgrade an existing self-host database
 

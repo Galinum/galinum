@@ -3,9 +3,20 @@
     "name": "Galinum Native Foundation",
     "slug": "galinum-native-foundation",
     "version": "1.0.0",
-    "ios": { "bundleIdentifier": "com.galinum.nativefoundation" },
-    "android": { "package": "com.galinum.nativefoundation" },
-    "plugins": ["expo-notifications", "expo-secure-store"],
-    "extra": { "galinumApiBase": "http://127.0.0.1:3000", "galinumPublishableKey": "pub_local_example" }
+    "ios": {
+      "bundleIdentifier": "com.galinum.nativefoundation"
+    },
+    "android": {
+      "package": "com.galinum.nativefoundation"
+    },
+    "plugins": [
+      "expo-notifications",
+      "expo-secure-store"
+    ],
+    "extra": {
+      "galinumApiBase": "http://127.0.0.1:3000",
+      "galinumPublishableKey": "pub_local_example"
+    },
+    "scheme": "galinum-verify"
   }
 }

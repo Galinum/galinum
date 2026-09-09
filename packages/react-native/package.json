@@ -39,11 +39,16 @@
     "LICENSE",
     "README.md",
     "src/specs",
+    "app.plugin.js",
     "android/build.gradle",
     "android/src/main",
+    "android/src/expo",
+    "android/src/bare",
     "ios",
     "GalinumJournal.podspec",
-    "react-native.config.cjs"
+    "react-native.config.cjs",
+    "GalinumReceiptStore.podspec",
+    "ios-receipts"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

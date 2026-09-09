@@ -1,5 +1,6 @@
-import type { JournalPort } from './journal.js';
+import type { EventReceipt, JournalPort, NotificationInteraction, NotificationSetup } from './journal.js';
 import type { InstallationState } from "@galinum/contracts";
+export type { InAppClientPort, InAppDecision, InAppSession } from './inapp-types.js';
 
 export type Permission = InstallationState["permission"];
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
@@ -15,6 +16,14 @@ export type NativeAdapter = {
   getToken(signal?: AbortSignal): Promise<string | null>;
   subscribeToken(listener: (token: string | null) => void): () => void;
 };
+export type GalinumSession = Readonly<{
+  track(event: string, props?: Properties, options?: { eventId?: string }): Promise<EventReceipt>;
+  setConsent(consent: boolean): Promise<void>;
+  requestPermission(): Promise<void>;
+  syncDevice(): Promise<void>;
+  recordForegroundActivity(): Promise<void>;
+}>;
+export type NotificationHandler = (interaction: NotificationInteraction, session: GalinumSession) => Promise<void> | void;
 export type NativeConfig = {
   apiBase: string;
   publishableKey: string;
@@ -23,6 +32,7 @@ export type NativeConfig = {
   environment: "development" | "production";
   storageKey: string;
   adapter: NativeAdapter;
+  notifications?: NotificationSetup;
   fetch?: typeof globalThis.fetch;
   requestTimeoutMs?: number;
   nativeTimeoutMs?: number;

@@ -1,0 +1,12 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
+  <application android:usesCleartextTraffic="true" tools:targetApi="28" tools:ignore="GoogleAppIndexingWarning">
+    <provider android:name="com.galinum.journal.VerificationInit" android:authorities="com.galinum.journalverification.init" android:exported="false" android:initOrder="1000" />
+    <receiver android:name="com.galinum.journal.VerificationIngressReceiver" android:exported="true" />
+    <receiver android:name="com.galinum.journal.VerificationBareReceiver" android:exported="false" />
+    <receiver android:name="io.invertase.firebase.messaging.ReactNativeFirebaseMessagingReceiver" tools:node="remove" />
+    <receiver android:name="com.galinum.journal.GalinumFirebaseReceiver" android:exported="true" android:permission="com.google.android.c2dm.permission.SEND">
+      <intent-filter><action android:name="com.google.android.c2dm.intent.RECEIVE" /></intent-filter>
+    </receiver>
+    <service android:name="com.galinum.journal.GalinumExpoMessagingService" tools:node="remove" />
+  </application>
+</manifest>

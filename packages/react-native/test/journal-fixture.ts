@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { vi } from 'vitest';
-import type { JournalPort, BindingPublication, EventReceipt, JournalPrefix, ControlRow, ControlReceipt, DisplayTag, DisplayReceipt } from '../src/journal.js';
+import type { JournalPort, BindingPublication, EventReceipt, JournalPrefix, ControlRow, ControlReceipt, DisplayTag, DisplayReceipt, NotificationInteraction, JournalFeedback, FeedbackAcknowledgement } from '../src/journal.js';
 import type { LocalState } from '../src/storage.js';
 import { GalinumError } from '../src/types.js';
 import type { PushCommand } from '@galinum/contracts';
@@ -24,6 +24,11 @@ export function testJournal() {
   const serial = <T>(run: () => Promise<T>) => { const next = writes.then(run); writes = next.catch(() => {}); return next; };
   const hooks: ControlHooks = { commit: perform => perform(), read: perform => perform(), publish: perform => perform() };
   const operationLog: { kind: string; id: string; revision: number }[] = [];
+  const interactions: { interaction: NotificationInteraction; status: 'pending' | 'handled' | 'retired' }[] = [];
+  const feedback: { entry: JournalFeedback; status: 'pending' | 'acknowledged'; receipt?: FeedbackAcknowledgement }[] = [];
+  const completions = new Set<string>();
+  const interactionListeners = new Set<() => void>();
+  let capabilities = { actions: [] as string[], channels: [] as string[], richImages: false };
   const current = (supplied: string, captured = intent) => { if (supplied !== owner || captured !== intent) throw new GalinumError('superseded'); };
   const restrict = () => { fence++; displayOpen = false; };
   const drain = () => {
@@ -129,12 +134,42 @@ export function testJournal() {
       return structuredClone({ generation: binding.generation, acknowledgedThrough: stream.ack, lastSequence: stream.commands.length, commands: batch, pendingAdmissions: tickets.size, appConfirmed: binding.appConfirmed });
     },
     acknowledge: async (_s, supplied, captured, generation, through) => { current(supplied, captured);const stream = streams.get(generation)!;if (stream.batch?.at(-1)?.sequence !== through) throw new GalinumError('invalid_acknowledgement');stream.ack = through;stream.batch = undefined; },
+    configureNotifications: async (_s, supplied, setup) => { current(supplied);capabilities = { actions: (setup.actions ?? []).map(action => action.id), channels: (setup.channels ?? []).map(channel => channel.id), richImages: false };return structuredClone(capabilities); },
+    readInteractions: async (_s, supplied, captured) => {
+      current(supplied, captured);if (!binding || !binding.appConfirmed || !binding.userId) throw new GalinumError('binding_unacknowledged');
+      return interactions.filter(entry => entry.status === 'pending' && entry.interaction.userId === binding!.userId && entry.interaction.bindingGeneration === binding!.generation).map(entry => structuredClone(entry.interaction));
+    },
+    acknowledgeInteraction: async (_s, supplied, captured, id, disposition) => { current(supplied, captured);const entry = interactions.find(item => item.interaction.id === id);if (entry && entry.status === 'pending') entry.status = disposition; },
+    cancelNotifications: async (_s, supplied) => { current(supplied); },
+    readCompletion: async (_s, supplied, userId, deliveryId) => { current(supplied);return completions.has(userId + '\u0000' + deliveryId); },
+    admitFeedback: async (_s, supplied, input) => {
+      current(supplied);
+      const existing = feedback.find(item => item.entry.feedbackId === input.feedbackId);
+      if (existing) { if (JSON.stringify(existing.entry) !== JSON.stringify(input)) throw new GalinumError('feedback_conflict');return { feedbackId: input.feedbackId, state: existing.status === 'acknowledged' ? 'acknowledged' : 'queued' }; }
+      if (input.type !== 'shown') {
+        if (!feedback.some(item => item.entry.feedbackId === input.shownFeedbackId && item.entry.type === 'shown' && item.entry.userId === input.userId && item.entry.deliveryId === input.deliveryId)) throw new GalinumError('feedback_shown_required');
+        completions.add(input.userId + '\u0000' + input.deliveryId);
+      }
+      feedback.push({ entry: structuredClone(input), status: 'pending' });
+      return { feedbackId: input.feedbackId, state: 'queued' };
+    },
+    peekFeedback: async (_s, supplied) => { current(supplied);return feedback.filter(item => item.status === 'pending').slice(0, 32).map(item => structuredClone(item.entry)); },
+    acknowledgeFeedback: async (_s, supplied, feedbackId, receipt) => {
+      current(supplied);const entry = feedback.find(item => item.entry.feedbackId === feedbackId);
+      if (!entry || receipt.userId !== entry.entry.userId || receipt.deliveryId !== entry.entry.deliveryId || receipt.type !== entry.entry.type || receipt.receiptId !== feedbackId || !Number.isFinite(receipt.acknowledgedAt)) throw new GalinumError('feedback_receipt_mismatch');
+      entry.status = 'acknowledged';entry.receipt = structuredClone(receipt);
+    },
+    subscribeInteractions: (_s, listener) => { interactionListeners.add(listener);return () => { interactionListeners.delete(listener); }; },
     release: (_s, supplied) => {
       current(supplied);releasing = true;binding = undefined;restrict();
       return serial(async () => { if (row) row = { ...row, display: 'closed' };owner = undefined; });
     },
   };
   const control = {
+    capabilities: () => structuredClone(capabilities),
+    capture: (interaction: NotificationInteraction) => { interactions.push({ interaction: structuredClone(interaction), status: 'pending' });for (const listener of interactionListeners) listener(); },
+    interactions: () => interactions.map(entry => ({ id: entry.interaction.id, status: entry.status })),
+    feedback: () => feedback.map(item => ({ ...structuredClone(item.entry), status: item.status })),
     state: () => structuredClone(row?.state),
     display: () => row?.display ?? 'closed',
     displayOpen: () => displayOpen,

@@ -1,6 +1,6 @@
-import { useState } from "react";
-import { AppState, Button, Platform, ScrollView, Text, TextInput } from "react-native";
-import { createGalinumClient, GalinumError, GalinumProvider, useGalinum } from "@galinum/react-native";
+import { useEffect, useState } from "react";
+import { AppState, Button, Linking, Platform, ScrollView, Text, TextInput } from "react-native";
+import { createGalinumClient, GalinumError, GalinumProvider, InAppController, InAppLifecycle, InAppMessages, useGalinum, useGalinumClient, type NotificationInteraction } from "@galinum/react-native";
 import { createExpoAdapter } from "@galinum/react-native/expo";
 import config from "./app.json";
 
@@ -12,12 +12,23 @@ const client = createGalinumClient({
   environment: "development",
   storageKey: "galinum.nativefoundation.development",
   adapter: createExpoAdapter({ androidChannel: { id: "updates", name: "Product updates" } }),
+  notifications: { foreground: "display", channels: [{ id: "updates", name: "Product updates" }], actions: [{ id: "open", title: "Open" }, { id: "later", title: "Later" }] },
+});
+
+let entry = 0;
+const inApp = new InAppController(client.inApp, client.feedback, {
+  id: () => client.inApp.getSnapshot().owner + ':' + (++entry),
+  appSchemes: ['galinum-verify'],
+  openDestination: destination => Linking.openURL(destination.url),
 });
 
 function Foundation() {
   const galinum = useGalinum();
+  const owner = useGalinumClient();
   const [userId, setUserId] = useState("example-user-a");
   const [result, setResult] = useState("Ready for setup");
+  const [opened, setOpened] = useState<NotificationInteraction | null>(null);
+  useEffect(() => owner.setNotificationHandler(interaction => { setOpened(interaction); }), [owner]);
   const run = (operation: () => Promise<unknown>) => {
     void operation().then(receipt => setResult(receipt && typeof receipt === "object" && "state" in receipt ? String(receipt.state) : "Acknowledged")).catch(error => setResult(error instanceof GalinumError ? error.code : "Operation failed"));
   };
@@ -36,9 +47,14 @@ function Foundation() {
     }} />
     <Button title="Track example event" onPress={() => run(() => galinum.track("native_example_used"))} />
     <Text accessibilityLiveRegion="polite">{result}</Text>
+    {opened ? <Text accessibilityLiveRegion="polite">Opened {opened.kind} {opened.actionId ?? ""} for {opened.targetId}: {opened.title}</Text> : null}
     <Text>{JSON.stringify(galinum.snapshot, null, 2)}</Text>
   </ScrollView>;
 }
 export default function App() {
-  return <GalinumProvider client={client}><Foundation /></GalinumProvider>;
+  return <GalinumProvider client={client}>
+    <InAppLifecycle controller={inApp} routeKey="foundation" path="/" navigationReady />
+    <Foundation />
+    <InAppMessages controller={inApp} />
+  </GalinumProvider>;
 }

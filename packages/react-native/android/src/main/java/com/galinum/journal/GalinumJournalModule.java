@@ -7,12 +7,21 @@ import com.facebook.react.module.annotations.ReactModule;
 @ReactModule(name = GalinumJournalModule.NAME)
 public final class GalinumJournalModule extends NativeGalinumJournalSpec {
   private final java.util.Map<String, String> owned = new java.util.HashMap<>();
+  private final JournalActor.InteractionSink interactionSink;
   public static final String NAME = "GalinumJournal";
   public GalinumJournalModule(ReactApplicationContext context) {
     super(context);
+    interactionSink = scope -> {
+      try {
+        emitOnInteraction(scope);
+      } catch (Throwable ignored) {
+      }
+    };
+    JournalActor.interactionSink = interactionSink;
   }
   @Override
   public void invalidate() {
+    if (JournalActor.interactionSink == interactionSink) JournalActor.interactionSink = scope -> {};
     synchronized (owned) {
       for (java.util.Map.Entry<String, String> entry : owned.entrySet()) try {
           JournalActor.get(entry.getKey(), entry.getValue()).release(false, null);
@@ -102,6 +111,38 @@ public final class GalinumJournalModule extends NativeGalinumJournalSpec {
       double through, Promise promise) {
     JournalActor.get(scope, owner)
         .acknowledge((long) intent, (long) generation, (long) through, promise);
+  }
+  @Override
+  public void configureNotifications(String scope, String owner, String setup, Promise promise) {
+    JournalActor.get(scope, owner).configureNotifications(owner, setup, promise);
+  }
+  @Override
+  public void readInteractions(String scope, String owner, double intent, Promise promise) {
+    JournalActor.get(scope, owner).readInteractions((long) intent, promise);
+  }
+  @Override
+  public void acknowledgeInteraction(String scope, String owner, double intent, String interactionId, String disposition, Promise promise) {
+    JournalActor.get(scope, owner).acknowledgeInteraction((long) intent, interactionId, disposition, promise);
+  }
+  @Override
+  public void cancelNotifications(String scope, String owner, Promise promise) {
+    JournalActor.get(scope, owner).cancelNotifications(owner, promise);
+  }
+  @Override
+  public void readCompletion(String scope, String owner, String userId, String deliveryId, Promise promise) {
+    JournalActor.get(scope, owner).readCompletion(owner, userId, deliveryId, promise);
+  }
+  @Override
+  public void admitFeedback(String scope, String owner, String feedback, Promise promise) {
+    JournalActor.get(scope, owner).admitFeedback(owner, feedback, promise);
+  }
+  @Override
+  public void peekFeedback(String scope, String owner, Promise promise) {
+    JournalActor.get(scope, owner).peekFeedback(owner, promise);
+  }
+  @Override
+  public void acknowledgeFeedback(String scope, String owner, String feedbackId, String receipt, Promise promise) {
+    JournalActor.get(scope, owner).acknowledgeFeedback(owner, feedbackId, receipt, promise);
   }
   @Override
   public void release(String scope, String owner, Promise promise) {

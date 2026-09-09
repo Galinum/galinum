@@ -1,4 +1,5 @@
 import type { TurboModule } from 'react-native';
+import type { EventEmitter } from 'react-native/Libraries/Types/CodegenTypes';
 import { TurboModuleRegistry } from 'react-native';
 
 export interface Spec extends TurboModule {
@@ -19,6 +20,15 @@ export interface Spec extends TurboModule {
   admitEvent(scope: string, owner: string, ticket: string, event: string): Promise<string>;
   peek(scope: string, owner: string, intent: number): Promise<string>;
   acknowledge(scope: string, owner: string, intent: number, generation: number, through: number): Promise<void>;
+  configureNotifications(scope: string, owner: string, setup: string): Promise<string>;
+  readInteractions(scope: string, owner: string, intent: number): Promise<string>;
+  acknowledgeInteraction(scope: string, owner: string, intent: number, interactionId: string, disposition: string): Promise<void>;
+  cancelNotifications(scope: string, owner: string): Promise<void>;
+  readCompletion(scope: string, owner: string, userId: string, deliveryId: string): Promise<boolean>;
+  admitFeedback(scope: string, owner: string, feedback: string): Promise<string>;
+  peekFeedback(scope: string, owner: string): Promise<string>;
+  acknowledgeFeedback(scope: string, owner: string, feedbackId: string, receipt: string): Promise<void>;
+  readonly onInteraction: EventEmitter<string>;
   release(scope: string, owner: string): Promise<void>;
 }
 export default TurboModuleRegistry.get<Spec>('GalinumJournal');

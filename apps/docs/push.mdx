@@ -5,8 +5,26 @@ description: "Configure direct APNs and FCM delivery in a self-host server or co
 
 The public push engine sends through APNs and FCM using your app's credentials.
 It shares campaign audiences, variants, goals, and delivery windows. Native
-notification rendering and action registration must be integrated in your app;
-provider acceptance does not prove that a notification appeared on screen.
+notification rendering and action registration belong to your app integration.
+Follow the [React Native setup guide](/sdk/react-native) for Expo and bare
+iOS/Android apps. Provider acceptance does not prove visible presentation.
+
+## Match the app and server configuration
+
+Use the same app ID, platform, and environment in the SDK installation and
+provider credentials. On iOS, the APNs topic must match the signed bundle ID;
+the environment must match its APNs entitlement. On Android, the Firebase
+configuration must belong to the app that obtains the FCM token.
+
+The app requests OS permission at its chosen time and records product consent
+separately. Register native channels/categories/actions before advertising their
+capabilities. Confirm application identity before routing taps. Choose foreground
+display or suppression explicitly. Galinum uses raw APNs/FCM tokens, including
+with Expo; it does not send through the Expo Push Service.
+
+Self-hosted Galinum and Galinum Cloud use the same public management routes.
+Keep APNs keys and Firebase service-account private keys server-side. The app
+receives only its publishable key and native provider configuration.
 
 ## Configure credentials
 
@@ -25,17 +43,17 @@ PUT /api/v1/push/credentials
 
 ```json
 {
-  "appId": "com.example.app",
-  "platform": "ios",
-  "environment": "production",
-  "expectedRevision": 0,
-  "credential": {
-    "provider": "apns",
-    "teamId": "YOURTEAMID",
-    "keyId": "YOURKEYID0",
-    "topic": "com.example.app",
-    "privateKey": "<your PEM key>"
-  }
+	"appId": "com.example.app",
+	"platform": "ios",
+	"environment": "production",
+	"expectedRevision": 0,
+	"credential": {
+		"provider": "apns",
+		"teamId": "YOURTEAMID",
+		"keyId": "YOURKEYID0",
+		"topic": "com.example.app",
+		"privateKey": "<your PEM key>"
+	}
 }
 ```
 
@@ -56,23 +74,23 @@ test exercises authentication and sending.
 
 ```json
 {
-  "name": "Exports are ready",
-  "channel": "push",
-  "launch": true,
-  "push": {
-    "appId": "com.example.app",
-    "selection": { "kind": "last_active" },
-    "ttlSeconds": 86400,
-    "replacementKey": "exports"
-  },
-  "message": {
-    "title": "Hello {{ user.name | default: \"there\" }}",
-    "body": "Try exports from your workspace.",
-    "destination": { "kind": "app", "url": "example://exports" },
-    "actions": [{ "id": "open_exports", "title": "Try exports" }],
-    "ios": { "categoryId": "exports", "sound": "default", "badge": 1 },
-    "android": { "channelId": "product_updates" }
-  }
+	"name": "Exports are ready",
+	"channel": "push",
+	"launch": true,
+	"push": {
+		"appId": "com.example.app",
+		"selection": { "kind": "last_active" },
+		"ttlSeconds": 86400,
+		"replacementKey": "exports"
+	},
+	"message": {
+		"title": "Hello {{ user.name | default: \"there\" }}",
+		"body": "Try exports from your workspace.",
+		"destination": { "kind": "app", "url": "example://exports" },
+		"actions": [{ "id": "open_exports", "title": "Try exports" }],
+		"ios": { "categoryId": "exports", "sound": "default", "badge": 1 },
+		"android": { "channelId": "product_updates" }
+	}
 }
 ```
 
@@ -103,12 +121,12 @@ IDs and titles in installation facts:
 
 ```json
 {
-  "actions": ["open_exports"],
-  "channels": [],
-  "richImages": true,
-  "categories": [
-    { "id": "exports", "actions": [{ "id": "open_exports", "title": "Try exports" }] }
-  ]
+	"actions": ["open_exports"],
+	"channels": [],
+	"richImages": true,
+	"categories": [
+		{ "id": "exports", "actions": [{ "id": "open_exports", "title": "Try exports" }] }
+	]
 }
 ```
 
@@ -116,7 +134,8 @@ This is the `capabilities` object in the existing facts mutation. Duplicate
 category/action IDs are rejected. Planning and pre-dispatch validation both
 require the category ID and all ordered IDs/titles to match the rendered push
 content. Personalizing an action title requires an identically registered title.
-A category name alone is insufficient. The registration report is supplied by
+Android requires registered action IDs and uses the rendered payload titles for
+button labels. A category name alone is insufficient on iOS. The registration report is supplied by
 the app; physical-device validation still matters.
 
 APNs uses alert payloads with a `galinum` envelope, category, subtitle, sound,
@@ -255,6 +274,23 @@ conversion state and never creates `deliveredAt` or receipt evidence. This
 user-level projection is distinct from the per-attempt acceptance ledger. Test
 sends update neither generic campaign delivery statistics nor campaign billing.
 
+### Read the evidence in order
+
+| Evidence | What it establishes | What it does not establish |
+| --- | --- | --- |
+| Credential validation returns `local_valid` | The key/configuration passes local validation. | Provider authentication. |
+| Attempt is `accepted` | APNs or FCM returned a positive response. | Device receipt or visible presentation. |
+| `receiptObserved` | The SDK reported receipt for that target and attempt. | A banner, sound, action button, or image was visible. |
+| Tap or action observation | The SDK reported an interaction correlated to the sent payload. | Exactly-once execution of your app's handler. |
+| Direct device inspection | The tested build presented the observed content in that scenario. | Delivery on every device or under every OS state. |
+
+For cold-start failures, inspect native launch capture and router/identity
+confirmation. For foreground silence, inspect the configured suppression policy.
+For opt-out and account switches, await local restriction and server binding
+reconciliation; stale interactions must not execute under the new user.
+Avoid creating new test request IDs merely because an HTTP response was lost.
+Read back the original request before intentionally sending another alert.
+
 ## Observation order and conversion
 
 The native envelope is `{ version: 1, targetId, attemptId, installationId,
@@ -266,11 +302,11 @@ Use the publishable key and installation capability with
 
 ```json
 {
-  "bindingGeneration": 1,
-  "commands": [
-    { "id": "tap-1", "sequence": 1, "kind": "tap", "targetId": "<target>", "attemptId": "<attempt>" },
-    { "id": "event-command-1", "sequence": 2, "kind": "event", "eventId": "export-event-1", "event": "export_created", "props": { "format": "csv", "rows": 12 } }
-  ]
+	"bindingGeneration": 1,
+	"commands": [
+		{ "id": "tap-1", "sequence": 1, "kind": "tap", "targetId": "<target>", "attemptId": "<attempt>" },
+		{ "id": "event-command-1", "sequence": 2, "kind": "event", "eventId": "export-event-1", "event": "export_created", "props": { "format": "csv", "rows": 12 } }
+	]
 }
 ```
 

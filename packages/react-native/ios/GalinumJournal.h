@@ -1,4 +1,4 @@
 #import <GalinumJournalSpec/GalinumJournalSpec.h>
 
-@interface GalinumJournal : NSObject <NativeGalinumJournalSpec>
+@interface GalinumJournal : NativeGalinumJournalSpecBase <NativeGalinumJournalSpec>
 @end

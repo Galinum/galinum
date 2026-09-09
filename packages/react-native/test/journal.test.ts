@@ -47,6 +47,15 @@ function journal(initial: ControlRow | null = null) {
       return { generation: gate.generation, acknowledgedThrough: ack, lastSequence: commands.length, commands: prefix, pendingAdmissions: tickets.size, appConfirmed: gate.appConfirmed } as JournalPrefix;
     }),
     acknowledge: vi.fn(async (_s, _o, _i, _g, through) => { ack = through;batch = undefined; }),
+    configureNotifications: vi.fn(async () => ({ actions: [], channels: [], richImages: false })),
+    readInteractions: vi.fn(async () => []),
+    acknowledgeInteraction: vi.fn(async () => {}),
+    cancelNotifications: vi.fn(async () => {}),
+    readCompletion: vi.fn(async () => false),
+    admitFeedback: vi.fn(async (_s, _o, feedback) => ({ feedbackId: feedback.feedbackId, state: 'queued' as const })),
+    peekFeedback: vi.fn(async () => []),
+    acknowledgeFeedback: vi.fn(async () => {}),
+    subscribeInteractions: () => () => {},
     release: vi.fn(async () => { owner = undefined; }),
   };
   return { port, reservations, commands };

@@ -59,13 +59,13 @@ Both files are below — copy them verbatim.
 ````markdown
 ---
 name: galinum
-description: Operate Galinum — self-driving product communications — through its management API. Announce launches, releases, and promotions as targeted web in-app or email campaigns; optionally measure a target outcome; or run goal-driven optimization with weighted A/B variants. Every decision is logged as an agent run. Use when asked to announce or communicate something to a product's users, operate Galinum, propose/launch/evaluate campaigns, work toward a Galinum goal, or review campaign performance.
+description: Operate Galinum through its management API. Announce launches, releases, and promotions as targeted in-app, email, or native push campaigns; optionally measure a target outcome; or run goal-driven optimization with weighted A/B variants. Every decision is logged as an agent run. Use when asked to announce or communicate something to a product's users, operate Galinum, propose/launch/evaluate campaigns, work toward a Galinum goal, or review campaign performance.
 ---
 
 # Galinum communications agent
 
-You are operating [Galinum](https://galinum.com) — self-driving product
-communications — for this project. The product team tells you what to
+[Galinum](https://galinum.com) is self-driving product communications.
+You operate it for this project. The product team tells you what to
 communicate to their users; you write the copy, choose the audience and
 channel, deliver it through the API, and measure the result. When the job
 benefits from learning, Galinum can also measure a target outcome or run a
@@ -238,22 +238,25 @@ request human attention, not an automatic pause or email.
 
 ## Direct communications
 
-One message, delivered at most once per eligible user, measured through the
-standard engagement stats. No goal, no variants, no evaluation schedule.
+One message, measured through the channel's engagement evidence.
+In-app completion suppresses later entries; concurrent displays can still race.
+No goal, no variants, no evaluation schedule.
 
 1. **Context.** `GET /api/v1/agent-runs` (recent pages) — was this same
    announcement already proposed or sent? `GET /api/v1/campaigns?status=running`
    **and** `?status=scheduled` — what is already live or waiting on a future
    delivery window, for the audience-overlap check. No active goal is
    required, and you must not create one.
-2. **Compose.** Choose `channel: "web_inapp"` unless the user asked for email.
-   Web in-app uses `{ title, body, cta, presentation }`; email uses
+2. **Compose.** Use `channel: "web_inapp"` for web or native in-app messages.
+   Use `email` or `push` when the user requests that channel.
+   In-app uses `{ title, body, cta, presentation }`; email uses
    `{ subject, previewText, body, cta }`, with Markdown in `body`. Follow the
-   channel-specific copy rules below.
+   channel-specific copy rules below. For push, use the native communications
+   contract below before composing or inspecting sends.
    Use the single-`message` campaign shape; do **not** invent alternate
    variants "to see what works" — that is the optimized mode's job, and only
-   on request. A prominent announcement needs no image: choose
-   `presentation: "modal"` on its own. Only when the user supplied an image,
+   on request. A prominent in-app announcement needs no image: choose
+   `presentation: "modal"` on its own. For a supplied in-app image,
    upload the file with `POST /api/v1/campaign-media` first and attach the
    returned URL as `message.media`.
 3. **Target.** Express the audience the user described as an `audience`
@@ -298,7 +301,8 @@ standard engagement stats. No goal, no variants, no evaluation schedule.
    ordinary engagement stats from `GET /api/v1/campaigns/{id}` whenever they
    ask later: `shown` / `clicked` / `dismissed` for web in-app, or `sent` /
    `frequencyCapped` / `delivered` / `opened` / `clicked` / `bounced` /
-   `complained` / `unsubscribed` for email.
+   `complained` / `unsubscribed` for email. For push, read the separate
+   campaign push inspection and distinguish acceptance, receipt, and engagement.
    Do **not** log a
    `schedule` run, book a re-evaluation, or promise iteration: a direct
    communication is finished once it is live. Without `deliverUntil` a
@@ -330,7 +334,12 @@ applies — one variant, no schedule — plus:
 - Do **not** create a goal for this. A goal is a standing objective the
   customer owns; create one only when the user explicitly asks for it.
 - Evaluate **when the user asks**, not on a schedule you invent: read
-  engagement stats, then call `GET
+  engagement stats. For push, use its correlated observations/conversions from
+  the push inspection route; do not apply email or in-app exposure rules.
+  Push conversion records use the campaign's linked goal event. Agent-run
+  target-event metadata alone does not configure them. Report that measurement
+  gap for a goal-free push campaign; never create a goal to fill it.
+  For in-app and email, call `GET
   /api/v1/campaigns/{id}/conversions?event=<targetEvent>` for exact
   post-exposure conversion totals. The endpoint applies `shownAt` for web
   in-app and `deliveredAt` for email at one `evaluatedAt` instant. Do not
@@ -482,6 +491,8 @@ hosted runtime.
 
 When a check-in comes due:
 
+- For push, evaluate the push inspection's acceptance, engagement, and ordered
+  conversions. The generic email/in-app ratios below do not apply.
 - `GET /api/v1/campaigns/{id}` — per-variant stats. For web in-app, judge
   `clicked/shown` and `converted/shown`. For email, use `clicked/delivered`
   and `converted/delivered`. Mind
@@ -519,11 +530,44 @@ When a check-in comes due:
 Log every evaluation (`kind: "evaluation"`), change (`kind: "iteration"`), and
 wrap-up (`kind: "conclusion"`) with the stats that drove the decision.
 
+## Native communications
+
+Native in-app uses `channel: "web_inapp"`, the shared message format, and campaign
+`pages` matched against the app's normalized screen path. Web and native share
+one project/user/campaign delivery and variant. Completion acknowledged before a
+later entry suppresses that message there. There is no global display lease;
+never promise exactly-once display across concurrent devices.
+
+For `channel: "push"`, read the push and installation sections in
+`references/api.md`. Use the project secret for credential setup, selected-device
+tests, and inspection. Match app ID, platform, environment, permission, separate
+product consent, token registration, and registered native capabilities.
+The app owns OS permission timing, authenticated identity, and router readiness.
+Never infer consent from permission, or identity from a notification payload.
+
+Push content uses `{ title, body, destination, actions?, image?, data?, ios?, android? }`.
+Use HTTPS website/image URLs and app schemes supported by the application.
+Android permits three actions with registered IDs and personalized payload titles.
+iOS categories permit four actions with exact registered order and rendered titles. Do not put in-app `presentation`, `media`, or `cta` into push.
+Both Expo and bare apps use raw APNs/FCM tokens and direct provider delivery.
+
+A selected-device test sends a real notification. Run it only within the user's
+send authority. Persist its request ID and read it back after an uncertain reply.
+Local credential validation does not authenticate with Apple or Google. Provider
+acceptance does not prove SDK receipt, and receipt does not prove visible display.
+Report each separately; device proof requires observing the configured native build.
+Push conversions require a recorded tap/action before the target event in server
+order. Use push inspection for these conversions; generic exposure-based
+conversion queries do not establish push attribution. Test targets never count
+as campaign conversions. The read-only dashboard shows public inspection, stored
+content, and safety controls. Campaign authoring stays in the management API.
+
 ## Copy rules — every mode
 
-A web in-app message is `{ title, body, cta: { label, destination: { kind, url } }, presentation }`.
-Title ≤ 120 chars and body ≤ 600. CTA URLs may use `https://`, `http://`,
-`mailto:`, or an in-app path like `/billing`.
+An in-app message is `{ title, body, cta: { label, destination: { kind, url } }, presentation }`.
+Title ≤ 120 chars and body ≤ 600. Website destinations require HTTPS.
+App destinations require an app URL scheme supported by the client. Campaign
+`pages` contains screen paths such as `/billing`; these are not CTA URLs.
 
 An email message is `{ subject, previewText, body, cta: { label, url } }`.
 Subject ≤ 200 chars, preview text ≤ 200, and `body` is Markdown. Email CTA
@@ -532,7 +576,7 @@ URLs must be absolute `https://` or `http://` links. Do not add
 
 Write like the product team, not like an ad.
 
-For web in-app, `presentation` is required on every message you create or
+For web and native in-app, `presentation` is required on every message you create or
 edit, and it is a
 real product decision: `"toast"` is a compact corner card, `"modal"` is a
 centered announcement over a full-screen backdrop that interrupts the user.
@@ -542,7 +586,7 @@ prominent announcement, or when the user asks for one. Ask only when the
 intent is ambiguous *and* the choice matters; otherwise decide and state
 your reasoning in the run rationale.
 
-A message may carry one optional image, `media: { url, alt }` (or
+An in-app message may carry one optional image, `media: { url, alt }` (or
 `{ url, decorative: true }`). **Media is content, not prominence**: it never
 changes the presentation. A toast shows the image as a compact thumbnail; a
 modal shows it as the immersive visual. Don't attach an image the user didn't
@@ -564,8 +608,8 @@ use `decorative: true` only when it carries no information.
    (tone, audience, timing) bind the same way.
 2. **Pre-flight checks before any create/launch/PATCH — in every mode:**
    - Proofread every message: no typos, no placeholder text (`TODO`, `lorem`,
-     `{name}`), CTA label present whenever a URL is set, links plausible for
-     the product. An attached image must be a Galinum-managed upload with
+     `{name}`), in-app/email CTA label present whenever its URL is set, links
+     plausible for the product. An in-app image must be a Galinum-managed upload with
      accurate `alt` text (or an explicit `decorative: true`). Web in-app
      `presentation` must be explicit, and a `modal` must be justified by the
      announcement's weight. Email needs a subject, Markdown body, and only
@@ -573,8 +617,10 @@ use `decorative: true` only when it carries no information.
    - Email consent: target only recipients who explicitly opted in to this
      type of product communication. Never infer consent from a supplied email
      address, terms acceptance, scraped data, or a purchased list.
-   - Frequency sanity: Galinum shows each user each campaign at most once,
-     but overlapping campaigns stack. If running — or scheduled, whose
+   - Frequency sanity: completed in-app campaigns stop appearing on later
+     entries, but overlapping campaigns stack. Concurrent displays can race.
+     Push does not promise exactly-once display or automatic frequency caps.
+     If running — or scheduled, whose
      delivery window hasn't opened yet — campaigns already target an
      overlapping audience, don't pile on — narrow the targeting, or wait.
      Before an email launch, call `GET /api/v1/usage` and stop if
@@ -604,7 +650,7 @@ use `decorative: true` only when it carries no information.
    `references/api.md` exist. No scraping the dashboard,
    no guessed admin routes, no direct database access.
 
-Email domain setup is the one human-only precondition. A human verifies the
+Email domain setup is a human-only precondition. A human verifies the
 project domain and sender under **Settings → Email**. You may create a draft
 before verification. If email launch returns 409 for domain or sender setup,
 report that exact action and stop. Never switch channels to bypass the gate.
@@ -995,7 +1041,7 @@ forever, including for archived segments.
 
 ## Campaigns
 
-Web in-app message content:
+Web in-app message content (also used by native clients):
 
 ```json
 {
@@ -1064,6 +1110,48 @@ Email message content:
   permanent `frequency_capped` skip for this campaign, not a delayed send.
   Transactional service email is exempt.
 
+Push message content:
+
+```json
+{
+  "title": "Exports are ready",
+  "body": "Open your exports from the app.",
+  "destination": { "kind": "app", "url": "example://exports" },
+  "actions": [{ "id": "open_exports", "title": "Try exports" }],
+  "ios": { "categoryId": "exports", "sound": "default" },
+  "android": { "channelId": "product_updates" }
+}
+```
+
+Create with `channel: "push"` and campaign settings:
+
+```json
+{
+  "appId": "com.example.app",
+  "selection": { "kind": "last_active" },
+  "ttlSeconds": 86400,
+  "replacementKey": "exports"
+}
+```
+
+This second object is the campaign's `push` field. Selection also supports
+`{ "kind": "all" }` or `{ "kind": "specific", "installationId": "device_123" }`.
+Audiences, weighted variants, goals, and delivery windows use the shared campaign
+model. Campaign channel cannot change after creation.
+
+Push content requires title, body, and typed destination. Optional `data` is a
+string map; keys beginning with `galinum` are reserved. Optional `image` is an
+HTTPS URL. Website destinations require HTTPS; app destinations require schemes
+supported by the app. Do not use in-app `cta`, `presentation`, or `media` fields.
+The complete provider payload must fit 4096 UTF-8 bytes, without truncation.
+
+Android supports at most three action buttons. iOS categories support four;
+content with Android settings cannot request four. Match Android channel and
+action IDs. Android renders personalized titles from the payload. Match the exact
+ordered iOS category action IDs and rendered titles, including personalized titles. iOS images require a Notification Service Extension.
+Foreground suppression and OS settings can prevent visible presentation even
+when receipt is reported. See [push setup](https://docs.galinum.com/push).
+
 ### POST /api/v1/campaign-media
 
 Upload an image for use as message media — upload first, then reference the
@@ -1095,7 +1183,7 @@ but prefer `audience`, which is strictly more expressive.
 Pages (where the campaign may render): the optional `pages` field on campaign
 create/PATCH. Audience decides **who**, pages decides **where**.
 
-Pages apply only to `web_inapp`. Email campaign create and PATCH reject them.
+Pages apply only to `web_inapp`. Email and push campaign create and PATCH reject them.
 
 - `pages` is an array of path patterns, or `null` (the default) for every
   page. A pattern starts with `/`, `*` matches any characters (including
@@ -1104,22 +1192,23 @@ Pages apply only to `web_inapp`. Email campaign create and PATCH reject them.
   Example: `["/dashboard", "/settings/*"]`.
 - Limits: at most 20 patterns, each ≤ 256 characters. An empty array means
   every page (same as `null`).
-- The browser SDK matches patterns against the current pathname. An SDK that
-  does not declare the `pages` capability never receives page-targeted
-  campaigns, so an old SDK can't show them on the wrong screen.
-- A user sees at most one message per page view. Messages appear at page load
-  or right after a navigation, never mid-screen.
+- Web and native clients send their normalized pathname or screen path with each
+  fresh entry decision. The server selects matching campaigns. Clients recheck
+  returned page patterns before presentation.
+- A client commits at most one in-app message per entry. Native clients supply
+  a normalized screen path and fresh route-entry identity. Web and native share
+  completion and variant assignment. Acknowledged completion suppresses later
+  entries; concurrent authorized displays can race. No global display lease exists.
 
 Stats shape (campaign-level and per-variant) always includes
 `sent`, `frequencyCapped`, `delivered`, `shown`, `opened`, `clicked`,
 `dismissed`, `bounced`, `complained`, `unsubscribed`, and `converted`. Web in-app uses the
 shown/clicked/dismissed funnel. Email uses sent/delivered/opened/clicked/
 bounced/complained/unsubscribed; `frequencyCapped` counts recipients skipped
-by the project-wide email limit. Each user
-receives each campaign at most once; `shown` counts messages that actually
-rendered on screen (the SDK reports the impression when a message mounts —
-fetching alone does not count, and a page-targeted message the user never
-reaches stays `queued`). `clicked`/`dismissed` count what the product
+by the project-wide email limit. In-app completion suppresses later entries;
+`shown` counts messages that actually
+rendered on screen. The SDK reports shown after presentation, not fetching. A page-targeted
+message the user never reaches stays `queued`. `clicked`/`dismissed` count what the product
 reports back as delivery feedback through the SDK. `converted` moves two
 ways: `converted` SDK feedback, and — for a campaign linked to a goal via
 `goalId` — automatically, when a tracked event matching the goal's
@@ -1182,7 +1271,8 @@ Body:
 
 - `name` — required, ≤ 80 chars.
 - `sourceChanges` — optional `{ changes }` as defined above.
-- `channel` — `web_inapp` (default) or `email`.
+- `channel` — `web_inapp` (default) or `email` or `push`. Native in-app uses
+  `web_inapp`; push uses the distinct content and settings below.
 - Exactly one of:
   - `message` — a single variant named "A", or
   - `variants` — 1–10 of `{ "name": "A" (≤ 40 chars, defaults A/B/C…),
@@ -1874,6 +1964,102 @@ end user. When `emailServing` is not `ok`, campaign email does not send.
 You cannot fix a paused organization through the API. Report it and tell the
 human what to do in **Settings → Billing**. Serving resumes within a minute of
 restoring billing or raising the spend cap.
+
+## Native installations and push management
+
+These management routes use the project secret. Use the same API origin for
+self-hosted Galinum or Galinum Cloud. Native clients use a publishable key and
+installation capability instead; never embed management or provider secrets in
+an application.
+
+### GET /api/v1/installations
+
+Query: `userId` (external ID), `page` (default 1), `perPage` (default 25, max 100).
+Returns `{ installations, total, page, perPage }`. Inspect `appId`, `platform`,
+`environment`, `userId`, `bindingGeneration`, `revision`, `tokenRevision`,
+`hasToken`, `permission`, `consent`, `capabilities`, and `lastActiveAt`.
+Reads omit native tokens, token digests, installation capabilities used for
+secret authentication, and their verifiers.
+
+Eligibility needs the identified user, a token, product consent, and granted or
+provisional permission. `last_active` uses explicit app activity; token refresh
+is not activity. Capabilities describe registered actions/channels and optional
+iOS categories. OS permission does not imply product consent. See
+[installation lifecycle](https://docs.galinum.com/sdk/installations).
+
+### PUT /api/v1/push/credentials
+
+Body: `{ appId, platform, environment, expectedRevision, credential }`.
+`platform` is `ios` or `android`; `environment` is `development` or `production`.
+Use `expectedRevision: 0` for initial configuration, then the current revision.
+Stale writes return `409`. Returns `{ credential: { id, appId, platform,
+environment, revision, validation: "local_valid" } }` without private key material.
+
+- APNs: `credential` is `{ provider: "apns", teamId, keyId, topic, privateKey }`.
+  Match topic, bundle ID, and the signed app's APNs environment.
+- FCM: `credential` is `{ provider: "fcm", projectId, clientEmail, privateKey }`
+  from the service account for the Android application's Firebase project.
+
+Delivery uses APNs directly on iOS and FCM directly on Android. Expo clients use
+native device tokens, not Expo Push Service tokens. Self-host persistent storage
+requires a stable `GALINUM_PUSH_ENCRYPTION_KEY`; see the public push setup guide.
+
+### GET /api/v1/push/credentials
+
+Returns `{ credentials, nextCursor }`, with at most 100 credential metadata rows.
+Pass `nextCursor` as the next request's `afterId`. No key or ciphertext is returned.
+
+### POST /api/v1/push/credentials/validate
+
+Body: `{ credential }`, using the APNs or FCM shape above. Returns
+`{ provider, validation: "local_valid", externalAuthentication: "not_checked" }`.
+This validates local configuration only. It neither proves provider authentication
+nor sends a notification.
+
+### POST /api/v1/campaigns/{id}/push/test
+
+Body: `{ installationId, requestId }`. This sends a real notification to the
+selected eligible installation. Persist the request ID before calling. Exact
+retries return the same target IDs; reusing the ID for another installation
+returns `409`. An admitted test attempts at most one notification and does not
+automatically retry. Test targets never count as campaign acceptance, billing,
+or conversion. Use a new request ID only when another alert is intended.
+
+### GET /api/v1/campaigns/{id}/push/tests/{requestId}
+
+Read a correlated test after an uncertain reply. A serving gate closed before
+admission returns `409` on POST and leaves this GET at `404`. The same request
+ID can be admitted after the gate opens.
+
+### GET /api/v1/campaigns/{id}/push
+
+Query: `page` (default 1), `perPage` (default 25, 1–100). Each collection paginates
+independently. Response collections include `recipients`, `slots`, `targets`,
+`attempts`, `outcomes`, `observations`, and `conversions`. `records` and `pageCounts`
+show totals per collection. `users`, `devices`, `planning`, `testTargets`, and
+`evaluatedAt` supply aggregate context. Different pages are not one snapshot.
+
+Read acceptance, receipt, and presentation separately:
+
+- `accepted` means a positive provider response. It does not prove arrival.
+- `receiptObserved` means an SDK report. It does not prove visible presentation.
+- `receiptUnknown` counts accepted or possibly submitted slots without receipt.
+  It excludes known pre-send blocks and permanent rejection without uncertainty.
+- `confirmedSubmissions`, `possibleSubmissions`, `preSendBlocks`, and
+  `pendingOutcomes` distinguish notification calls from preparation and uncertainty.
+
+Device totals count logical slots; target counts include historical generations.
+The read-only campaign dashboard shows this inspection alongside stored push
+content and safety controls. Its collection selector preserves independent
+pagination and campaign-wide totals. See [dashboard supervision](https://docs.galinum.com/self-host/dashboard).
+
+Push conversions use the campaign's linked goal event and require a valid
+tap/action before that event in server order. Agent-run metadata alone does not
+configure conversion tracking for a goal-free campaign. Use these correlated
+records for push conversion analysis. Unknown submission retries can duplicate alerts; exactly-once display
+is not promised. Cold-start routing also requires native intent capture, explicit
+application identity confirmation, and a ready router. See the
+[React Native SDK](https://docs.galinum.com/sdk/react-native).
 `````
 
 </Accordion>

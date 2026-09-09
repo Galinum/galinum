@@ -1,8 +1,9 @@
 # @galinum/react-native
 
-Native installation, identity, event, permission and consent client. It uses the
-public installation, identify and ordered observation HTTP APIs. Notification routing, actions,
-receipt reporting and in-app rendering are not implemented.
+Native installation, identity, event, permission, consent, notification, and in-app client. It uses the
+public installation, identify, ordered observation, and in-app HTTP APIs.
+See the [native SDK guide](https://docs.galinum.com/sdk/react-native) for notification
+configuration, identity/router readiness, in-app rendering, and delivery diagnostics.
 
 ## Create one client
 
@@ -18,19 +19,23 @@ import { createGalinumClient, GalinumProvider } from '@galinum/react-native';
 import { createExpoAdapter } from '@galinum/react-native/expo';
 
 const client = createGalinumClient({
-  apiBase: 'https://api.example.com',
-  publishableKey: 'pub_your_project_key',
-  appId: 'com.example.product',
-  platform: Platform.OS === 'ios' ? 'ios' : 'android',
-  environment: 'production',
-  storageKey: 'galinum.product.production',
-  adapter: createExpoAdapter({
-    androidChannel: { id: 'updates', name: 'Product updates' },
-  }),
+	apiBase: 'https://api.example.com',
+	publishableKey: 'pk_pub_your_project_key',
+	appId: 'com.example.product',
+	platform: Platform.OS === 'ios' ? 'ios' : 'android',
+	environment: 'production',
+	storageKey: 'galinum.product.production',
+	adapter: createExpoAdapter({
+		androidChannel: { id: 'updates', name: 'Product updates' },
+	}),
+	notifications: {
+		foreground: 'suppress',
+		channels: [{ id: 'updates', name: 'Product updates' }],
+	},
 });
 
 export function App({ children }: { children: React.ReactNode }) {
-  return <GalinumProvider client={client}>{children}</GalinumProvider>;
+	return <GalinumProvider client={client}>{children}</GalinumProvider>;
 }
 ```
 
@@ -46,8 +51,8 @@ needed. The provider does not dispose the shared client when it unmounts. Call
 
 `useGalinumClient()` returns the client. `useGalinumSnapshot()` returns its immutable
 external-store snapshot. `useGalinum()` returns that snapshot, identity controls,
-and session-bound operations. `track` returns an event receipt; other asynchronous
-methods return `Promise<void>`.
+and session-bound operations. `track` returns an event receipt. Initialization and lifecycle controls return
+`Promise<void>`; notification registration returns a cleanup function.
 
 | Method | Behavior |
 | --- | --- |
@@ -61,6 +66,7 @@ methods return `Promise<void>`.
 | `syncDevice()` | Refresh permission and native token without prompting or recording activity. |
 | `recordForegroundActivity()` | Record explicit foreground use for installation selection. Requires identification. |
 | `session()` | Capture session-bound track, consent, permission, synchronization and activity methods. |
+| `setNotificationHandler(handler)` | Declare router readiness; receive an interaction and captured session. Returns a cleanup function. |
 | `getSnapshot()` / `subscribe(listener)` | Stable, deeply frozen snapshots for `useSyncExternalStore`. |
 | `dispose()` | Fence callbacks and remove native subscriptions. A disposed client cannot restart. |
 
@@ -70,12 +76,31 @@ reset or switching accounts. Direct client methods intentionally target the curr
 session when called. Identity controls remain application-owned.
 
 ```tsx
-const { requestPermission, setConsent, track } = useGalinum();
-await setConsent(true);
-await requestPermission();
-await track('onboarding_completed', { source: 'native' });
+import { useState } from 'react';
+import { Button, Text, View } from 'react-native';
+import { GalinumError, useGalinum } from '@galinum/react-native';
+
+export function MessagingPreferences() {
+	const { requestPermission, setConsent } = useGalinum();
+	const [error, setError] = useState('');
+	const run = (operation: () => Promise<void>) => {
+		setError('');
+		void operation().catch(cause => {
+			setError(cause instanceof GalinumError ? cause.code : 'Operation failed');
+		});
+	};
+	return (
+		<View>
+			<Button title="Enable product updates" onPress={() => run(() => setConsent(true))} />
+			<Button title="Disable product updates" onPress={() => run(() => setConsent(false))} />
+			<Button title="Allow notifications" onPress={() => run(requestPermission)} />
+			<Text accessibilityLiveRegion="polite">{error}</Text>
+		</View>
+	);
+}
 ```
 
+Mount these controls inside `GalinumProvider` after the app confirms identity.
 Call `requestPermission()` from your own permission explanation or button. Bind
 consent to your product's separate opt-in control. Only a bound installation with
 consent and granted/provisional permission uploads a token. Revocation clears the
@@ -98,7 +123,8 @@ Expo and bare adapters include the app-process TurboModule. Rebuild native proje
 after installation; Expo Go cannot load it. React Native autolinking and Codegen
 register the module. Android uses SQLCipher Android 4.17.0 and AndroidX SQLite 2.6.2.
 iOS uses the SQLCipher 4.10.0 CocoaPod and Objective-C++ Codegen integration. Install
-Pods after adding the package. Do not also link system SQLite for this journal.
+Pods after adding the package. The Galinum pod links SQLCipher for its journal
+even when another pod uses system SQLite. No application linker workaround is needed.
 
 `track` reserves a memory ticket synchronously before initialization, key reads or
 HTTP. It then resolves the captured identity and commits a contiguous per-binding
@@ -107,7 +133,7 @@ ingress cannot overtake a valid earlier ticket waiting for initialization.
 
 ```ts
 const receipt = await client.track('export_completed', { format: 'csv' }, {
-  eventId: 'export-job-123',
+	eventId: 'export-job-123',
 });
 await client.flush();
 ```
@@ -145,7 +171,8 @@ with `journal_writer_busy` until the previous lease's actual write tail settles.
 Reset waits for durable native closure as well as the installation's
 actual-write and acknowledged binding fences. Startup closes the native gate;
 rehydration leaves application identity unconfirmed. Explicit `identify` confirms
-application identity. The SDK does not route or display notifications.
+application identity. Register a notification handler only after the app router
+is ready. Saved identity alone does not authorize interaction routing.
 
 Every adapter must provide a `JournalPort`, including custom adapters. Missing
 journals fail at client construction with `journal_required`. All `track` calls
@@ -182,10 +209,10 @@ a missing database fails closed as state loss. Credentials alone do not restore 
 identity. Default adapters check the old MMKV namespace through its supported presence
 API before provisioning. Any old operational file blocks with `legacy_format`;
 its bytes and keys remain untouched. There is no automatic transfer or fallback.
-Shared extension/headless storage
-ownership is not implemented. Keep device-only keys and exclude these operational
-files from backup/restore that could move them without their keys. Missing keys fail
-visibly.
+Use the native notification integration for ingress and keep one JavaScript
+HTTP sender. Do not create a second client in a background handler. Keep
+device-only keys and exclude operational files from backup/restore that could
+move them without their keys. Missing keys fail visibly.
 
 Storage writes have their own serialization chain, independent of HTTP and native
 permission/token reads. Reset/switch update in-memory intent, fence old work, and
@@ -267,6 +294,46 @@ Local consent revocation closes independently of HTTP progress. Known permission
 and definite token revocation also close before reconciliation. Older continuations cannot
 publish using a newer restriction. A null token lookup still means unavailable.
 
+### Android notification cleanup
+
+The Android journal records exact notification handles in the control transaction.
+Explicit restriction cancels those captured notifications before reporting success.
+Failed cancellation retains its cleanup records and rejects with
+`notifications_unavailable`. Control recovery and restart complete the same work.
+Preserve the user's opt-out and storage, then retry the failed operation.
+
+Automatic closure preserves valid current-user notifications. A closed publication
+does not authorize a new full sweep. Completed cancellation cannot remove a newer
+notification, and captured interactions stay durable while removal is retried.
+
+### iOS notification cleanup
+
+The iOS journal stores required cleanup in the same transaction as the control
+change. Each cleanup request captures the installation, affected binding
+generations, and any user whose notifications must remain. Revocation and reset
+cancel all notifications within their captured scope.
+
+Storage bootstrap, installation lookup, and durable response capture do not wait
+for OS notification queries. Storage lookup failures remain errors. Required
+cleanup gates client initialization, control recovery, routing, and presentation.
+A captured response remains durable while cleanup waits.
+
+Cancellation removes affected pending requests first, then delivered notifications,
+and verifies both lists before clearing the saved request. Incomplete or timed-out
+cleanup remains recoverable across restart. Explicit cancellation reuses that
+request. Cancellation callbacks lose authority on timeout. Generation checks
+preserve newer bindings and foreign installations.
+
+An iOS cleanup timeout makes `setConsent(false)` reject with
+`GalinumError.code === 'notifications_unavailable'`. Required cleanup also prevents
+reset or control recovery from reporting success until cancellation completes.
+Preserve the user's opt-out and journal, then retry the failed operation after
+notification services recover. Startup also recovers the saved request.
+
+This cleanup covers existing pending and delivered notifications within its
+scope. It cannot recall arbitrary future provider messages. See the
+[iOS cleanup recovery steps](https://docs.galinum.com/sdk/react-native#recover-ios-notification-cleanup).
+
 ## Scope and key rotation
 
 The scope includes API origin, publishable key, app ID, platform and environment.
@@ -292,16 +359,21 @@ Both adapters also need `react-native-mmkv` 4.3.2 and
 client; they are not available in Expo Go.
 
 Install the SDK and compatible Expo modules in your app. Configure the
-`expo-notifications` and `expo-secure-store` plugins, then rebuild a development
-client. For Android, supply your Firebase `google-services.json` using
-`android.googleServicesFile`. For iOS, enable Push Notifications and match your
-bundle ID, signing entitlement, provider topic and APNs environment. The Galinum
-`environment` value must match that entitlement.
+`expo-notifications` and `expo-secure-store` plugins. Add the
+`@galinum/react-native` config plugin after them, then run prebuild and rebuild
+a development client. On Android the plugin registers the Galinum FCM service
+and adds notification capture to `MainActivity`. On iOS it adds the separate
+receipt pod next to the autolinked journal pod. For Android, supply your Firebase
+`google-services.json` using `android.googleServicesFile`. For iOS, enable Push
+Notifications and match your bundle ID, signing entitlement, provider topic and
+APNs environment. The Galinum `environment` value must match that entitlement.
+Enable GIF support in the generated Android project for animated in-app media.
+Check that `expo.gif.enabled=true` in `android/gradle.properties` and rebuild.
 
 The adapter uses `getDevicePushTokenAsync`, yielding APNs on iOS and FCM on Android.
 It does not use Expo Push Service tokens. Its Android channel is created only when
-requesting permission. The channel is native setup; the client advertises no
-rendering/action capabilities. Push use requires a development build, not Expo Go.
+requesting permission. Keep that channel ID consistent with `notifications.channels` in the client
+configuration. Native notification setup reports the capabilities it registers. Push use requires a development build, not Expo Go.
 See [Expo Notifications](https://docs.expo.dev/versions/latest/sdk/notifications/),
 [SecureStore](https://docs.expo.dev/versions/latest/sdk/securestore/) and
 [Crypto](https://docs.expo.dev/versions/latest/sdk/crypto/).
@@ -312,7 +384,7 @@ Import `createBareAdapter` from `@galinum/react-native/bare` instead of the Expo
 adapter. Expo modules are optional peers and are not imported by this entry point.
 The core entry point imports neither adapter.
 
-The checked dependency set is React Native 0.86.3 with React 19.2.3,
+The documented dependency set is React Native 0.86.3 with React 19.2.3,
 `@react-native-firebase/app` and `@react-native-firebase/messaging` 26.4.0,
 `react-native-keychain` 10.0.0, `react-native-get-random-values` 2.0.0 and
 `react-native-permissions` 5.6.1. Install those exact versions for the documented
@@ -324,7 +396,7 @@ Node 24.
    Add `google-services.json` to `android/app` and apply the Google Services Gradle
    plugin. Add `GoogleService-Info.plist` to the iOS target. Initialize Firebase in
    AppDelegate according to the [React Native Firebase setup](https://rnfirebase.io/).
-   Configure static frameworks and `$RNFirebaseAsStaticFramework = true` in Podfile.
+   Configure the static-framework CocoaPods options shown below.
 2. Enable iOS Push Notifications. Add the `Notifications` handler using
    `setup_permissions(['Notifications'])` in Podfile, with the permissions setup
    script loaded. Set Android target SDK to at least 33 and declare
@@ -341,11 +413,65 @@ Node 24.
    in `firebase.json`. The adapter explicitly registers APNs when token access is
    eligible. It calls `getToken` explicitly on Android. Firebase collection settings
    remain app-owned; Galinum consent controls Galinum token synchronization.
+5. In `AndroidManifest.xml`, remove
+   `io.invertase.firebase.messaging.ReactNativeFirebaseMessagingReceiver` with
+   `tools:node="remove"` and declare `com.galinum.journal.GalinumFirebaseReceiver`
+   as an exported receiver with permission `com.google.android.c2dm.permission.SEND`
+   and the `com.google.android.c2dm.intent.RECEIVE` action. It inherits the React
+   Native Firebase receiver and forwards every non-Galinum message to it. In
+   `MainActivity`, call `GalinumNotificationActivity.onCreate(this, savedInstanceState)`
+   at the start of `onCreate` and `GalinumNotificationActivity.onNewIntent(this, intent)`
+   at the start of `onNewIntent`. The [native SDK guide](https://docs.galinum.com/sdk/react-native#bare-react-native)
+   shows both snippets. The SDK merges its private ingress service and `WAKE_LOCK`
+   permission. No additional host lifecycle hook or service declaration is needed.
+6. On iOS, use iOS 16.4 or later. Add the separate receipt pod to the application
+   target in your Podfile, for example `pod 'GalinumReceiptStore', :path => '../node_modules/@galinum/react-native'`,
+   while keeping `GalinumJournal` autolinking. Then run `pod install`.
+   Galinum composes the existing notification center delegate without editing the application delegate. Initialize other
+   notification libraries first. If the application assigns its own delegate
+   later, call `[GalinumNotifications install]` after that assignment.
+7. For animated GIF in-app media on Android, add the matching Fresco module to
+   `android/app/build.gradle`. React Native 0.86.3 uses Fresco 3.6.0:
 
-Current Expo SecureStore documentation warns that native platforms can reject
-large values; it does not specify a current universal 2048-byte limit. The small
-secret/bulk-state split avoids depending on such a limit. MMKV native encryption,
-large-record persistence and power-loss behavior still require device verification.
+```groovy
+dependencies {
+	implementation("com.facebook.fresco:animated-gif:3.6.0")
+}
+```
+
+For other React Native versions, match the installed
+`react-native/gradle/libs.versions.toml` and inspect the resolved dependency graph.
+Android notification images remain still. Bare apps need no Expo dependency.
+
+Use these Podfile options with React Native Firebase 26.4.0:
+
+```ruby
+platform :ios, '16.4'
+use_frameworks! :linkage => :static
+$RNFirebaseAsStaticFramework = true
+$RNFirebaseDisableSPM = true
+```
+
+Disabling RNFirebase SPM selects the CocoaPods integration for static frameworks.
+Inside the application target, keep the separate pod dependencies:
+
+```ruby
+pod 'GalinumJournal', :path => '../node_modules/@galinum/react-native'
+pod 'GalinumReceiptStore', :path => '../node_modules/@galinum/react-native'
+```
+
+The explicit Journal declaration may be omitted when autolinking selects the same
+path. The receipt pod remains separate. The SDK resolves its Swift compatibility
+header and links its journal's SQLCipher implementation in static-framework and
+ordinary-library builds. No consumer header-search or linker workaround is needed.
+
+SecureStore/Keychain holds small installation credentials. SQLCipher holds
+operational state and pending work; MMKV is used only to detect legacy state.
+Keep the app ID, signing identity, SDK scope, and storage namespace unchanged
+during an app update to preserve the installation and pending journal work.
+Android capture recovery uses saved Activity state and durable interaction IDs.
+Failed Android notification removal retains recovery state for retry. It cannot
+restore notification ownership already lost by an older build.
 
 The bare adapter reads APNs via `getAPNSToken()` on iOS, not its FCM registration
 token. On Android it uses `getToken()`. Refresh callbacks are detached on session
@@ -357,12 +483,53 @@ distinguish first-request and denied notification state on Android, so both map
 to `denied` until authorization succeeds.
 
 React Native Firebase skips APNs registration on ARM64 iOS simulators and can
-return `messaging/registration-timeout`. A physical iOS device is required for
-this bare adapter's actual APNs registration proof. See its
+return `messaging/registration-timeout`. Use a physical iOS device for APNs registration through this bare adapter. See its
 [messaging guidance](https://rnfirebase.io/messaging/usage).
 
-This package configures no message handlers, background handlers, notification
-presentation or navigation.
+## Notification and in-app integration
+
+Configure notification channels, actions, iOS categories, and foreground policy
+through `NativeConfig.notifications`. The native setup reports registered
+capabilities; the campaign must match them. Android notification images load
+over HTTPS, at most 1 MiB, without redirects. iOS images need a Notification
+Service Extension that subclasses the receipt component's service class and
+links only the receipt pod. Configure the extension and dedicated receipt groups
+as described in the [iOS image setup](https://docs.galinum.com/sdk/react-native#set-up-ios-notification-images). Preserve
+native receipt capture and activity/delegate callbacks when combining Galinum
+with another notification integration.
+
+`setNotificationHandler(handler)` returns a cleanup function. Register it after
+router readiness and explicitly identify the authenticated user after launch.
+The handler receives `(interaction, session)`. Use the stable `interaction.id`
+for durable application deduplication and the captured `session` for delayed
+SDK calls. Successful handling acknowledges the interaction; errors leave it
+pending. At-least-once delivery can repeat an application side effect.
+
+Use HTTPS website destinations and explicitly supported app schemes/routes.
+Recheck application identity before delayed router effects. Remove the handler
+when navigation becomes unavailable. Reset and opt-out restrict native display.
+Required cancellation must also complete before those operations succeed.
+See the [Android](#android-notification-cleanup) and
+[iOS](#ios-notification-cleanup) cleanup sections for error and retry behavior.
+The OS can still control background presentation of later provider messages.
+
+Reuse `client.inApp` for session snapshots and decisions, and `client.feedback`
+for durable completion and feedback through the existing sender. Compose them
+with `getInAppController(client.inApp, client.feedback, options)`, then share that
+controller between `InAppLifecycle` and `InAppMessages`. Keep one controller per client. Entry/request IDs need a framework UUID or the client's
+owner UUID plus a counter retained across renders and controller remounts.
+
+Native in-app messaging shares `web_inapp` campaigns, delivery identity, variants,
+and completion with web. Supply route entry, path, foreground state, and confirmed
+identity for a fresh decision. The renderer supports toast/modal presentation,
+managed images, automatic/light/dark themes, and custom rendering with durable
+click/dismiss/retry actions. Server-acknowledged completion suppresses later entries
+on another device; concurrent authorized displays can still race.
+
+See the [native SDK guide](https://docs.galinum.com/sdk/react-native) for the
+configuration example and [push diagnostics](https://docs.galinum.com/push) for
+correlated tests. Provider acceptance, SDK receipt, and visible presentation are
+separate evidence. A successful package build does not establish device delivery.
 
 ## Native text regression
 
