@@ -161,6 +161,110 @@ async function fixture() {
 
 const pg = process.env.RUN_DB_INTEGRATION === "1" ? describe : describe.skip;
 pg("extended public communication transaction", () => {
+  it.each([
+    { channel: "email", shown: null, delivered: -1, converted: true },
+    { channel: "email", shown: null, delivered: 0, converted: true },
+    { channel: "email", shown: -1, delivered: null, converted: false },
+    { channel: "email", shown: -1, delivered: 1, converted: false },
+    { channel: "web_inapp", shown: -1, delivered: null, converted: true },
+    { channel: "web_inapp", shown: 0, delivered: null, converted: true },
+    { channel: "web_inapp", shown: null, delivered: -1, converted: false },
+    { channel: "web_inapp", shown: 1, delivered: -1, converted: false },
+    { channel: "push", shown: -1, delivered: -1, converted: false },
+  ] as const)("converts only eligible channel exposure: $channel shown=$shown delivered=$delivered", async ({ channel, shown, delivered, converted }) => {
+    const f = await fixture();
+    const campaign = await f.campaign("web_inapp");
+    await f.db.updateTable("campaigns").set({ channel }).where("id", "=", campaign.id).execute();
+    const delivery = await f.withData(async (data) => data.getOrCreateDelivery({
+      id: "del_" + randomUUID(), campaignId: campaign.id, variantId: campaign.variants[0].id,
+      userId: (await data.getUserByExternalId("A"))!.id, state: "sent", queuedAt: f.now() - 10, sentAt: f.now() - 5,
+      deliveredAt: delivered === null ? null : f.now() + delivered, shownAt: shown === null ? null : f.now() + shown,
+      openedAt: null, clickedAt: null, dismissedAt: null, bouncedAt: null, complainedAt: null, unsubscribedAt: null, convertedAt: null,
+    }));
+    const read = () => f.db.selectFrom("deliveries").select(["converted_at", "state"]).where("id", "=", delivery.id).executeTakeFirstOrThrow();
+    await f.call("identify", { userId: "B" }, true);
+    for (const event of [
+      { userId: "B", event: "complete", eventId: "other-user" },
+      { userId: "A", event: "other", eventId: "other-goal" },
+    ]) expect((await f.portable("track", event)).status).toBe(200);
+    expect((await read()).converted_at).toBeNull();
+    const event = { userId: "A", event: "complete", eventId: "conversion" };
+    expect((await f.portable("track", event)).status).toBe(200);
+    const first = await read();
+    expect(first).toEqual({ converted_at: converted ? String(f.now()) : null, state: converted ? "converted" : "sent" });
+    const counts = await f.counts();
+    f.advance(2);
+    expect((await f.portable("track", event)).status).toBe(200);
+    expect(await read()).toEqual(first);
+    expect(await f.counts()).toEqual(counts);
+    expect(await f.db.selectFrom("events").select("id").where("project_id", "=", f.projectId).execute()).toHaveLength(3);
+    if (converted) {
+      expect((await f.portable("track", { ...event, eventId: "later-conversion" })).status).toBe(200);
+      expect(await read()).toEqual(first);
+    }
+  });
+
+  it.each(["email", "web_inapp"] as const)("rejects a cross-project goal for an exposed %s campaign", async (channel) => {
+    const f = await fixture();
+    const other = await fixture();
+    const foreignGoal = (await other.call("goals", { name: "Foreign goal", targetEvent: "complete" })).goal;
+    const campaign = await f.campaign("web_inapp");
+    await f.db.updateTable("campaigns").set({ channel, goal_id: foreignGoal.id }).where("id", "=", campaign.id).execute();
+    const delivery = await f.withData(async (data) => data.getOrCreateDelivery({
+      id: "del_" + randomUUID(), campaignId: campaign.id, variantId: campaign.variants[0].id,
+      userId: (await data.getUserByExternalId("A"))!.id, state: "sent", queuedAt: f.now() - 10, sentAt: f.now() - 5,
+      deliveredAt: channel === "email" ? f.now() - 1 : null, shownAt: channel === "web_inapp" ? f.now() - 1 : null,
+      openedAt: null, clickedAt: null, dismissedAt: null, bouncedAt: null, complainedAt: null, unsubscribedAt: null, convertedAt: null,
+    }));
+    const read = () => f.db.selectFrom("deliveries").select(["converted_at", "state"]).where("id", "=", delivery.id).executeTakeFirstOrThrow();
+    expect((await f.portable("track", { userId: "A", event: "complete", eventId: "foreign-goal" })).status).toBe(200);
+    expect(await read()).toEqual({ converted_at: null, state: "sent" });
+    expect(await f.withData((data) => data.listConversionCandidatesForUpdate(delivery.userId, "complete", f.now()))).toEqual([]);
+    await f.db.updateTable("campaigns").set({ goal_id: campaign.goalId }).where("id", "=", campaign.id).execute();
+    expect((await f.portable("track", { userId: "A", event: "complete", eventId: "same-project-goal" })).status).toBe(200);
+    expect(await read()).toEqual({ converted_at: String(f.now()), state: "converted" });
+  });
+
+  it("keeps an email event unconverted after a late delivery stamp and replay until a fresh eligible event", async () => {
+    const f = await fixture();
+    const campaign = await f.campaign("web_inapp");
+    await f.db.updateTable("campaigns").set({ channel: "email" }).where("id", "=", campaign.id).execute();
+    const delivery = await f.withData(async (data) => data.getOrCreateDelivery({
+      id: "del_" + randomUUID(), campaignId: campaign.id, variantId: campaign.variants[0].id,
+      userId: (await data.getUserByExternalId("A"))!.id, state: "sent", queuedAt: f.now() - 10, sentAt: f.now() - 5,
+      deliveredAt: null, shownAt: null, openedAt: null, clickedAt: null, dismissedAt: null,
+      bouncedAt: null, complainedAt: null, unsubscribedAt: null, convertedAt: null,
+    }));
+    const read = () => f.db.selectFrom("deliveries").select("converted_at").where("id", "=", delivery.id).executeTakeFirstOrThrow();
+    const event = { userId: "A", event: "complete", eventId: "before-stamp" };
+    expect((await f.portable("track", event)).status).toBe(200);
+    expect((await read()).converted_at).toBeNull();
+    await f.withData(async (data) => { await data.saveDelivery({ ...delivery, state: "delivered", deliveredAt: f.now() - 1 }); });
+    expect((await read()).converted_at).toBeNull();
+    f.advance(1);
+    expect((await f.portable("track", event)).status).toBe(200);
+    expect((await read()).converted_at).toBeNull();
+    expect((await f.portable("track", { ...event, eventId: "after-stamp" })).status).toBe(200);
+    expect((await read()).converted_at).toBe(String(f.now()));
+  });
+
+  it("requires push engagement before a fresh goal event; a receipt and event replay cannot convert", async () => {
+    const f = await fixture(); const device = await f.install("conversion-device"); await f.configure();
+    const campaign = await f.campaign("push"); const [targetId] = await f.push.plan(campaign.id);
+    await f.push.dispatch(targetId);
+    const reference = { targetId, attemptId: f.sent[0].attemptId };
+    const event = { userId: "A", event: "complete", eventId: "after-receipt" };
+    await f.push.observe(device.id, f.capability, device.bindingGeneration, [{ kind: "receipt", id: "receipt", sequence: 1, ...reference }]);
+    expect((await f.portable("track", event)).status).toBe(200);
+    expect((await f.push.inspect(campaign.id)).users).toMatchObject({ engaged: 0, converted: 0 });
+    await f.push.observe(device.id, f.capability, device.bindingGeneration, [{ kind: "tap", id: "tap", sequence: 2, ...reference }]);
+    expect((await f.portable("track", event)).status).toBe(200);
+    expect((await f.push.inspect(campaign.id)).users).toMatchObject({ engaged: 1, converted: 0 });
+    expect((await f.portable("track", { ...event, eventId: "after-tap" })).status).toBe(200);
+    expect((await f.push.inspect(campaign.id)).users).toMatchObject({ engaged: 1, converted: 1 });
+    expect((await f.push.inspect(campaign.id)).conversions).toHaveLength(1);
+  });
+
   it("invokes through hashed authorization while retaining the actual event/effect transaction", async () => {
     const f = await fixture(); f.fail("event");
     const input = { userId: "A", event: "complete", eventId: "portable-event", props: { retained: true } };

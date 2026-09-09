@@ -1,3 +1,4 @@
+import { CHANNELS } from "@galinum/core";
 import type {
   AgentRuns,
   AudienceVersions,
@@ -297,10 +298,14 @@ export class PostgresCommunicationData implements CommunicationData {
       .selectAll("deliveries")
       .select("goals.target_event")
       .where("campaigns.project_id", "=", this.projectId)
+      .where("goals.project_id", "=", this.projectId)
       .where("deliveries.end_user_id", "=", userId)
       .where("goals.target_event", "=", eventName)
-      .where("deliveries.shown_at", "is not", null)
-      .where("deliveries.shown_at", "<=", occurredAt)
+      .where((eb) => eb.or(Object.entries(CHANNELS).flatMap(([channel, metadata]) =>
+        "exposureColumn" in metadata ? [eb.and([
+          eb("campaigns.channel", "=", channel),
+          eb(`deliveries.${metadata.exposureColumn}`, "<=", occurredAt),
+        ])] : [])))
       .where("deliveries.converted_at", "is", null)
       .forUpdate("deliveries")
       .execute();

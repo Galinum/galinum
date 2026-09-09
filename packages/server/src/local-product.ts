@@ -1,6 +1,6 @@
 import { destinationUrl } from "@galinum/contracts/entry";
 import {
-  createInAppService, deliveredContent,
+  CHANNELS, createInAppService, deliveredContent,
   evaluateExpression,
   legacyTargetingToExpression,
   LIMITS, referencedVocabulary, validatePages,
@@ -2248,8 +2248,13 @@ export class MemoryProductStore implements ProductStore {
   async listConversionCandidatesForUpdate(userId: string, eventName: string, occurredAt: number) {
     const candidates: ProductDelivery[] = [];
     for (const delivery of this.deliveries.values()) {
-      if (delivery.userId !== userId || delivery.shownAt === null || delivery.shownAt > occurredAt || delivery.convertedAt !== null) continue;
+      if (delivery.userId !== userId || delivery.convertedAt !== null) continue;
       const campaign = this.campaigns.get(delivery.campaignId);
+      if (!campaign) continue;
+      const metadata = CHANNELS[campaign.channel];
+      if (!("exposureColumn" in metadata)) continue;
+      const exposureAt = { shown_at: delivery.shownAt, delivered_at: delivery.deliveredAt }[metadata.exposureColumn];
+      if (exposureAt === null || exposureAt > occurredAt) continue;
       const goal = campaign?.goalId ? this.goals.get(campaign.goalId) : null;
       if (goal?.targetEvent !== eventName) continue;
       candidates.push(structuredClone(delivery));

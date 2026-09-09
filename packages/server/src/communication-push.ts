@@ -82,7 +82,6 @@ export async function recordServerEvent<Data extends CommunicationData>(session:
   await effects.recordActivity?.(session, { kind: "event", userId: user.id, eventId: id, eventRowId: productEventId, occurredAt: now });
   const candidates = await session.listConversionCandidatesForUpdate(user.id, name, now);
   for (const delivery of candidates) {
-    if ((await session.getCampaign(delivery.campaignId))?.channel === "push") continue;
     delivery.state = "converted"; delivery.convertedAt = now; await session.saveDelivery(delivery);
   }
   return { kind: "inserted" as const, eventRowId: productEventId, occurredAt: now };

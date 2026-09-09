@@ -93,6 +93,18 @@ describe("bounded memory store queries", () => {
     expect(candidates).toHaveLength(12);
     expect(candidates.every((candidate) => candidate.shownAt === 100 && candidate.convertedAt === null)).toBe(true);
 
+    for (const [index, channel, shownAt, deliveredAt, eligible] of [
+      [203, "web_inapp", null, 100, false],
+      [204, "web_inapp", 101, 100, false],
+      [205, "push", 100, 100, false],
+    ] as const) {
+      const source = campaign(`campaign-${index}`, "matching");
+      await store.createCampaign({ ...source, channel });
+      await store.getOrCreateDelivery({ ...delivery(index), shownAt, deliveredAt, convertedAt: null });
+      const matches = await store.listConversionCandidatesForUpdate("user", "converted", 100);
+      expect(matches.some((candidate) => candidate.campaignId === source.id)).toBe(eligible);
+    }
+
     for (const [index, queuedAt] of [[100, 999], [101, 1_000], [102, 1_999], [103, 2_000]] as const) {
       await store.createCampaign(campaign(`campaign-${index}`, "matching"));
       await store.getOrCreateDelivery({ ...delivery(index), state: "frequency_capped", queuedAt, shownAt: null, convertedAt: null });
