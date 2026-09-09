@@ -4,6 +4,7 @@ import type { ManagementReader } from "@galinum/core/contract";
 export type DashboardLink = ComponentType<{
   href: string;
   className?: string;
+  "aria-current"?: "page";
   children: ReactNode;
 }>;
 

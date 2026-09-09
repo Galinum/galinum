@@ -158,6 +158,10 @@
       "types": "./dist/campaigns.d.ts",
       "import": "./dist/campaigns.js"
     },
+    "./push-supervision": {
+      "types": "./dist/push-supervision.d.ts",
+      "import": "./dist/push-supervision.js"
+    },
     "./campaign-detail": {
       "types": "./dist/campaign-detail.d.ts",
       "import": "./dist/campaign-detail.js"

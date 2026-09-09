@@ -80,3 +80,43 @@ The self-host CLI uses this public pass for automatic scheduling. Its existing
 page-limited worker defaults remain in place. Hosts can choose smaller budgets
 and invoke further passes; retry eligibility, expiration, and recovery remain
 public product behavior.
+
+## Trusted-session inspection reads
+
+A server host can authorize push inspection after authenticating its own operator
+session. `authorizeManagementRead` accepts only a resolved GET
+`inspectPushCampaign`. Its callback returns `{ projectId, operationId:
+"inspectPushCampaign" }`, a denial `Response`, or `null` for absent/revoked access.
+It does not accept credential proof or authenticate an external header.
+
+```ts
+import {
+  resolveOperation,
+  authorizeManagementRead,
+  invokeCommunication,
+} from "@galinum/server/communications";
+
+const operation = resolveOperation(request);
+if (operation instanceof Response) return operation;
+const grant = await authorizeManagementRead(operation, request, async () => {
+  const session = await authenticateCurrentSession();
+  if (!session || !await canReadProject(session, selectedProjectId)) return null;
+  const limited = await enforceInspectionReadRate(session, selectedProjectId);
+  if (limited) return limited;
+  return { projectId: selectedProjectId, operationId: "inspectPushCampaign" };
+});
+if (grant instanceof Response) return grant;
+return invokeCommunication(operation, request, grant, servicesFor(grant.projectId));
+```
+
+The session, membership, and rate-policy functions above are host adapters. Verify
+them within the current request and match the selected project to the campaign
+snapshot. Do not cache the executor or grant across requests. The grant uses the
+same opaque, one-use registry and request/operation/project checks as credential
+authorization. Mutated requests, clones, replay, and mismatched service projects
+fail. Session authentication failure returns no read grant.
+
+This in-process API does not change external header authentication or hosted-agent
+permissions. Never expose grants or the session executor through browser props,
+URLs, headers, or a management wire endpoint. Compose it with the narrow
+[dashboard inspection reader](/self-host/dashboard).

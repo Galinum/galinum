@@ -1,4 +1,5 @@
-import { validateExpression, type CampaignSourceChange, type CampaignSourceChanges } from "@galinum/core";
+import { installationSchemas, validateSchema, type PushContent, type PushSettings, type PushInspection } from "@galinum/contracts";
+import { CAMPAIGN_CHANNELS, validateExpression, type CampaignSourceChange, type CampaignSourceChanges } from "@galinum/core";
 import type {
   ActivityItem,
   ActivityListInput,
@@ -25,6 +26,8 @@ import type {
   MetricsRange,
   MetricTotals,
   ManagementReader,
+  PushSupervisionReader,
+  CampaignVariant,
   ManagementClient,
   PageResult,
   ProjectActivityResponse,
@@ -322,7 +325,7 @@ function page<T>(value: unknown, key: string, parse: (value: unknown) => T | nul
 
 const campaignStatuses = new Set(["draft", "running", "paused", "ended"]);
 const effectiveStatuses = new Set([...campaignStatuses, "scheduled", "expired"]);
-const campaignChannels = new Set(["web_inapp", "email"]);
+const campaignChannels = new Set<string>(CAMPAIGN_CHANNELS);
 const campaignDeliveryStates = new Set(CAMPAIGN_DELIVERY_STATES);
 
 function campaignStats(value: unknown): CampaignStats | null {
@@ -367,12 +370,17 @@ function campaignSummary(value: unknown): CampaignSummary | null {
     (item.deliverUntil !== null && !integer(item.deliverUntil)) ||
     !stats
   ) return null;
+  const channel = item.channel === "push"
+    ? (validateSchema(installationSchemas.PushSettings, item.push, installationSchemas)
+      ? { channel: "push" as const, push: item.push as PushSettings } : null)
+    : { channel: item.channel as "web_inapp" | "email" };
+  if (!channel) return null;
   return {
+    ...channel,
     id: item.id,
     name: item.name,
     status: item.status as CampaignSummary["status"],
     effectiveStatus: item.effectiveStatus as CampaignSummary["effectiveStatus"],
-    channel: item.channel as CampaignSummary["channel"],
     goalId: item.goalId,
     createdBy: item.createdBy,
     createdAt: item.createdAt,
@@ -484,6 +492,35 @@ function campaignSources(value: unknown): CampaignSourceChanges | null {
   return { revision: item.revision, changes };
 }
 
+function campaignVariants<Content>(
+  values: unknown[],
+  parseContent: (value: unknown) => Content | null,
+): CampaignVariant<Content>[] | null {
+  const variants: CampaignVariant<Content>[] = [];
+  for (const value of values) {
+    const variant = record(value);
+    const stats = campaignStats(variant?.stats);
+    const content = parseContent(variant?.content);
+    if (!variant ||
+      typeof variant.id !== "string" ||
+      typeof variant.name !== "string" ||
+      typeof variant.weight !== "number" ||
+      !Number.isFinite(variant.weight) ||
+      typeof variant.isControl !== "boolean" ||
+      content === null || !stats
+    ) return null;
+    variants.push({
+      id: variant.id,
+      name: variant.name,
+      weight: variant.weight,
+      isControl: variant.isControl,
+      content,
+      stats,
+    });
+  }
+  return variants;
+}
+
 function campaignDetail(value: unknown): CampaignDetail | null {
   const item = record(value);
   const summary = campaignSummary(value);
@@ -493,38 +530,14 @@ function campaignDetail(value: unknown): CampaignDetail | null {
   const targeting = item.targeting === null ? null : record(item.targeting);
   if (targeting === null && item.targeting !== null) return null;
   if (item.pages !== null && (!Array.isArray(item.pages) || item.pages.some((entry) => typeof entry !== "string"))) return null;
-  const variants = item.variants.map((value) => {
-    const variant = record(value);
-    const stats = campaignStats(variant?.stats);
-    const content = messageContent(variant?.content, summary.channel);
-    return variant &&
-      typeof variant.id === "string" &&
-      typeof variant.name === "string" &&
-      typeof variant.weight === "number" &&
-      Number.isFinite(variant.weight) &&
-      typeof variant.isControl === "boolean" &&
-      content &&
-      stats
-      ? {
-          id: variant.id,
-          name: variant.name,
-          weight: variant.weight,
-          isControl: variant.isControl,
-          content,
-          stats,
-        }
-      : null;
-  });
-  return variants.some((entry) => entry === null)
-    ? null
-    : {
-        ...summary,
-        sourceChanges,
-        audience,
-        targeting,
-        pages: item.pages as string[] | null,
-        variants: variants as CampaignDetail["variants"],
-      };
+  const common = { sourceChanges, audience, targeting, pages: item.pages as string[] | null };
+  if (summary.channel === "push") {
+    const variants = campaignVariants(item.variants, (value) =>
+      validateSchema(installationSchemas.PushContent, value, installationSchemas) ? value as PushContent : null);
+    return variants ? { ...summary, ...common, variants } : null;
+  }
+  const variants = campaignVariants(item.variants, (value) => messageContent(value, summary.channel));
+  return variants ? { ...summary, ...common, variants } : null;
 }
 
 function campaignDetailResult(value: unknown): CampaignDetailResult | null {
@@ -726,6 +739,22 @@ export function createManagementClient(
           body: JSON.stringify({ action }),
         },
       );
+    },
+  };
+}
+
+export function createPushSupervisionClient(
+  execute: ManagementExecutor,
+  origin = "http://galinum.local",
+): PushSupervisionReader {
+  return {
+    async inspectPushCampaign(id, input) {
+      const { page, perPage } = input;
+      if (!Number.isSafeInteger(page) || page < 1 || !Number.isSafeInteger(perPage) || perPage < 1 || perPage > 100 || !Number.isSafeInteger((page - 1) * perPage)) {
+        throw new RangeError("Push inspection requires positive safe pagination and perPage at most 100");
+      }
+      return call(execute, origin, "/api/v1/campaigns/" + encodeURIComponent(id) + "/push" + query({ page, perPage }),
+        (value) => validateSchema(installationSchemas.PushInspection, value, installationSchemas) ? value as PushInspection : null);
     },
   };
 }

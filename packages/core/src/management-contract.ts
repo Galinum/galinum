@@ -1,3 +1,6 @@
+import type { PushContent, PushSettings, PushInspection } from "@galinum/contracts";
+export type { PushContent, PushSettings, PushInspection } from "@galinum/contracts";
+export type { CampaignChannel } from "./channels.js";
 import type { AudienceExpression } from "./audience/expression.js";
 
 export type CampaignSourceChange = { sourceId: string } & (
@@ -160,7 +163,6 @@ export type EventListInput = PageInput & {
 
 export type CampaignStatus = "draft" | "running" | "paused" | "ended";
 export type EffectiveCampaignStatus = CampaignStatus | "scheduled" | "expired";
-export type CampaignChannel = "web_inapp" | "email";
 
 export type CampaignStats = {
   sent: number;
@@ -176,12 +178,11 @@ export type CampaignStats = {
   converted: number;
 };
 
-export type CampaignSummary = {
+type CampaignSummaryCommon = {
   id: string;
   name: string;
   status: CampaignStatus;
   effectiveStatus: EffectiveCampaignStatus;
-  channel: CampaignChannel;
   goalId: string | null;
   createdBy: string;
   createdAt: number;
@@ -191,6 +192,11 @@ export type CampaignSummary = {
   deliverUntil: number | null;
   stats: CampaignStats;
 };
+
+export type CampaignSummary = CampaignSummaryCommon & (
+  | { channel: "web_inapp" | "email"; push?: never }
+  | { channel: "push"; push: PushSettings }
+);
 
 export type CampaignListInput = PageInput & {
   q?: string;
@@ -242,22 +248,26 @@ export type CampaignAudience =
       segmentVersion: number;
     } & Omit<CampaignAudienceDefinition, "audienceVersionId">);
 
-export type CampaignVariant = {
+export type CampaignVariant<Content = CampaignMessageContent> = {
   id: string;
   name: string;
   weight: number;
   isControl: boolean;
-  content: CampaignMessageContent;
+  content: Content;
   stats: CampaignStats;
 };
 
-export type CampaignDetail = CampaignSummary & {
+type CampaignDetailCommon = CampaignSummaryCommon & {
   sourceChanges: CampaignSourceChanges;
   audience: CampaignAudience;
   targeting: Record<string, unknown> | null;
   pages: string[] | null;
-  variants: CampaignVariant[];
 };
+
+export type CampaignDetail = CampaignDetailCommon & (
+  | { channel: "web_inapp" | "email"; push?: never; variants: CampaignVariant[] }
+  | { channel: "push"; push: PushSettings; variants: CampaignVariant<PushContent>[] }
+);
 
 export type CampaignDetailResult = {
   campaign: CampaignDetail;
@@ -324,6 +334,11 @@ export type DashboardSession = {
   viewer: DashboardViewer;
   management: ManagementReader;
 };
+
+export type PushInspectionInput = { page: number; perPage: number };
+export interface PushSupervisionReader {
+  inspectPushCampaign(id: string, input: PushInspectionInput): Promise<PushInspection>;
+}
 
 export interface ManagementReader {
   getOverview(): Promise<ProjectOverviewResponse>;

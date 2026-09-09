@@ -6,7 +6,10 @@ import {
   type CampaignDetail,
   type CampaignMessageContent,
   type CampaignVariant,
+  type PushInspection,
+  type PushSupervisionReader,
 } from "@galinum/core/contract";
+import { PushContentView, PushSettingsView, PushSummary, PushSupervision, PushInspectionUnavailable, type PushSupervisionQuery } from "./push-supervision.js";
 import { DeliveryStateBadge } from "./components/delivery-state-badge.js";
 import type { DashboardLink, DashboardManagement } from "./dashboard-types.js";
 import { CampaignStatusBadge, deliveryWindowLabel } from "./campaigns.js";
@@ -24,7 +27,7 @@ import {
 } from "./ui/table.js";
 
 export type CampaignMessageRenderer = (input: {
-  campaign: CampaignDetail;
+  campaign: Exclude<CampaignDetail, { channel: "push" }>;
   variant: CampaignVariant;
 }) => ReactNode | Promise<ReactNode>;
 
@@ -33,6 +36,9 @@ export type CampaignDetailManagement = DashboardManagement<
 >;
 export type CampaignDetailPageProps = {
   management: CampaignDetailManagement;
+  pushSupervision: PushSupervisionReader;
+  pushQuery: PushSupervisionQuery;
+  pushInspectionHref: (query: PushSupervisionQuery) => string;
   campaignId: string;
   projectName: string;
   query: { state: CampaignDeliveryState | ""; page: number };
@@ -46,6 +52,9 @@ export type CampaignDetailPageProps = {
 
 export async function CampaignDetailPage({
   management,
+  pushSupervision,
+  pushQuery,
+  pushInspectionHref,
   campaignId,
   projectName,
   query,
@@ -61,14 +70,26 @@ export async function CampaignDetailPage({
   const detail = await management.getCampaign(campaignId);
   if (!detail) return null;
   const { campaign, evaluatedAt } = detail;
-  const feed = await management.listCampaignDeliveries(campaign.id, {
+  let inspection: PushInspection | null = null;
+  let inspectionAccessDenied = false;
+  if (campaign.channel === "push") {
+    try {
+      inspection = await pushSupervision.inspectPushCampaign(campaign.id, { page: pushQuery.page, perPage: 25 });
+    } catch (error) {
+      inspectionAccessDenied = typeof error === "object" && error !== null && "status" in error && (error.status === 401 || error.status === 403);
+    }
+  }
+  const feed = campaign.channel === "push" ? null : await management.listCampaignDeliveries(campaign.id, {
     state: query.state || undefined,
     page: Math.min(Math.max(1, query.page), 10_000),
     perPage: 25,
   });
-  if (feed.pageCount > 0 && query.page > feed.pageCount) {
+  if (feed && feed.pageCount > 0 && query.page > feed.pageCount) {
     return CampaignDetailPage({
       management,
+      pushSupervision,
+      pushQuery,
+      pushInspectionHref,
       campaignId,
       projectName,
       query: { ...query, page: feed.pageCount },
@@ -92,7 +113,9 @@ export async function CampaignDetailPage({
     campaign.deliverUntil,
   );
   const windowElapsed = campaign.deliverUntil !== null && campaign.deliverUntil <= evaluatedAt;
-  const previews = await Promise.all(campaign.variants.map((variant) => renderMessage({ campaign, variant })));
+  const previews = campaign.channel === "push"
+    ? campaign.variants.map((variant) => <PushContentView key={variant.id} content={variant.content} />)
+    : await Promise.all(campaign.variants.map((variant) => renderMessage({ campaign, variant })));
   const context = await renderContext?.({ campaign });
 
   return (
@@ -111,7 +134,9 @@ export async function CampaignDetailPage({
       />
       {context}
 
-      {email ? (
+      {campaign.channel === "push" ? (
+        inspection ? <PushSummary inspection={inspection} /> : <PushInspectionUnavailable accessDenied={inspectionAccessDenied} href={pushInspectionHref(pushQuery)} Link={Link} />
+      ) : email ? (
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-5 xl:grid-cols-9">
           <StatTile label="Sent" value={campaign.stats.sent} />
           <StatTile label="Capped" value={campaign.stats.frequencyCapped} />
@@ -134,10 +159,11 @@ export async function CampaignDetailPage({
 
       <section className="flex flex-col gap-3">
         <h2 className="text-lg font-semibold">{campaign.variants.length > 1 ? "Variants" : "Message"}</h2>
+        {campaign.channel === "push" && <p className="text-sm text-muted-foreground">Push totals are campaign-wide; variant totals are unavailable.</p>}
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           {campaign.variants.map((variant, index) => (
             <Card key={variant.id}>
-              {campaign.variants.length > 1 && (
+              {(campaign.variants.length > 1 || campaign.channel === "push") && (
                 <CardHeader className="flex items-baseline justify-between">
                   <h3 className="text-sm font-semibold">
                     Variant {variant.name}
@@ -148,7 +174,7 @@ export async function CampaignDetailPage({
               )}
               <CardContent className="flex flex-col gap-4">
                 {previews[index]}
-                <dl className="flex flex-wrap gap-5 text-sm text-muted-foreground">
+                {campaign.channel !== "push" && <dl className="flex flex-wrap gap-5 text-sm text-muted-foreground">
                   {(email
                     ? ["sent", "frequencyCapped", "delivered", "opened", "clicked", "bounced", "complained", "unsubscribed", "converted"]
                     : ["shown", "clicked", "dismissed", "converted"]
@@ -159,7 +185,7 @@ export async function CampaignDetailPage({
                       value={variant.stats[field as keyof typeof variant.stats]}
                     />
                   ))}
-                </dl>
+                </dl>}
               </CardContent>
             </Card>
           ))}
@@ -168,6 +194,7 @@ export async function CampaignDetailPage({
 
       <section className="flex flex-col gap-3">
         <h2 className="text-lg font-semibold">Audience</h2>
+        {campaign.channel === "push" && <p className="text-sm text-muted-foreground">Audience evaluated for push delivery. Device selection: {campaign.push.selection.kind.replaceAll("_", " ")}.</p>}
         {campaign.audience.kind === "segment" ? (
           <div className="flex flex-col gap-2">
             <p className="text-sm">
@@ -188,12 +215,14 @@ export async function CampaignDetailPage({
           </p>
         ) : (
           <p className="text-sm text-muted-foreground">
-            All users. Each user {email ? "receives" : "sees"} this message once.
+            {campaign.channel === "push" ? "All users." : <>All users. Each user {email ? "receives" : "sees"} this message once.</>}
           </p>
         )}
       </section>
 
-      {!email && (
+      {campaign.channel === "push" && <PushSettingsView settings={campaign.push} />}
+
+      {campaign.channel === "web_inapp" && (
         <section className="flex flex-col gap-3">
           <h2 className="text-lg font-semibold">Pages</h2>
           {campaign.pages === null ? (
@@ -212,7 +241,9 @@ export async function CampaignDetailPage({
         </section>
       )}
 
-      <section className="flex flex-col gap-3">
+      {inspection && <PushSupervision inspection={inspection} query={pushQuery} href={pushInspectionHref} Link={Link} />}
+
+      {feed && <section className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-lg font-semibold">Deliveries</h2>
           {(feed.total > 0 || query.state.length > 0) && deliveryControls}
@@ -258,7 +289,7 @@ export async function CampaignDetailPage({
             {renderPagination?.(feed)}
           </>
         )}
-      </section>
+      </section>}
     </div>
   );
 }
@@ -271,7 +302,7 @@ const dateFormat = new Intl.DateTimeFormat("en-US", {
   day: "numeric",
 });
 
-function StoredMessagePreview({ content, channel }: { content: CampaignMessageContent; channel: CampaignDetail["channel"] }) {
+function StoredMessagePreview({ content, channel }: { content: CampaignMessageContent; channel: "web_inapp" | "email" }) {
   if (channel === "email") {
     return (
       <div className="flex flex-col gap-3 rounded-lg border bg-muted/40 p-4 text-sm">

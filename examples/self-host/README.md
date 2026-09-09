@@ -107,3 +107,11 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f packages/server/migrations/activation
 The upgrade preserves existing campaigns and deliveries. It does not approve campaigns, attach source changes, or launch messages. A fresh database initialized with the current `schema.sql` already includes this upgrade. Do not apply it twice.
 
 The server checks the recorded schema version before starting. Use `pnpm verify:activation-upgrade` to rehearse the upgrade against disposable loopback databases.
+
+## Campaign supervision
+
+Compose the public campaign page or dashboard mount with `createManagementClient`
+and the required `createPushSupervisionClient`. Both use the host's server-only,
+project-authorized executor. The host passes `pushQuery` and
+`pushInspectionHref` to preserve navigation state. See the complete
+[dashboard composition example](../../apps/docs/self-host/dashboard.mdx).

@@ -10,7 +10,10 @@ export interface CredentialProof {
 export interface ProjectPrincipal { projectId: string; credentials: readonly CredentialProof[]; identifyTraits?: Readonly<Record<string, unknown>> }
 export type ProjectAuthenticator = (request: Request, operation: ResolvedOperation) => Promise<ProjectPrincipal | Response | null>;
 export interface AuthorizedOperation { readonly projectId: string }
-const grants = new WeakMap<AuthorizedOperation, { operation: ResolvedOperation; request: Request; principal: ProjectPrincipal }>();
+export interface ManagementReadPrincipal { projectId: string; operationId: "inspectPushCampaign" }
+export type ManagementReadAuthenticator = (request: Request, operation: ResolvedOperation) => Promise<ManagementReadPrincipal | Response | null>;
+type GrantAuthority = { kind: "credential"; principal: ProjectPrincipal } | { kind: "sessionRead"; principal: ManagementReadPrincipal };
+const grants = new WeakMap<AuthorizedOperation, { operation: ResolvedOperation; request: Request; authority: GrantAuthority }>();
 const failure = (request: Request, status: number, error: string) => finishOperationResponse(request, Response.json({ error }, { status }));
 function principalCopy(value: ProjectPrincipal): ProjectPrincipal | null {
   if (!value || typeof value.projectId !== "string" || !value.projectId || !Array.isArray(value.credentials)) return null;
@@ -40,7 +43,22 @@ export async function authorizeOperation(operation: ResolvedOperation, request: 
     if (!principal) return failure(request, 401, "Invalid principal");
     if (!permits(operation, request, principal)) return permits(operation, request, principal, false) ? failure(request, 401, "Unauthorized") : failure(request, 403, "Operation is not authorized");
     const grant: AuthorizedOperation = Object.freeze({ projectId: principal.projectId });
-    grants.set(grant, { operation, request, principal });
+    grants.set(grant, { operation, request, authority: { kind: "credential", principal } });
+    return grant;
+  } catch { return failure(request, 500, "Authentication failed"); }
+}
+export async function authorizeManagementRead(operation: ResolvedOperation, request: Request, authenticateRead: ManagementReadAuthenticator): Promise<AuthorizedOperation | Response> {
+  if (!validOperation(operation, request)) return failure(request, 400, "Operation binding mismatch");
+  if (operation.method !== "GET" || operation.operationId !== "inspectPushCampaign") return failure(request, 403, "Operation is not authorized for session read");
+  try {
+    const result = await authenticateRead(request, operation);
+    if (!validOperation(operation, request)) return failure(request, 400, "Operation binding mismatch");
+    if (result instanceof Response) return finishOperationResponse(request, result);
+    if (!result) return failure(request, 401, "Unauthorized");
+    if (typeof result.projectId !== "string" || !result.projectId || result.operationId !== "inspectPushCampaign") return failure(request, 403, "Invalid session read authority");
+    const principal: ManagementReadPrincipal = Object.freeze({ projectId: result.projectId, operationId: result.operationId });
+    const grant: AuthorizedOperation = Object.freeze({ projectId: principal.projectId });
+    grants.set(grant, { operation, request, authority: { kind: "sessionRead", principal } });
     return grant;
   } catch { return failure(request, 500, "Authentication failed"); }
 }
@@ -48,11 +66,11 @@ export async function invokeOperation(operation: ResolvedOperation, request: Req
   const authorized = grants.get(grant); grants.delete(grant);
   if (!authorized) return failure(request, 401, "Invalid or consumed authorization");
   if (!validOperation(operation, request) || authorized.operation !== operation || authorized.request !== request) return failure(request, 400, "Operation binding mismatch");
-  if (authorized.principal.projectId !== service.projectId) return failure(request, 403, "Project binding mismatch");
+  if (authorized.authority.principal.projectId !== service.projectId) return failure(request, 403, "Project binding mismatch");
   if (request.bodyUsed) return failure(request, 400, "Request body was already consumed");
   const handlers = typeof service.handlers === "function" ? service.handlers() : service.handlers;
   const handler = handlers[operation.operationId];
-  return finishOperationResponse(request, handler ? await handler(request, { params: { ...operation.params }, ...(operation.operationId === "identifyUser" && authorized.principal.identifyTraits ? { identifyTraits: authorized.principal.identifyTraits } : {}) }) : missingOperation(operation));
+  return finishOperationResponse(request, handler ? await handler(request, { params: { ...operation.params }, ...(operation.operationId === "identifyUser" && authorized.authority.kind === "credential" && authorized.authority.principal.identifyTraits ? { identifyTraits: authorized.authority.principal.identifyTraits } : {}) }) : missingOperation(operation));
 }
 export function keyAuthenticator(options: { projectId: string; secretKey: string; publishableKey: string }): ProjectAuthenticator {
   if (![options.projectId, options.secretKey, options.publishableKey].every((value) => typeof value === "string" && value.length > 0)) throw new Error("Real project and key configuration is required");

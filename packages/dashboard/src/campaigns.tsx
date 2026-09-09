@@ -132,11 +132,11 @@ export async function CampaignsPage({
                       <CampaignStatusBadge status={campaign.effectiveStatus} />
                     </span>
                     <span className="text-xs text-muted-foreground">
-                      {campaign.channel === "email" ? "Email" : "Web in-app"} · Created {dateFormat.format(campaign.createdAt)}
+                      {({ email: "Email", web_inapp: "Web in-app", push: "Push" })[campaign.channel]} · Created {dateFormat.format(campaign.createdAt)}
                       {window ? ` · ${window}` : ""}
                     </span>
                   </div>
-                  <dl className="flex items-center gap-6 text-sm">
+                  {campaign.channel === "push" ? <span className="text-sm text-muted-foreground">View push supervision</span> : <dl className="flex items-center gap-6 text-sm">
                     <StatCell
                       label={campaign.channel === "email" ? "Sent" : "Impressions"}
                       value={campaign.channel === "email" ? campaign.stats.sent : campaign.stats.shown}
@@ -146,7 +146,7 @@ export async function CampaignsPage({
                       label={campaign.channel === "email" ? "Delivered" : "Conversions"}
                       value={campaign.channel === "email" ? campaign.stats.delivered : campaign.stats.converted}
                     />
-                  </dl>
+                  </dl>}
                 </Link>
               );
             })}

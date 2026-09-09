@@ -81,6 +81,9 @@ describe("CampaignDetailPage", () => {
     const Link = ({ href, children, ...props }: React.ComponentProps<"a">) => <a href={href} {...props}>{children}</a>;
 
     const html = renderToStaticMarkup(await CampaignDetailPage({
+      pushSupervision: { inspectPushCampaign: vi.fn() },
+      pushQuery: { kind: "outcomes", page: 1 },
+      pushInspectionHref: () => "/campaigns/campaign",
       management,
       campaignId: "campaign",
       projectName: "Project",
@@ -111,6 +114,9 @@ describe("CampaignDetailPage", () => {
     const renderContext = vi.fn(async ({ campaign }) => <aside>Review {campaign.name}</aside>);
     const renderMessage = vi.fn(({ campaign }) => <span>Preview {campaign.name}</span>);
     const html = renderToStaticMarkup(await CampaignDetailPage({
+      pushSupervision: { inspectPushCampaign: vi.fn() },
+      pushQuery: { kind: "outcomes", page: 1 },
+      pushInspectionHref: () => "/campaigns/campaign",
       management: {
         getCampaign,
         listCampaignDeliveries: vi.fn(async () => ({ values: [], total: 0, page: 1, pageCount: 1 })),
@@ -143,6 +149,9 @@ describe("CampaignDetailPage", () => {
     const Link = ({ href, children, ...props }: React.ComponentProps<"a">) => <a href={href} {...props}>{children}</a>;
 
     await expect(CampaignDetailPage({
+      pushSupervision: { inspectPushCampaign: vi.fn() },
+      pushQuery: { kind: "outcomes", page: 1 },
+      pushInspectionHref: () => "/campaigns/campaign",
       management,
       campaignId: "missing",
       projectName: "Project",

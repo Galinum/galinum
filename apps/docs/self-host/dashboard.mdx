@@ -1,0 +1,129 @@
+---
+title: "Campaign supervision dashboard"
+description: "Compose public campaign pages with validated management and push inspection readers."
+---
+
+The dashboard supervises campaigns created through the management API. Campaign
+pages require both a management reader and a narrow push inspection reader.
+`ManagementReader` and `DashboardSession` retain their existing operations.
+
+## Server composition
+
+Use the same authorized project for the page, management client, and push reader.
+Create these clients inside the authenticated host request. Keep the executor and
+management key on the server. Browser navigation opens the host page.
+
+This single-project example assumes the host has authenticated its operator before
+calling `campaignPage`. Supply the configured self-host origin and management key
+from the host's server configuration.
+
+```tsx
+import type { ComponentProps } from "react";
+import {
+  createManagementClient,
+  createPushSupervisionClient,
+  type ManagementExecutor,
+} from "@galinum/server/management-client";
+import { CampaignDetailPage } from "@galinum/dashboard/campaign-detail";
+import { createDashboard } from "@galinum/dashboard/mount";
+import { parsePushSupervisionQuery } from "@galinum/dashboard/push-supervision";
+
+const Link = (props: ComponentProps<"a">) => <a {...props} />;
+
+export async function campaignPage(input: {
+  url: URL;
+  campaignId: string;
+  origin: string;
+  managementKey: string;
+  project: { id: string; name: string };
+  viewer: { name: string };
+}) {
+  const execute: ManagementExecutor = request => {
+    const headers = new Headers(request.headers);
+    headers.set("authorization", `Bearer ${input.managementKey}`);
+    return fetch(new Request(request, { headers, cache: "no-store" }));
+  };
+  const management = createManagementClient(execute, input.origin);
+  const pushSupervision = createPushSupervisionClient(execute, input.origin);
+  const pushQuery = parsePushSupervisionQuery({
+    pushKind: input.url.searchParams.get("pushKind") ?? undefined,
+    pushPage: input.url.searchParams.get("pushPage") ?? undefined,
+  });
+  const campaignInput = {
+    campaignId: input.campaignId,
+    query: { state: "" as const, page: 1 },
+    pushSupervision,
+    pushQuery,
+    pushInspectionHref: (next: typeof pushQuery) => {
+      const url = new URL(input.url);
+      url.searchParams.set("pushKind", next.kind);
+      url.searchParams.set("pushPage", String(next.page));
+      return url.pathname + url.search;
+    },
+  };
+  return CampaignDetailPage({
+    ...campaignInput,
+    management,
+    projectName: input.project.name,
+    Link,
+  });
+}
+```
+
+Alternatively, replace the final return with the reusable mount. The same three
+push properties remain required:
+
+```tsx
+const dashboard = createDashboard({
+  open: async () => ({ project: input.project, viewer: input.viewer, management }),
+  Link,
+  docsUrl: "https://docs.galinum.com",
+});
+return dashboard.pages.campaign(campaignInput);
+```
+
+Load `@galinum/dashboard/tokens.css` and include the dashboard package in the
+host's Tailwind source scan. Preserve the host's existing safety actions through
+`renderActions` and its approval/review context through `renderContext`.
+`renderMessage` handles only email and web in-app content. Push always uses the
+public stored-content view; destinations, images, data, and action labels remain
+inert escaped text.
+
+## Inspection contract
+
+`PushSupervisionReader.inspectPushCampaign(id, { page, perPage })` returns the
+generated `PushInspection` type. `PushContent`, `PushSettings`, and
+`PushInspection` are also exported from `@galinum/core/contract`.
+Push campaign summaries require `push: PushSettings`; push details retain
+`CampaignVariant<PushContent>[]`. Other variants keep `CampaignMessageContent`.
+
+`createPushSupervisionClient` uses the existing executor and
+`ManagementClientError`. Non-success responses, including 404, remain
+`request_failed` errors. Invalid JSON or generated-schema failures become
+`invalid_response`. Invalid pagination throws `RangeError` before transport:
+`page` and `perPage` must be positive safe integers, `perPage` must be at most 100,
+and their offset must be safe.
+
+The page selects exactly one feed. Push loads inspection; email and in-app load
+their existing deliveries. An inspection failure leaves stored campaign content
+and safety context visible, shows an error and retry link, and shows no invented
+zero totals. The host must authenticate the page before rendering any content.
+
+`pushKind` defaults to `outcomes`; `pushPage` defaults to 1. Invalid, fractional,
+or nonfinite pages reset to 1. Valid UI pages are capped at 10,000. Changing the
+collection resets the page. The URL builder must preserve unrelated parameters.
+The page requests 25 records per collection and renders only the selected array.
+One response contains at most 175 records across seven independent collections.
+Each collection uses its own `records` count and `pageCounts`. An out-of-range
+page keeps the totals and links to the last available page without refetching.
+
+Unique-user totals, logical device slots, attempts, and submission facts use
+different units. The page uses canonical campaign totals directly. Provider
+acceptance does not confirm receipt. Receipt unknown means acceptance or possible
+submission without receipt evidence. Confirmed submissions can include rejection.
+Provider results and submission certainty appear separately.
+
+Test work can appear in record pages while production totals exclude it. Related
+records can reside on different pages. No joins, missing outcomes, variant totals,
+CTR, or receipt conclusions are inferred from a selected page. Push list rows
+link to supervision without per-row inspection requests or legacy delivery counts.

@@ -2,9 +2,10 @@ import { createHash, randomBytes } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { createInAppService } from "@galinum/core";
 import { createPushEngine } from "@galinum/push";
-import { MemoryProductStore } from "./local-product.js";
+import { createApp } from "./app.js";
+import { createProduct, MemoryProductStore } from "./local-product.js";
 import { MemoryMediaStore } from "./local-media-store.js";
-import { createCommunicationHandler, invokeCommunication, authorizeOperation, resolveOperation, pushTransaction, inAppTransaction,
+import { createCommunicationHandler, invokeCommunication, authorizeManagementRead, authorizeOperation, resolveOperation, pushTransaction, inAppTransaction,
   type CommunicationServices, type ProjectAuthenticator, type ProjectPrincipal, type AuthorizedOperation, type ResolvedOperation } from "./communications.js";
 import { keyAuthenticator, permits } from "./authorization.js";
 import { OPERATIONS } from "./operations.js";
@@ -71,7 +72,9 @@ describe("portable canonical authorization", () => {
   it("rejects forged descriptors before calling the authenticator", async () => {
     const f = fixture(); const request = f.request("identify", "POST", { userId: "A" }); const actual = operation(request);
     const fake = { ...actual, security: [] };
-    expect((await authorizeOperation(fake, request, f.authenticate) as Response).status).toBe(400);
+    const response = await authorizeOperation(fake, request, f.authenticate);
+    if (!(response instanceof Response)) throw new Error("Expected authorization rejection");
+    expect(response.status).toBe(400);
     expect(f.authenticate).not.toHaveBeenCalled();
     expect(Object.isFrozen(actual.params)).toBe(true); expect(Object.isFrozen(actual.security)).toBe(true);
   });
@@ -100,7 +103,9 @@ describe("portable canonical authorization", () => {
     const f = fixture(); const read = f.request("campaigns", "GET", undefined, f.agent);
     expect(await authorizeOperation(operation(read), read, f.authenticate)).not.toBeInstanceOf(Response);
     const denied = f.request("goals", "GET", undefined, f.agent);
-    expect((await authorizeOperation(operation(denied), denied, f.authenticate) as Response).status).toBe(403);
+    const response = await authorizeOperation(operation(denied), denied, f.authenticate);
+    if (!(response instanceof Response)) throw new Error("Expected authorization rejection");
+    expect(response.status).toBe(403);
     f.digests.set(hash(f.agent), { projectId: "project", credentials: [{ scheme: "hostedAgentKey", operations: ["createCampaign", "configurePushCredential"] }] });
     const write = f.request("push/credentials", "PUT", {}, f.agent);
     expect((await f.handle(write)).status).toBe(403); expect(write.bodyUsed).toBe(false);
@@ -153,5 +158,94 @@ describe("hashed credential communication fixture", () => {
     const f = fixture(); f.authenticate.mockRejectedValueOnce(new Error("private connection material"));
     const response = await f.handle(f.request("messages")); expect(response.status).toBe(500); expect(response.headers.get("cache-control")).toBe("no-store");
     expect(await response.json()).toEqual({ error: "Authentication failed" });
+  });
+});
+
+
+describe("trusted session push inspection authorization", () => {
+  const read = () => new Request("https://fixture.test/api/v1/campaigns/campaign/push?page=1&perPage=25");
+  const session = async () => ({ projectId: "project", operationId: "inspectPushCampaign" as const });
+  it("invokes the canonical read with a credential-free one-use grant", async () => {
+    const f = fixture(); const request = read(); const op = operation(request);
+    const approved = await authorizeManagementRead(op, request, session);
+    expect(approved).not.toBeInstanceOf(Response);
+    if (approved instanceof Response) throw new Error("Expected grant");
+    expect(Object.isFrozen(approved)).toBe(true);
+    expect(request.headers.has("authorization")).toBe(false);
+    expect((await invokeCommunication(op, request, approved, f.services)).status).toBe(404);
+    expect((await invokeCommunication(op, request, approved, f.services)).status).toBe(401);
+    expect(f.authenticate).not.toHaveBeenCalled();
+  });
+  it("reads a public API-created draft through a session host and rejects a cross-tenant campaign", async () => {
+    const f = fixture(); const other = fixture("other");
+    const product = createProduct(f.store, { projectId: "project", secretKey: f.secret, publishableKey: f.publishable });
+    try {
+      const created = await createApp(product.handlers)(f.request("campaigns", "POST", {
+        name: "Session draft", channel: "push", push: { appId: "app", selection: { kind: "all" } },
+        message: { title: "Title", body: "Body", destination: { kind: "app", url: "example://stored" } },
+      }, f.secret));
+      expect(created.status).toBe(201);
+      const id = (await created.json()).campaign.id;
+      for (const host of [f, other]) {
+        const request = new Request(`https://fixture.test/api/v1/campaigns/${id}/push?page=1&perPage=25`);
+        const op = operation(request);
+        const approved = await authorizeManagementRead(op, request, async () => ({ projectId: host.services.projectId, operationId: "inspectPushCampaign" }));
+        if (approved instanceof Response) throw new Error("Expected grant");
+        const response = await invokeCommunication(op, request, approved, host.services);
+        expect(response.status).toBe(host === f ? 200 : 404);
+        if (host === f) expect(await response.json()).toMatchObject({ users: { targeted: 0 }, devices: { targeted: 0 }, targets: [], page: 1, perPage: 25 });
+      }
+    } finally { await product.close(); }
+  });
+  it.each(["campaigns", "campaigns/campaign/push/dispatch", "campaigns/campaign/push/test", "push/credentials", "sdk/installations/device"])("denies non-inspection operation %s before session authentication", async (path) => {
+    const f = fixture(); const request = f.request(path, path.endsWith("dispatch") || path.endsWith("test") ? "POST" : "GET");
+    const authenticate = vi.fn(session);
+    const response = await authorizeManagementRead(operation(request), request, authenticate);
+    if (!(response instanceof Response)) throw new Error("Expected authorization rejection");
+    expect(response.status).toBe(403);
+    expect(authenticate).not.toHaveBeenCalled();
+  });
+  it("rejects absent, revoked, malformed and failed host authentication without leaking details", async () => {
+    const attempts = [async () => null, async () => null, async () => ({ projectId: "", operationId: "inspectPushCampaign" as const }), async () => { throw new Error("private session data"); }, async () => Response.json({ error: "Rate limited" }, { status: 429 })];
+    for (const [index, authenticate] of attempts.entries()) {
+      const request = read(); const response = await authorizeManagementRead(operation(request), request, authenticate);
+      if (!(response instanceof Response)) throw new Error("Expected authorization rejection");
+      expect(response.status).toBe([401, 401, 403, 500, 429][index]);
+      expect(await response.text()).not.toContain("private session data");
+    }
+  });
+  it.each(["headers-before", "headers-during", "clone-before", "descriptor-before"])("checks binding around session authentication: %s", async (change) => {
+    const request = read(); const op = operation(request);
+    const authenticate = vi.fn(async () => {
+      if (change === "headers-during") request.headers.set("x-project", "other");
+      return session();
+    });
+    if (change === "headers-before") request.headers.set("x-project", "other");
+    const response = await authorizeManagementRead(change === "descriptor-before" ? { ...op } : op, change === "clone-before" ? request.clone() : request, authenticate);
+    if (!(response instanceof Response)) throw new Error("Expected authorization rejection");
+    expect(response.status).toBe(400);
+    expect(authenticate).toHaveBeenCalledTimes(change === "headers-during" ? 1 : 0);
+  });
+  it.each(["headers", "clone", "descriptor", "project", "operation", "url", "method"])("rejects invocation mismatch and consumes the grant: %s", async (change) => {
+    const f = fixture(); const request = read(); const op = operation(request);
+    const approved = await authorizeManagementRead(op, request, session);
+    if (approved instanceof Response) throw new Error("Expected grant");
+    if (change === "headers") request.headers.set("x-project", "other");
+    if (change === "url") Object.defineProperty(request, "url", { value: "https://fixture.test/api/v1/campaigns/other/push" });
+    if (change === "method") Object.defineProperty(request, "method", { value: "POST" });
+    const next = change === "operation" ? f.request("campaigns/campaign/push/dispatch", "POST") : change === "clone" ? request.clone() : request;
+    const nextOp = change === "descriptor" ? { ...op } : change === "operation" ? operation(next) : op;
+    const response = await invokeCommunication(nextOp, next, approved, change === "project" ? fixture("other").services : f.services);
+    expect(response.status).toBe(change === "project" ? 403 : 400);
+    expect((await invokeCommunication(op, request, approved, f.services)).status).toBe(401);
+    expect(f.effects.recordActivity).not.toHaveBeenCalled();
+  });
+  it("leaves external headers and hosted-agent inspection policy unchanged", async () => {
+    const f = fixture();
+    expect((await f.handle(read())).status).toBe(401);
+    expect((await f.handle(f.request("campaigns/campaign/push", "GET", undefined, f.secret))).status).toBe(404);
+    f.digests.set(hash(f.agent), { projectId: "project", credentials: [{ scheme: "hostedAgentKey", operations: ["inspectPushCampaign"] }] });
+    expect((await f.handle(f.request("campaigns/campaign/push", "GET", undefined, f.agent))).status).toBe(403);
+    expect((await f.handle(f.request("campaigns/campaign/push", "GET", undefined, f.publishable))).status).toBe(403);
   });
 });

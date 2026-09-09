@@ -1,5 +1,9 @@
 import { readFileSync } from "node:fs";
+import { createServer } from "node:http";
 import { describe, expect, it } from "vitest";
+import { createApp } from "./app.js";
+import { createLocalProduct } from "./local-product.js";
+import { nodeAdapter } from "./node-adapter.js";
 
 import {
   createManagementClient,
@@ -142,6 +146,25 @@ const campaignDetail = {
   },
   evaluatedAt: 1_000,
 };
+const channelMessages = {
+  web_inapp: { presentation: "toast", title: "Welcome", body: "Hello" },
+  email: { subject: "Welcome", body: "Hello" },
+  push: {
+    title: "Welcome",
+    body: "Hello",
+    image: "https://example.test/image.png",
+    destination: { kind: "app", url: "example://updates" },
+    actions: [{ id: "open", title: "Open" }],
+    data: { source: "reader" },
+    ios: { categoryId: "updates", sound: "default", badge: 1, subtitle: "News" },
+    android: { channelId: "updates", sound: "default" },
+  },
+};
+const pushSettings = { appId: "app", selection: { kind: "all" }, ttlSeconds: 3600, replacementKey: "updates" };
+const mixedCampaigns = Object.keys(channelMessages).map((channel) => ({
+  ...campaigns.campaigns[0], id: channel, channel,
+  ...(channel === "push" ? { push: pushSettings } : {}),
+}));
 const deliveries = {
   deliveries: [{
     id: "delivery",
@@ -193,6 +216,109 @@ function executor(overrides = new Map<string, unknown>()): ManagementExecutor {
 }
 
 describe("management client", () => {
+  it("preserves mixed web, email, and push campaign summaries", async () => {
+    const client = createManagementClient(async () => Response.json({
+      ...campaigns, campaigns: mixedCampaigns, total: mixedCampaigns.length,
+    }));
+    await expect(client.listCampaigns()).resolves.toEqual({
+      values: mixedCampaigns.map(({ audience, targeting, pages, ...summary }) => summary),
+      total: 3, page: 1, pageCount: 1, evaluatedAt: 1_000,
+    });
+  });
+
+  it.each(Object.entries(channelMessages))("reads %s campaign detail without losing message fields", async (channel, content) => {
+    const detail = {
+      ...campaignDetail,
+      campaign: {
+        ...campaignDetail.campaign, channel,
+        ...(channel === "push" ? { push: pushSettings } : {}),
+        variants: [{ ...campaignDetail.campaign.variants[0], content }],
+      },
+    };
+    const client = createManagementClient(async () => Response.json(detail));
+    await expect(client.getCampaign("campaign")).resolves.toEqual(detail);
+  });
+
+  it.each(["sms", "PUSH", "", null, 1, { channel: "push" }])("rejects invalid channel %j in mixed lists and detail", async (channel) => {
+    const invalid = { ...campaignDetail.campaign, channel };
+    const client = createManagementClient(async (request) => Response.json(
+      new URL(request.url).pathname === "/api/v1/campaigns"
+        ? { ...campaigns, campaigns: [...mixedCampaigns, invalid], total: 4 }
+        : { ...campaignDetail, campaign: invalid },
+    ));
+    await expect(client.listCampaigns()).rejects.toMatchObject({ kind: "invalid_response", status: 200 });
+    await expect(client.getCampaign("campaign")).rejects.toMatchObject({ kind: "invalid_response", status: 200 });
+  });
+
+  it.each([
+    { title: 5 }, { destination: { kind: "app" } }, { data: { invalid: 5 } },
+    { actions: [{ id: "open", title: 5 }] }, { ios: { badge: -1 } },
+    { android: {} }, { tokenScope: "private" }, { image: 5 },
+  ])("rejects malformed or private push content %j", async (fields) => {
+    const value = { ...campaignDetail, campaign: { ...campaignDetail.campaign, channel: "push", push: pushSettings,
+      variants: [{ ...campaignDetail.campaign.variants[0], content: { ...channelMessages.push, ...fields } }] } };
+    await expect(createManagementClient(async () => Response.json(value)).getCampaign("campaign")).rejects.toMatchObject({ kind: "invalid_response" });
+  });
+  it.each([undefined, {}, { ...pushSettings, selection: { kind: "specific" } }, { ...pushSettings, ttlSeconds: -1 }, { ...pushSettings, secret: "private" }])("rejects invalid push settings in both summary and detail: %j", async (push) => {
+    const value = { ...campaignDetail.campaign, channel: "push", push };
+    const client = createManagementClient(async request => Response.json(new URL(request.url).pathname === "/api/v1/campaigns"
+      ? { ...campaigns, campaigns: [value] } : { ...campaignDetail, campaign: value }));
+    await expect(client.listCampaigns()).rejects.toMatchObject({ kind: "invalid_response" });
+    await expect(client.getCampaign("campaign")).rejects.toMatchObject({ kind: "invalid_response" });
+  });
+
+  it("reads public HTTP campaign lists and detail after creating a push draft", async () => {
+    const product = createLocalProduct();
+    const server = createServer(nodeAdapter(createApp(product.handlers, product.media, product.operatorHandler)));
+    try {
+      await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+      const address = server.address();
+      if (!address || typeof address === "string") throw new Error("No listener");
+      const origin = `http://127.0.0.1:${address.port}`;
+      const execute: ManagementExecutor = (request) => {
+        const url = new URL(request.url);
+        const authenticated = new Request(new URL(url.pathname + url.search, origin), request);
+        authenticated.headers.set("authorization", `Bearer ${product.secretKey}`);
+        return fetch(authenticated);
+      };
+      const client = createManagementClient(execute);
+      const createdIds = new Map<string, string>();
+      for (const channel of ["web_inapp", "push"] as const) {
+        const response = await execute(new Request(`${origin}/api/v1/campaigns`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            name: `${channel} reader regression`, channel,
+            message: channelMessages[channel],
+            ...(channel === "push" ? { push: pushSettings } : {}),
+          }),
+        }));
+        const body = await response.json();
+        expect(response.status, JSON.stringify(body)).toBe(201);
+        createdIds.set(channel, body.campaign.id);
+        const list = await client.listCampaigns();
+        expect(list.total).toBe(createdIds.size);
+        expect(new Map(list.values.map((campaign) => [campaign.channel, campaign.id]))).toEqual(createdIds);
+        expect(list.values.every((campaign) => campaign.status === "draft")).toBe(true);
+      }
+      for (const channel of ["web_inapp", "push"] as const) {
+        const detail = await client.getCampaign(createdIds.get(channel)!);
+        expect(detail?.campaign).toMatchObject({ id: createdIds.get(channel), channel, status: "draft" });
+        expect(detail?.campaign.variants[0].content).toEqual(channelMessages[channel]);
+        if (channel === "push") {
+          expect(detail?.campaign.push).toEqual(pushSettings);
+          expect((await client.listCampaigns()).values.find(c => c.channel === "push")?.push).toEqual(pushSettings);
+        }
+      }
+    } finally {
+      try {
+        if (server.listening) await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+      } finally {
+        await product.close();
+      }
+    }
+  });
+
   it("calls project-bound read operations and parses their responses", async () => {
     const client = createManagementClient(executor());
     await expect(client.getOverview()).resolves.toEqual(overview);

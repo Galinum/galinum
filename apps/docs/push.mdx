@@ -209,6 +209,18 @@ send can lose acceptance evidence; retrying unknown can duplicate a notification
 Exactly-once display is not promised. Receipt observations never manufacture
 provider acceptance. Frequency limits and quiet-hour policies are not implemented.
 
+## Dashboard supervision
+
+The public campaign page separates unique-user totals, device slots, and submission
+facts. It shows provider uncertainty and unknown receipts explicitly. Push
+content, destinations, and action labels are read-only. List rows link to push
+supervision without legacy web/email counts or per-row inspection requests.
+
+Use the [public dashboard composition](/self-host/dashboard) to supply the required
+inspection reader and independent record pagination. Push totals are campaign-wide;
+per-variant totals are unavailable. Test records can appear in pages while the
+canonical production totals exclude test work.
+
 ## Correlated test sends and inspection
 
 Send `POST /api/v1/campaigns/{id}/push/test` with

@@ -63,6 +63,7 @@ const expectedExports = new Set([
   "./events",
   "./campaigns",
   "./campaign-detail",
+  "./push-supervision",
   "./user-detail",
   "./mount",
   "./agent-runs",

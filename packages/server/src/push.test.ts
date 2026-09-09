@@ -1,3 +1,4 @@
+import { createPushSupervisionClient } from "./management-client.js";
 import { pushTransaction } from "./communications.js";
 import { startPushWorker } from "./push-worker.js";
 import { generateKeyPairSync, randomBytes, randomUUID } from "node:crypto";
@@ -568,24 +569,69 @@ for (const postgres of [false, true]) {
       expect((await f.call("/api/v1/events?name=export_created")).body.events).toHaveLength(2);
     });
 
-    it("pages history while keeping exact user/device totals independent of the page", async () => {
+    it("reads more than 25 canonical records through the public client with stable independent totals", async () => {
       const f = await fixture(postgres);
-      for (let index = 0; index < 5; index++) await f.install(`device-${index}`);
-      const campaign = await f.campaign(); await f.dispatch(campaign.id);
-      const ids: string[] = [];
-      for (let page = 1; page <= 4; page++) {
-        const response = await f.call(`/api/v1/campaigns/${campaign.id}/push?page=${page}&perPage=2`);
-        expect(response.status).toBe(200);
-        expect(response.body).toMatchObject({ page, perPage: 2, records: { targets: 5, attempts: 5, outcomes: 5 }, pageCounts: { targets: 3 }, users: { targeted: 1, accepted: 1 }, devices: { targeted: 5, accepted: 5 } });
-        const length = page < 3 ? 2 : page === 3 ? 1 : 0;
-        expect(response.body.targets).toHaveLength(length);
-        expect(response.body.attempts).toHaveLength(length);
-        expect(response.body.outcomes).toHaveLength(length);
-        ids.push(...response.body.targets.map((target: { id: string }) => target.id));
+      for (let index = 0; index < 30; index++) await f.install(`device-${index}`, `user-${Math.floor(index / 2)}`);
+      const campaign = await f.campaign();
+      f.results.push({ kind: "unknown", code: "transport" }, { kind: "rejected", code: "transient", retryAfterMs: 90000 }, { kind: "blocked", code: "expired", messageAttempted: false });
+      await f.dispatch(campaign.id);
+      const client = createPushSupervisionClient(async request => {
+        const url = new URL(request.url); const result = await f.call(url.pathname + url.search);
+        return Response.json(result.body, { status: result.status });
+      });
+      const first = await client.inspectPushCampaign(campaign.id, { page: 1, perPage: 25 });
+      const second = await client.inspectPushCampaign(campaign.id, { page: 2, perPage: 25 });
+      const stale = await client.inspectPushCampaign(campaign.id, { page: 3, perPage: 25 });
+      expect(first.targets).toHaveLength(25); expect(second.targets).toHaveLength(5); expect(stale.targets).toHaveLength(0);
+      expect(first.attempts).toHaveLength(25); expect(second.attempts).toHaveLength(5);
+      expect(first.outcomes).toHaveLength(25); expect(second.outcomes).toHaveLength(5);
+      expect(first.recipients).toHaveLength(15); expect(second.recipients).toHaveLength(0);
+      expect(first.records).toMatchObject({ targets: 30, attempts: 30, outcomes: 30, recipients: 15 });
+      expect(first.pageCounts).toMatchObject({ targets: 2, attempts: 2, outcomes: 2, recipients: 1 });
+      expect(first.users.targeted).toBe(15);
+      expect(first.devices).toMatchObject({ targeted: 30, accepted: 27, receiptObserved: 0, receiptUnknown: 28, attempts: 30, confirmedSubmissions: 28, possibleSubmissions: 1, preSendBlocks: 1 });
+      for (const value of [second, stale]) {
+        expect(value.users).toEqual(first.users); expect(value.devices).toEqual(first.devices);
+        expect(value.planning).toEqual(first.planning); expect(value.records).toEqual(first.records);
       }
-      expect(new Set(ids).size).toBe(5);
+      for (const [kind, leaked] of [["targets", "tokenScope"], ["attempts", "fence"], ["recipients", "admission"], ["slots", "credentialMaterial"]] as const) {
+        const invalid = { ...first, [kind]: first[kind].map((row, index) => index ? row : { ...row, [leaked]: "private" }) };
+        await expect(createPushSupervisionClient(async () => Response.json(invalid)).inspectPushCampaign(campaign.id, { page: 1, perPage: 25 })).rejects.toMatchObject({ kind: "invalid_response" });
+      }
+      const targets = [...first.targets, ...second.targets];
+      expect(new Set(targets.map(target => target.id)).size).toBe(30);
+      for (const privateField of ["tokenScope", '"fence"', "admission", "inputFingerprint", "token_device-"]) expect(JSON.stringify(first)).not.toContain(privateField);
       for (const query of ["page=0", "perPage=101", "page=NaN"]) expect((await f.call(`/api/v1/campaigns/${campaign.id}/push?${query}`)).status).toBe(400);
-      await f.product.push.runDue(); expect(f.sent).toHaveLength(5);
+    });
+
+    it("keeps test sends, observations, replay and goal events out of production supervision totals", async () => {
+      const f = await fixture(postgres); const device = await f.install("test-device", "tester");
+      const campaign = await f.campaign({ launch: false });
+      const client = createPushSupervisionClient(async request => {
+        const url = new URL(request.url); const result = await f.call(url.pathname + url.search);
+        return Response.json(result.body, { status: result.status });
+      });
+      const read = () => client.inspectPushCampaign(campaign.id, { page: 1, perPage: 25 });
+      const before = await read();
+      const input = { installationId: device.id, requestId: "supervision-test" };
+      expect((await f.call(`/api/v1/campaigns/${campaign.id}/push/test`, "POST", input)).status).toBe(200);
+      expect((await f.call(`/api/v1/campaigns/${campaign.id}/push/test`, "POST", input)).status).toBe(200);
+      const sent = await read(); expect(sent.testTargets).toBe(1); expect(sent.targets[0].test).toBe(true);
+      expect(sent.records).toMatchObject({ targets: 1, attempts: 1, outcomes: 1 });
+      const reference = { targetId: sent.targets[0].id, attemptId: sent.attempts[0].id };
+      const batch = { bindingGeneration: device.bindingGeneration, commands: [
+        { id: "test-receipt", sequence: 1, kind: "receipt", ...reference },
+        { id: "test-tap", sequence: 2, kind: "tap", ...reference },
+        { id: "test-event", sequence: 3, kind: "event", eventId: "test-export", event: "export_created" },
+      ] };
+      for (let replay = 0; replay < 2; replay++) expect((await f.call(`/api/v1/sdk/installations/${device.id}/observations`, "POST", batch, true)).status).toBe(200);
+      const after = await read();
+      for (const result of [sent, after]) {
+        expect(result.users).toEqual(before.users); expect(result.devices).toEqual(before.devices);
+        expect(result.conversions).toEqual([]); expect(result.observations).toEqual([]);
+      }
+      expect(after.testTargets).toBe(1); expect(after.records.attempts).toBe(1);
+      expect((await f.call(`/api/v1/campaigns/${campaign.id}/deliveries`)).body.deliveries).toEqual([]);
     });
 
     it("scopes stable event IDs to the project and rejects changed replay bodies", async () => {
