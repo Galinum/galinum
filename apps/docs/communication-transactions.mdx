@@ -90,10 +90,11 @@ accepts and a local effect fails, local acceptance rolls back and the durable
 reservation remains. Recovery records an uncertain outcome. Do not automatically
 retry the transaction or resubmit the notification to recover an effect.
 
-This storage boundary does not supply an HTTP authentication facade, activation
-integration, or a deadline-aware worker scheduler. Keep those responsibilities
-explicit in the embedding application. Existing self-host HTTP contracts remain
-unchanged.
+Compose this storage boundary with the public [runtime invocation and worker
+API](/self-host/runtime). It binds host authentication to communication handlers
+and provides push admission limits for units, discovery pages, and deadlines.
+The embedding application supplies credential verification and scheduling.
+Admission deadlines do not impose a maximum process duration.
 
 ## Activation and raw readiness
 

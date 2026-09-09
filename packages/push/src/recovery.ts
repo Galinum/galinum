@@ -1,3 +1,4 @@
+import type { WorkAdmission } from "./admission.js";
 import { randomUUID, createHash } from "node:crypto";
 import { pickVariant, selectInstallations, retireInstallationToken, type InstallationRecord } from "@galinum/core";
 import { personalize, supportsPushContent } from "./content.js";
@@ -192,7 +193,7 @@ export function createRecovery<Tx extends PushTransaction>(host: PushHost<Tx>, t
     await tx.savePushControl("work", current);
     return created;
   }
-  async function plan(campaignId: string, testInstallationId?: string, requestId?: string) {
+  async function plan(campaignId: string, testInstallationId?: string, requestId?: string, admission?: WorkAdmission) {
     if (testInstallationId) return transaction(async (tx) => {
       if (!requestId) throw new PushError(400, "Test requestId required");
       const prior = await tx.getPushRecord("test", digest([campaignId, requestId]));
@@ -206,6 +207,7 @@ export function createRecovery<Tx extends PushTransaction>(host: PushHost<Tx>, t
       if (ids.length !== 1) throw new PushError(409, "Test target unavailable");
       await tx.insertPushRecord("test", { id: digest([campaignId, requestId]), campaignId, installationId: testInstallationId, requestId, targetIds: ids }); return ids;
     });
+    if (admission && !admission.page()) return [];
     const batch = await transaction(async (tx) => {
       const campaign = await tx.campaign(campaignId, now()); if (!campaign) throw new PushError(404, "Push campaign not found");
       if (!campaign.active) return null;
@@ -215,6 +217,7 @@ export function createRecovery<Tx extends PushTransaction>(host: PushHost<Tx>, t
     if (!batch) return [];
     const created: string[] = []; let revision = batch.scan.revision;
     for (const user of batch.page.recipients) {
+      if (admission && !admission.take("recipient")) return created;
       const result = await transaction(async (tx) => {
         const cursor = await tx.getPushRecord("scan", batch.scan.id) ?? batch.scan;
         if (cursor.revision !== revision) return null;
@@ -230,6 +233,7 @@ export function createRecovery<Tx extends PushTransaction>(host: PushHost<Tx>, t
       const cursor = await tx.getPushRecord("scan", batch.scan.id) ?? batch.scan;
       if (cursor.revision === revision) await tx.savePushControl("scan", { id: cursor.id, afterId: batch.page.nextCursor, revision: cursor.revision + 1 });
     });
+    if (admission) return created;
     const waiting = await transaction((tx) => tx.queryPushRecords("work", { campaignId, dueAt: now(), limit: 100 }));
     for (const row of waiting) created.push(...await transaction(async (tx) => {
       const campaign = await tx.campaign(campaignId, now()); const user = await tx.recipient(row.externalId);
@@ -237,13 +241,17 @@ export function createRecovery<Tx extends PushTransaction>(host: PushHost<Tx>, t
     }));
     return created;
   }
-  async function reconcileDue(campaignId?: string) {
+  async function reconcileDue(campaignId?: string, admission?: WorkAdmission) {
+    if (admission && !admission.page()) return;
     const waiting = await transaction((tx) => tx.queryPushRecords("work", { campaignId, dueAt: now(), limit: 100 }));
-    for (const row of waiting) await transaction(async (tx) => {
+    for (const row of waiting) {
+      if (admission && !admission.take("recipient")) return;
+      await transaction(async (tx) => {
       const campaign = await tx.campaign(row.campaignId, now()); const user = await tx.recipient(row.externalId);
       if (campaign && user) await reconcile(tx, campaign, user);
       else await close(tx, row, "recipient_or_campaign_removed");
     });
+    }
   }
   async function finish(tx: Tx, slot: SlotWork, target: DeviceTarget, attempt: PushAttempt, result: ProviderOutcome, submission: AttemptOutcome["submission"]) {
     const outcome: AttemptOutcome = { id: attempt.id, slotId: slot.id, campaignId: target.campaignId, attemptId: attempt.id, targetId: target.id, observedAt: now(), result: (({ messageAttempted, ...value }) => value)(result), submission };

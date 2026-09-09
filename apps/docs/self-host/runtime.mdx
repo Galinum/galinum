@@ -1,0 +1,82 @@
+---
+title: "Runtime invocation and workers"
+description: "Bind host authentication to public communication handlers and bound push work admission."
+---
+
+The `@galinum/server/communications` export lets a host use the public communication
+handlers with its own credential storage and project services.
+
+```ts
+import {
+  resolveOperation,
+  authorizeOperation,
+  invokeCommunication,
+} from "@galinum/server/communications";
+
+const operation = resolveOperation(request);
+if (operation instanceof Response) return operation;
+const grant = await authorizeOperation(operation, request, authenticateProject);
+if (grant instanceof Response) return grant;
+return invokeCommunication(operation, request, grant, servicesFor(grant.projectId));
+```
+
+`authenticateProject` verifies the actual request credential and returns a
+`ProjectPrincipal`: a `projectId` and `credentials` containing verified security
+schemes. A host can compare credential hashes without configuring plaintext
+self-host keys. Hosted-agent proofs must include their permitted operation IDs.
+The host remains responsible for authenticating credentials honestly.
+
+Operation security comes from OpenAPI. Alternatives use OR; schemes within an
+alternative use AND. Installation capability headers remain required and are
+independently checked against persisted installation scope by the public handlers.
+
+Resolution and authorization bind the operation to the original request, method,
+URL, and headers. Grants are opaque and consumed once. Do not copy them or change
+the request after resolution. Invocation rejects project mismatches before it
+reads the body or constructs handlers.
+
+`CommunicationServices` supplies the project ID, a narrow communication data
+transaction, installation store, push and in-app engines, business clock, and
+optional typed effects. Effects receive the same transaction executor as the
+product mutation. The shared handlers cover identify, events, in-app decisions
+and feedback, installations, push credentials, tests, dispatch, and inspection.
+Other management operations need their own handlers. Operator authority remains
+separate. `createCommunicationHandler(services, authenticateProject)` combines
+resolution, authorization, and invocation for one project.
+
+## Push admission
+
+```ts
+const progress = await push.runPass({
+  maxUnits: 100,
+  maxPages: 100,
+  deadline: performance.now() + 40_000,
+});
+```
+
+The optional `campaignId` restricts the pass to one campaign. Limits default to
+100 units and 100 discovery pages, with no deadline. Both limits accept
+nonnegative safe integers. `deadline` is an absolute value on the execution
+clock; the default clock is `performance.now`. A custom `clock` must return
+finite values on the same monotonic time scale as the deadline. Business
+timestamps continue to use the engine's business clock.
+
+A unit admits one recipient planning or reconciliation operation, or one complete
+dispatch operation. Dispatch includes reservation, provider work, and settlement.
+When a limit expires, the engine stops admitting new units. An admitted send
+finishes under its existing fence, even after the deadline. The budget does not
+guarantee a maximum process lifetime or abort provider requests.
+
+Progress reports `admittedUnits`, recipient and dispatch `units`, `pages`,
+`stopped` (`unit_limit`, `page_limit`, `deadline`, or null), and phase `errors`.
+Persisted planning cursors retain partial progress. Phase rotation lets repeated
+small passes reach planning, reconciliation, and dispatch. A campaign discovered
+at the page limit remains pending for a later pass. Discovery pages count campaign,
+recipient, reconciliation, and dispatch queries. Cursor bookkeeping consumes
+neither pages nor units. Zero page or unit limits perform no store work. A pass with no reported stop does
+not establish that all campaign work is complete.
+
+The self-host CLI uses this public pass for automatic scheduling. Its existing
+page-limited worker defaults remain in place. Hosts can choose smaller budgets
+and invoke further passes; retry eligibility, expiration, and recovery remain
+public product behavior.

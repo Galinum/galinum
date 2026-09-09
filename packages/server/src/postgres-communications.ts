@@ -1,6 +1,3 @@
-import { audienceVersionFromRow } from "./postgres-product-rows.js";
-import { lockProject } from "./project-fence.js";
-import type { Transaction } from "kysely";
 import type {
   AgentRuns,
   AudienceVersions,
@@ -13,15 +10,16 @@ import type {
   Variants
 } from "@galinum/core";
 import { pushProjection, validatePushQuery, type PushQuery, type PushRecords, type PushTotals, type RecordKind } from "@galinum/push";
+import type { Transaction } from "kysely";
 import {
   Kysely,
   sql,
   type Selectable
 } from "kysely";
 import { randomUUID } from "node:crypto";
+import { TraitsCapacityError } from "./communication-data.js";
 import { INSTALLATION_REPLAY_LIMIT, type InstallationRecord, type InstallationReplay } from "./installations.js";
 import {
-  TraitsCapacityError,
   type AudienceFactsBatch,
   type AudienceFactsInput,
   type CampaignQuery,
@@ -31,6 +29,8 @@ import {
   type ProductEvent,
   type ProductVariant
 } from "./local-product.js";
+import { audienceVersionFromRow } from "./postgres-product-rows.js";
+import { lockProject } from "./project-fence.js";
 
 import type { CommunicationData } from "./communication-data.js";
 import { campaignAudienceFromRow, campaignFromRow, containsPattern, deliveryFromRow, eventFromRow, goalFromRow, integer, userFromRow, variantFromRow } from "./postgres-product-rows.js";

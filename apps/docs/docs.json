@@ -62,7 +62,8 @@
           {
             "group": "Server composition",
             "pages": [
-              "communication-transactions"
+              "communication-transactions",
+              "self-host/runtime"
             ]
           },
           {

@@ -119,3 +119,8 @@
 !packages/server/src/project-fence.ts
 !packages/server/src/push-readiness.ts
 !packages/server/src/schema-readiness.ts
+!packages/push/src/admission.ts
+!packages/server/src/authorization.ts
+!packages/server/src/communication-handlers.ts
+!packages/server/src/installation-domain.ts
+!packages/server/src/push-handlers.ts

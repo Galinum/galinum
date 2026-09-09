@@ -16,3 +16,5 @@ export interface CommunicationEffects<Data extends CommunicationData> {
   recordActivity?(data: Data, fact: ActivityFact): Promise<void>;
   recordFirstDelivery?(data: Data, fact: FirstDeliveryFact): Promise<void>;
 }
+
+export class TraitsCapacityError extends Error {}

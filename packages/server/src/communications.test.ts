@@ -1,10 +1,10 @@
-import { randomBytes, randomUUID, generateKeyPairSync } from "node:crypto";
+import { createHash, randomBytes, randomUUID, generateKeyPairSync } from "node:crypto";
 import { Kysely, PostgresDialect, sql, type Transaction } from "kysely";
 import { Pool } from "pg";
 import { afterEach, describe, expect, it } from "vitest";
 import { createInAppService, type ProductDB } from "@galinum/core";
 import { createEncryptedVault, createPushEngine, type PushHost, type PushEnvelope } from "@galinum/push";
-import { PostgresCommunicationTransaction, pushTransaction, inAppTransaction, recordServerEvent, type CommunicationDB, type CommunicationEffects, type ActivityFact } from "./communications.js";
+import { createCommunicationHandler, PostgresCommunicationTransaction, pushTransaction, inAppTransaction, recordServerEvent, type CommunicationDB, type CommunicationEffects, type ActivityFact } from "./communications.js";
 import { createApp } from "./app.js";
 import { createLocalProduct, type LocalProductOptions } from "./local-product.js";
 import { createPostgresProduct } from "./postgres-product.js";
@@ -28,7 +28,9 @@ describe("self-host communication effects", () => {
     expect((await call("track", { userId: "A", event: "fresh", eventId: "stable", props: { count: 2 } })).status).toBe(200);
     expect(effects).toHaveLength(2);
     fail = true;
-    await expect(call("track", { userId: "A", event: "fresh", eventId: "retry" })).rejects.toThrow("effect failed");
+    const failed = await call("track", { userId: "A", event: "fresh", eventId: "retry" });
+    expect(failed.status).toBe(500); expect(failed.headers.get("cache-control")).toBe("no-store");
+    expect(await failed.json()).toEqual({ error: "Internal server error" });
     const read = await app(new Request("http://local/api/v1/users", { headers: { authorization: "Bearer " + product.secretKey } }));
     expect((await read.json()).users[0].lastSeenAt).toBe(2000);
     fail = false;
@@ -123,6 +125,15 @@ async function fixture() {
       await fact(tx.data, "shown", value.id, value.userId, value.shownAt);
     },
   });
+  const publicToken = randomBytes(24).toString("hex"); const secretToken = randomBytes(32).toString("hex");
+  const hash = (token: string) => createHash("sha256").update(token).digest("hex");
+  const storedPublic = hash(publicToken); const storedSecret = hash(secretToken);
+  const portableHandler = createCommunicationHandler({ projectId, transaction: withData, installations: { transaction: withData, withReadSnapshot: withData }, push, inapp, effects, now: () => now }, async (request) => {
+    const digest = hash(request.headers.get("authorization")?.replace(/^Bearer /, "") ?? "");
+    const scheme = digest === storedPublic ? "publishableKey" : digest === storedSecret ? "secretKey" : null;
+    return scheme ? { projectId, credentials: [{ scheme }] } : null;
+  });
+  const portable = (path: string, body: object) => portableHandler(new Request("https://fixture.test/api/v1/" + path, { method: "POST", headers: { authorization: "Bearer " + publicToken, "content-type": "application/json", "x-galinum-installation-capability": capability }, body: JSON.stringify(body) }));
   async function install(id: string) {
     await call("sdk/installations", { installationId: id, appId: "app", platform: "ios", environment: "development", capability }, true);
     let state = (await call("sdk/installations/" + id, undefined, true)).installation;
@@ -145,11 +156,21 @@ async function fixture() {
     outbox: await db.selectFrom("fixture_outbox").selectAll().where("project_id", "=", projectId).execute(),
     first: await db.selectFrom("fixture_first_delivery").selectAll().where("project_id", "=", projectId).execute(),
   });
-  return { db, projectId, call, withData, effects, push, inapp, sent, install, campaign, configure, capability, counts, period, now: () => now, advance: (ms = 86400000) => { now += ms; }, fail: (kind: string) => { failing = kind; } };
+  return { db, projectId, portable, call, withData, effects, push, inapp, sent, install, campaign, configure, capability, counts, period, now: () => now, advance: (ms = 86400000) => { now += ms; }, fail: (kind: string) => { failing = kind; } };
 }
 
 const pg = process.env.RUN_DB_INTEGRATION === "1" ? describe : describe.skip;
 pg("extended public communication transaction", () => {
+  it("invokes through hashed authorization while retaining the actual event/effect transaction", async () => {
+    const f = await fixture(); f.fail("event");
+    const input = { userId: "A", event: "complete", eventId: "portable-event", props: { retained: true } };
+    const rejected = await f.portable("track", input); expect(rejected.status).toBe(500); expect(rejected.headers.get("cache-control")).toBe("no-store");
+    expect(await f.counts()).toEqual({ effects: [], ledger: [], outbox: [], first: [] });
+    expect(await f.db.selectFrom("events").selectAll().where("project_id", "=", f.projectId).execute()).toEqual([]);
+    f.fail(""); expect((await f.portable("track", input)).status).toBe(200);
+    const committed = await f.counts(); expect(committed.effects).toHaveLength(1); expect(committed.ledger).toHaveLength(1);
+    f.advance(); expect((await f.portable("track", input)).status).toBe(200); expect(await f.counts()).toEqual(committed);
+  });
   it("rolls back accepted outcomes and recovers uncertainty without pretending an effect retry is a send", async () => {
     const f = await fixture(); await f.install("device"); await f.configure(); const c = await f.campaign("push");
     const [target] = await f.push.plan(c.id); f.fail("acceptance");

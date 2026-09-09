@@ -20,6 +20,10 @@ export function pushTransaction<Data extends CommunicationData>(session: Data, e
     pushTotals: (campaignId) => session.pushTotals(campaignId),
     insertPushRecord: (...args) => session.insertPushRecord(...args),
     savePushControl: (...args) => session.savePushControl(...args),
+    async campaignPage(evaluatedAt, afterId, limit) {
+      const page = await session.queryCampaigns({ channel: "push", effectiveStatus: "running", query: null, evaluatedAt, offset: 0, limit, afterId });
+      return { ids: page.values.map((campaign) => campaign.id), nextCursor: page.values.length === limit ? page.values.at(-1)!.id : null };
+    },
     recipient: (externalId) => session.getUserByExternalId(externalId),
     event: async (user, name, id, now, props) => { await recordServerEvent(session, user, name, id, now, props, effects); },
     async campaign(id, now) {

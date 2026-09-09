@@ -1,3 +1,4 @@
+import { WorkAdmission, type PushWorkBudget } from "./admission.js";
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { validateCredential } from "./providers.js";
 import type { PushHost, PushTransaction, PushCommand, PushCredential, CredentialRecord, DeviceTarget, Observation } from "./types.js";
@@ -42,7 +43,9 @@ export function createPushEngine<Tx extends PushTransaction>(host: PushHost<Tx>)
       const { encrypted: _, ...view } = record; return view;
     });
   }
-  const { plan, dispatch, reconcileDue } = createRecovery(host, transaction);
+  const recovery = createRecovery(host, transaction);
+  const { dispatch, reconcileDue } = recovery;
+  const plan = (campaignId: string, installationId?: string, requestId?: string) => recovery.plan(campaignId, installationId, requestId);
   async function observe(installationId: string, capability: string, bindingGeneration: number, commands: PushCommand[]) {
     return transaction(async (tx) => {
       const installation = await tx.getInstallation(installationId);
@@ -105,8 +108,71 @@ export function createPushEngine<Tx extends PushTransaction>(host: PushHost<Tx>)
     for (const entry of queue) { if (!entry.targetId) throw new Error("Ready slot has no target"); await dispatch(entry.targetId); }
     return { processed: queue.length };
   }
+  async function runPass(options: PushWorkBudget & { campaignId?: string } = {}) {
+    const admission = new WorkAdmission(options);
+    const errors: { campaignId: string; error: string }[] = [];
+    const result = () => ({ ...admission.result(), errors });
+    if (!admission.availablePage()) return result();
+    const phases = ["planning", "reconciliation", "dispatch"] as const;
+    const phaseKey = JSON.stringify(["admission-phase", options.campaignId ?? null]);
+    const first = await transaction(async (tx) => {
+      const prior = await tx.getPushRecord("scan", phaseKey);
+      const index = phases.findIndex((phase) => phase === prior?.afterId);
+      const start = index < 0 ? 0 : index;
+      return { start, revision: prior?.revision ?? 0 };
+    });
+    for (let index = 0; index < phases.length && admission.available(); index++) {
+      const phase = phases[(first.start + index) % phases.length];
+      try {
+        if (phase === "reconciliation") await reconcileDue(options.campaignId, admission);
+        else if (phase === "dispatch") {
+          if (!admission.page()) break;
+          const queue = await transaction((tx) => tx.queryPushRecords("queue", { campaignId: options.campaignId, dueAt: now(), limit: 100 }));
+          for (const slot of queue) {
+            if (!admission.take("dispatch")) break;
+            if (!slot.targetId) throw new Error("Ready slot has no target");
+            await dispatch(slot.targetId);
+          }
+        } else if (options.campaignId) await recovery.plan(options.campaignId, undefined, undefined, admission);
+        else {
+          const batch = await transaction(async (tx) => {
+            const scan = await tx.getPushRecord("scan", "campaign-planning") ?? { id: "campaign-planning", afterId: null, revision: 0 };
+            const pending = await tx.getPushRecord("scan", "campaign-planning-pending");
+            if (pending?.afterId) return { scan, page: { ids: [pending.afterId], nextCursor: pending.afterId } };
+            if (!admission.page()) return null;
+            return { scan, page: await tx.campaignPage(now(), scan.afterId, 100) };
+          });
+          if (!batch) break;
+          let revision = batch.scan.revision;
+          for (const campaignId of batch.page.ids) {
+            if (!admission.available()) break;
+            try { await recovery.plan(campaignId, undefined, undefined, admission); }
+            catch { errors.push({ campaignId, error: "Push campaign planning failed" }); }
+            const advanced = await transaction(async (tx) => {
+              const current = await tx.getPushRecord("scan", batch.scan.id) ?? batch.scan;
+              if (current.revision !== revision) return false;
+              await tx.savePushControl("scan", { id: "campaign-planning-pending", afterId: admission.stopped ? campaignId : null, revision: current.revision + 1 });
+              await tx.savePushControl("scan", { id: current.id, afterId: admission.stopped ? current.afterId : campaignId === batch.page.ids.at(-1) ? batch.page.nextCursor : campaignId, revision: current.revision + 1 }); return true;
+            });
+            if (!advanced || admission.stopped) break;
+            revision++;
+          }
+          if (batch.page.ids.length === 0) await transaction(async (tx) => {
+            const current = await tx.getPushRecord("scan", batch.scan.id) ?? batch.scan;
+            if (current.revision === revision) await tx.savePushControl("scan", { id: current.id, afterId: null, revision: revision + 1 });
+          });
+        }
+      } catch { errors.push({ campaignId: options.campaignId ?? "", error: "Push work phase failed" }); }
+    }
+    await transaction(async (tx) => {
+      const current = await tx.getPushRecord("scan", phaseKey);
+      if ((current?.revision ?? 0) === first.revision) await tx.savePushControl("scan", { id: phaseKey,
+        afterId: admission.stopped ? phases[(first.start + 1) % phases.length] : phases[0], revision: first.revision + 1 });
+    });
+    return result();
+  }
   return {
-    configure, plan, dispatch, observe, inspect, processDue,
+    configure, plan, dispatch, observe, inspect, processDue, runPass,
     async runCampaign(campaignId: string) { await plan(campaignId); await processDue(campaignId); return inspect(campaignId); },
     async test(campaignId: string, installationId: string, requestId: string) { const ids = await plan(campaignId, installationId, requestId); for (const id of ids) await dispatch(id); return { targetIds: ids }; },
     async getTest(campaignId: string, requestId: string) { return transaction(async (tx) => {

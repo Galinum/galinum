@@ -69,6 +69,7 @@ export interface PushPersistence {
   savePushControl<K extends "credential" | "clock" | "cursor" | "queue" | "scan" | "work" | "delivery">(kind: K, record: PushRecords[K]): Promise<void>;
 }
 export interface PushTransaction extends Pick<InstallationSession, "lockInstallations" | "getInstallation" | "listInstallations" | "saveInstallation">, PushPersistence {
+  campaignPage(now: number, afterId: string | null, limit: number): Promise<{ ids: string[]; nextCursor: string | null }>;
   recipient(externalId: string): Promise<Recipient | null>;
   event(user: Recipient, name: string, eventId: string, now: number, props: Record<string, unknown> | null): Promise<void>;
   campaign(id: string, now: number): Promise<PushCampaign | null>;

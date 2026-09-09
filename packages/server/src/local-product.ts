@@ -1,29 +1,22 @@
-import { campaignReadiness } from "./campaign-readiness.js";
-import { campaignAudienceView } from "./campaign-audience-view.js";
-import { createEncryptedVault, type CredentialVault } from "@galinum/push";
-import { configuredPushReadiness } from "./push-readiness.js";
-import { installationSchemas, validateSchema } from "@galinum/contracts";
 import { destinationUrl } from "@galinum/contracts/entry";
-import { campaignDefinitionReadiness } from "./activation/readiness.js";
-import { campaignContent } from "./activation/requirements.js";
-import type { ProductActivationData } from "./activation/store.js";
-import { MemoryActivationData } from "./activation/memory.js";
-import { createActivationService, ActivationError } from "./activation/service.js";
-import { createStockRepository, createStockSession, saveSourceChanges, preparedSources, invalidateStockDefinition } from "./activation/stock.js";
-import { createActivationWorker } from "./activation/worker.js";
-import { createOperatorHandler, validateOperatorKey } from "./activation/operator.js";
-import { createGitHubProvider, createGithubShippingProvider, type ShippingProvider } from "./github/index.js";
 import {
   createInAppService, deliveredContent,
-  evaluateExpression, InAppError, legacyTargetingToExpression,
+  evaluateExpression,
+  legacyTargetingToExpression,
   LIMITS, referencedVocabulary, validatePages,
   validateTargeting,
-  type AudienceExpression,
-  type DeliveryFeedback, type InAppFeedbackRecord, type InAppHost, type InAppPersistence, type MediaStore,
-  type LaunchReadiness, type CampaignSourceChanges,
+  type CampaignSourceChanges,
+  type InAppFeedbackRecord, type InAppHost, type InAppPersistence, type MediaStore
 } from "@galinum/core";
-import { MemoryPushRecords, PushError, validatePushContent, validatePushSettings, type AcceptanceFact, type PushPersistence, type PushProvider, type PushQuery, type PushRecords, type PushSettings, type PushTransaction, type RecordKind } from "@galinum/push";
+import { createEncryptedVault, MemoryPushRecords, validatePushContent, validatePushSettings, type AcceptanceFact, type PushPersistence, type PushProvider, type PushQuery, type PushRecords, type PushSettings, type PushTransaction, type RecordKind } from "@galinum/push";
 import { randomBytes, randomUUID } from "node:crypto";
+import { MemoryActivationData } from "./activation/memory.js";
+import { createOperatorHandler, validateOperatorKey } from "./activation/operator.js";
+import { campaignContent } from "./activation/requirements.js";
+import { ActivationError, createActivationService } from "./activation/service.js";
+import { createStockRepository, createStockSession, invalidateStockDefinition, preparedSources, saveSourceChanges } from "./activation/stock.js";
+import type { ProductActivationData } from "./activation/store.js";
+import { createActivationWorker } from "./activation/worker.js";
 import {
   audienceCapabilities,
   audienceDiagnosticsFromPresence,
@@ -32,9 +25,15 @@ import {
   prepareAudience,
   type AudienceCapabilities
 } from "./audience.js";
+import { authorizeOperation, invokeOperation, keyAuthenticator } from "./authorization.js";
+import { campaignAudienceView } from "./campaign-audience-view.js";
+import { campaignReadiness } from "./campaign-readiness.js";
 import type { CommunicationEffects } from "./communication-data.js";
+import { TraitsCapacityError } from "./communication-data.js";
+import { communicationDomainHandlers, invokeCommunication } from "./communication-handlers.js";
 import { inAppTransaction, publicMessageContent } from "./communication-inapp.js";
-import { INSTALLATION_REPLAY_LIMIT, INSTALLATION_SDK_OPERATIONS, installationHandlers, type InstallationAccess, type InstallationRecord, type InstallationReplay, type InstallationSession } from "./installations.js";
+import { createGitHubProvider, createGithubShippingProvider, type ShippingProvider } from "./github/index.js";
+import { INSTALLATION_REPLAY_LIMIT, type InstallationAccess, type InstallationRecord, type InstallationReplay, type InstallationSession } from "./installations.js";
 import { MemoryMediaStore } from "./local-media-store.js";
 import {
   ACTIVITY_LIMIT_DEFAULT,
@@ -72,9 +71,9 @@ import {
 import { createUploadCampaignMediaHandler } from "./media-handler.js";
 import type { OperationId } from "./operations.js";
 import { createServerPush } from "./push.js";
-import { recordServerEvent } from "./communication-push.js";
 import { readJsonObject, type BodyReadResult } from "./request-body.js";
 import type { OperationHandlers } from "./router.js";
+import { BROWSER_SDK_OPERATIONS, resolveOperation } from "./router.js";
 
 export type JsonObject = Record<string, unknown>;
 export type ProductUser = {
@@ -413,8 +412,7 @@ const SDK_BODY_BYTES = 8 * 1024;
 const DEFAULT_SDK_RATE_LIMIT = { perMinute: 120, perHour: 2_000 };
 const DEFAULT_MANAGEMENT_RATE_LIMIT = { perMinute: 60, perHour: 1_000 };
 const MAX_MERGED_TRAITS_BYTES = 64 * 1024;
-export class TraitsCapacityError extends Error {}
-const SDK_OPERATIONS = new Set<OperationId>(["identifyUser", "trackEvent", "getMessages", "recordDeliveryEvent", ...INSTALLATION_SDK_OPERATIONS, "observeInstallationPush"]);
+export { TraitsCapacityError } from "./communication-data.js";
 const MANAGEMENT_RESOURCE_GROUP: Partial<Record<OperationId, string>> = {
   uploadCampaignMedia: "media",
   createCampaign: "campaigns",
@@ -1053,60 +1051,9 @@ export function createProduct(store: ProductStore, options: LocalProductOptions 
       return work(adapter);
     }),
   });
-  const inappResponse = async (work: () => Promise<unknown>) => {
-    try { return Response.json(await work(), { headers: { "Cache-Control": "no-store" } }); }
-    catch (error) { return Response.json({ error: error instanceof InAppError ? error.message : "In-app operation failed" }, { status: error instanceof InAppError ? error.status : 500, headers: { "Cache-Control": "no-store" } }); }
-  };
 
   const rawHandlers: OperationHandlers = {
     uploadCampaignMedia: createUploadCampaignMediaHandler({ projectId, secretKey, media }),
-
-    async identifyUser(request) {
-      if (!requireKey(request, publishableKey)) return json({ error: "Unauthorized" }, 401);
-      const parsed = await body(request, SDK_BODY_BYTES);
-      if (!parsed.ok) return bodyError(parsed.status);
-      const input = parsed.value;
-      if (typeof input.userId !== "string" || !input.userId || input.userId.length > 256) return json({ error: "userId is required" }, 400);
-      const userId = input.userId;
-      if (input.traits !== undefined && (!input.traits || typeof input.traits !== "object" || Array.isArray(input.traits))) return json({ error: "Invalid traits" }, 400);
-      const traits = input.traits === undefined ? {} : input.traits as JsonObject;
-      if (Buffer.byteLength(JSON.stringify(traits)) > 4096) return json({ error: "Invalid traits" }, 400);
-      try {
-        await store.transaction(async (transaction) => { await transaction.lockInstallations(); const at = now(); const user = await transaction.identifyUser(userId, traits, at); await options.communicationEffects?.recordActivity?.(transaction, { kind: "identify", userId: user.id, occurredAt: at }); });
-      } catch (error) {
-        if (error instanceof TraitsCapacityError) return json({ error: "Merged traits are too large" }, 413);
-        throw error;
-      }
-      return json({ ok: true });
-    },
-
-    async trackEvent(request) {
-      if (!requireKey(request, publishableKey)) return json({ error: "Unauthorized" }, 401);
-      const parsed = await body(request, SDK_BODY_BYTES);
-      if (!parsed.ok) return bodyError(parsed.status);
-      const input = parsed.value;
-      if (typeof input.userId !== "string" || !input.userId || input.userId.length > 256 || typeof input.event !== "string" || !input.event || input.event.length > 80) return json({ error: "userId and event are required" }, 400);
-      const userId = input.userId;
-      const eventName = input.event;
-      const props = input.props && typeof input.props === "object" && !Array.isArray(input.props) ? input.props as JsonObject : null;
-      if (input.props !== undefined && (props === null || !validateSchema(installationSchemas.PushEventProps, input.props, installationSchemas))) return json({ error: "Invalid props" }, 400);
-      if (Buffer.byteLength(JSON.stringify(props)) > 4096) return json({ error: "Invalid props" }, 400);
-      if (input.eventId !== undefined && (typeof input.eventId !== "string" || !input.eventId || input.eventId.length > 128)) return json({ error: "Invalid eventId" }, 400);
-      const occurredAt = now();
-      try {
-        await store.transaction(async (transaction) => {
-          await transaction.lockInstallations();
-          let user = await transaction.getUserByExternalId(userId);
-          if (!user && typeof input.eventId === "string" && await transaction.getPushRecord("event", input.eventId)) throw new PushError(409, "Event replay conflict");
-          user ??= await transaction.identifyUser(userId, {}, occurredAt);
-          await recordServerEvent(transaction, user, eventName, typeof input.eventId === "string" ? input.eventId : `evt_${randomUUID()}`, occurredAt, props, options.communicationEffects);
-        });
-      } catch (error) {
-        if (error instanceof PushError) return json({ error: error.message }, error.status);
-        throw error;
-      }
-      return json({ ok: true });
-    },
 
     async createGoal(request) {
       if (!requireKey(request, secretKey)) return json({ error: "Unauthorized" }, 401);
@@ -1952,22 +1899,6 @@ export function createProduct(store: ProductStore, options: LocalProductOptions 
       });
     },
 
-    async getMessages(request) {
-      if (!requireKey(request, publishableKey)) return json({ error: "Unauthorized" }, 401);
-      const query = new URL(request.url).searchParams;
-      const input = { userId: query.get("userId"), entryId: query.get("entryId"), requestId: query.get("requestId"), path: query.get("path") };
-      if (!validateSchema(installationSchemas.InAppDecisionInput, input, installationSchemas)) return json({ error: "Invalid decision correlation or path" }, 400);
-      return inappResponse(() => inapp.decide(input as { userId: string; entryId: string; requestId: string; path: string }));
-    },
-
-    async recordDeliveryEvent(request, { params }) {
-      if (!requireKey(request, publishableKey)) return json({ error: "Unauthorized" }, 401);
-      const parsed = await body(request, SDK_BODY_BYTES);
-      if (!parsed.ok) return bodyError(parsed.status);
-      if (!validateSchema(installationSchemas.InAppFeedbackInput, parsed.value, installationSchemas)) return json({ error: "Invalid feedback identity" }, 400);
-      return inappResponse(() => inapp.feedback(params.id, parsed.value.userId as string, parsed.value.type as DeliveryFeedback, parsed.value.feedbackId as string));
-    },
-
     async getUsage(request) {
       if (!requireKey(request, secretKey)) return json({ error: "Unauthorized" }, 401);
       const evaluatedAt = new Date(now());
@@ -1993,8 +1924,9 @@ export function createProduct(store: ProductStore, options: LocalProductOptions 
   };
 
   const push = createServerPush(store, { ...options, projectId, secretKey, publishableKey, now });
-  Object.assign(rawHandlers, push.handlers);
-  Object.assign(rawHandlers, installationHandlers(store, { publishableKey, secretKey, now }));
+  const communicationServices = { projectId, now, transaction: <T>(work: (tx: ProductStoreSession) => Promise<T>) => store.transaction(work), installations: store, push: push.engine, inapp, effects: options.communicationEffects };
+  const communicationHandlers = communicationDomainHandlers(communicationServices);
+  Object.assign(rawHandlers, communicationHandlers);
   Object.assign(rawHandlers, {
     getLaunchPolicy: async (request: Request) => requireKey(request, secretKey) ? json(await activation.getLaunchPolicy(projectId)) : json({ error: "Unauthorized" }, 401),
     setLaunchPolicy: async (request: Request) => {
@@ -2011,13 +1943,17 @@ export function createProduct(store: ProductStore, options: LocalProductOptions 
     },
   });
 
+  const authenticate = keyAuthenticator({ projectId, secretKey, publishableKey });
   const handlers: OperationHandlers = {};
   for (const operationId of Object.keys(rawHandlers) as OperationId[]) {
     const handler = rawHandlers[operationId]!;
     handlers[operationId] = async (request, context) => {
-      const sdk = SDK_OPERATIONS.has(operationId);
-      const expectedKey = sdk ? publishableKey : secretKey;
-      if (!requireKey(request, expectedKey)) return handler(request, context);
+      const operation = resolveOperation(request);
+      if (operation instanceof Response) return operation;
+      if (operation.operationId !== operationId || Object.keys(operation.params).length !== Object.keys(context.params).length || Object.entries(operation.params).some(([name, value]) => context.params[name] !== value)) return json({ error: "Operation binding mismatch" }, 400);
+      const grant = await authorizeOperation(operation, request, authenticate);
+      if (grant instanceof Response) return grant;
+      const sdk = BROWSER_SDK_OPERATIONS.has(operationId);
       const group = sdk ? operationId : MANAGEMENT_RESOURCE_GROUP[operationId] ?? operationId;
       const result = checkRateLimit(`${sdk ? "sdk" : "management"}:${group}`, sdk ? sdkRateLimit : managementRateLimit);
       if (!result.allowed) {
@@ -2026,7 +1962,10 @@ export function createProduct(store: ProductStore, options: LocalProductOptions 
           { status: 429, headers: { "Retry-After": String(result.retryAfter) } },
         );
       }
-      try { return await handler(request, context); }
+      try {
+        if (communicationHandlers[operationId]) return await invokeCommunication(operation, request, grant, communicationServices);
+        return await invokeOperation(operation, request, grant, { projectId, handlers: { [operationId]: handler } });
+      }
       catch (error) {
         if (error instanceof ActivationError) return json({ error: error.message }, error.status);
         throw error;

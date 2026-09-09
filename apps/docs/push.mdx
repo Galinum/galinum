@@ -140,7 +140,10 @@ selection, and processes due attempts. Polling defaults to 1000 ms; set
 `GALINUM_PUSH_WORKER_INTERVAL_MS` between 100 and 60000 ms to change it. Passes do
 not overlap. SIGTERM/SIGINT stop polling, await the current pass, and close the
 server and provider connections. Library factories remain explicit: a host calls
-`product.push.runDue()` or the individual engine entrypoints.
+`engine.runPass({ maxUnits, maxPages, deadline })` for bounded admission, or
+`product.push.runDue()` for the CLI's default pass. See [runtime invocation and
+workers](/self-host/runtime) for limits and progress. An admitted dispatch finishes
+settlement after its deadline; admission does not bound total process duration.
 
 Each pass scans up to 100 active campaigns and plans a keyset page of 100 users
 per campaign. Persisted cursors continue later passes. An indexed due queue
