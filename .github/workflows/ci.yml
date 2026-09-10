@@ -21,7 +21,8 @@ jobs:
         run: |
           docker run --detach --network host --name galinum-product-postgres \
             --env POSTGRES_USER=postgres --env POSTGRES_PASSWORD=postgres \
-            --env POSTGRES_DB=galinum_product_ci \
+            --env POSTGRES_DB=galinum_installations_test_ci \
+            --env PGDATA=/var/lib/postgresql/data \
             postgres:17@sha256:67f41722b7a8cbdb868a44a4995c846eddfdc2973bccb291ce937dce88ad5675 \
             -p 55432
           for attempt in {1..30}; do
@@ -45,12 +46,13 @@ jobs:
       - run: pnpm verify:product-schema
       - name: Apply the product schema
         env:
-          DATABASE_URL: postgres://postgres:postgres@127.0.0.1:55432/galinum_product_ci
+          DATABASE_URL: postgres://postgres:postgres@127.0.0.1:55432/galinum_installations_test_ci
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f packages/server/schema.sql
-      - run: pnpm --filter @galinum/core build && pnpm --filter @galinum/push build
+      - run: pnpm --filter @galinum/core build && pnpm --filter @galinum/push build && pnpm --filter @galinum/dashboard build
       - name: Run Postgres product integration tests
         env:
-          DATABASE_URL: postgres://postgres:postgres@127.0.0.1:55432/galinum_product_ci
+          DATABASE_URL: postgres://postgres:postgres@127.0.0.1:55432/galinum_installations_test_ci
+          GALINUM_COMMUNICATIONS_DATA_DIRECTORY: /var/lib/postgresql/data
           RUN_DB_INTEGRATION: "1"
         run: pnpm --filter @galinum/server test
       - name: Verify the existing database upgrade
