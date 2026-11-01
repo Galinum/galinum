@@ -66,7 +66,7 @@
     "pg": "8.23.0",
     "@galinum/contracts": "workspace:*",
     "@galinum/push": "workspace:*",
-    "zod": "4.4.3"
+    "zod": "4.6.6"
   },
   "devDependencies": {
     "@galinum/dashboard": "workspace:*",
